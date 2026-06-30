@@ -1,0 +1,46 @@
+{
+  "name": "@praesidia/sdk",
+  "version": "0.1.0",
+  "description": "Open-source agent governance SDK for Praesidia — guardrail checks, audit logging, analytics",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0",
+    "vitest": "^1.0.0"
+  },
+  "keywords": [
+    "praesidia",
+    "ai-governance",
+    "guardrails",
+    "audit",
+    "llm",
+    "agent"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/praesidia-ai/sdk"
+  }
+}
