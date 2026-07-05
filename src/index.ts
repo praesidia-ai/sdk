@@ -13,10 +13,10 @@
  *   );
  */
 
-export { PraesidiaGuard } from './guard.js';
+export { PraesidiaGuard, toolCallContextFromTask } from './guard.js';
 export { PraesidiaCompliance } from './compliance.js';
 export { PraesidiaAgents } from './agents.js';
-export { PraesidiaClient } from './client.js';
+export { PraesidiaClient, CHAIN_ID_HEADER } from './client.js';
 export { MAX_CLIENT_SECRET_GRACE_SECONDS } from './types.js';
 export {
   GuardrailBlockedError,
@@ -31,6 +31,8 @@ export type {
   GuardedResult,
   TaskRecord,
   ToolCallRecord,
+  ToolCallContext,
+  PolledTaskRow,
   TriggeredGuardrail,
   // Compliance report export (Q1-04)
   AuditorReportGenerationStatus,

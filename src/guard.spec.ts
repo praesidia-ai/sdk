@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { PraesidiaGuard } from './guard.js';
+import { PraesidiaGuard, toolCallContextFromTask } from './guard.js';
 import { GuardrailBlockedError, PraesidiaApiError } from './errors.js';
 
 // ---------------------------------------------------------------------------
@@ -261,6 +261,157 @@ describe('PraesidiaGuard', () => {
           taskId: 'task-parent',
         }),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  // ── Q3-02 chain-trace propagation ────────────────────────────────────────
+
+  describe('Q3-02 chainId forwarding', () => {
+    const config = {
+      apiKey: 'pk_test_key',
+      orgId: 'org-uuid-123',
+      agentId: 'agent-uuid-456',
+    };
+
+    it('forwardChain attaches X-Praesidia-Chain-Id to subsequent calls', async () => {
+      globalThis.fetch = makeFetchMock([
+        { ok: true, body: PASS_RESULT },
+      ]) as typeof fetch;
+
+      const guard = new PraesidiaGuard(config);
+      guard.forwardChain('chain-uuid-abc');
+      await guard.checkInput('hello');
+
+      const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+        .calls[0] as [string, RequestInit];
+      expect(
+        (init.headers as Record<string, string>)['X-Praesidia-Chain-Id'],
+      ).toBe('chain-uuid-abc');
+    });
+
+    it('run() forwards opts.chainId on the outbound calls and logTask body', async () => {
+      // 1=checkInput validate, 2=checkOutput validate, 3=logTask POST /tasks
+      globalThis.fetch = makeFetchMock([
+        { ok: true, body: PASS_RESULT },
+        { ok: true, body: PASS_RESULT },
+        { ok: true, status: 201, body: TASK_CREATED },
+      ]) as typeof fetch;
+
+      const guard = new PraesidiaGuard(config);
+      await guard.run(async () => 'ok', {
+        input: 'clean',
+        chainId: 'chain-xyz',
+      });
+
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+        .calls as [string, RequestInit][];
+      // Every outbound call carries the forwarded chain header.
+      for (const [, init] of calls) {
+        expect(
+          (init.headers as Record<string, string>)['X-Praesidia-Chain-Id'],
+        ).toBe('chain-xyz');
+      }
+      // The logged task body echoes the chainId.
+      const logBody = JSON.parse(calls[2][1].body as string);
+      expect(logBody.chainId).toBe('chain-xyz');
+    });
+
+    it('forwardChain(null) stops propagating the chain id', async () => {
+      globalThis.fetch = makeFetchMock([
+        { ok: true, body: PASS_RESULT },
+      ]) as typeof fetch;
+
+      const guard = new PraesidiaGuard(config);
+      guard.forwardChain('chain-1');
+      guard.forwardChain(null);
+      await guard.checkInput('hello');
+
+      const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+        .calls[0] as [string, RequestInit];
+      expect(
+        (init.headers as Record<string, string>)['X-Praesidia-Chain-Id'],
+      ).toBeUndefined();
+    });
+  });
+
+  // ── Q4-02 JIT capability-token forwarding ────────────────────────────────
+
+  describe('Q4-02 capability-token forwarding', () => {
+    const config = {
+      apiKey: 'pk_test_key',
+      orgId: 'org-uuid-123',
+      agentId: 'agent-uuid-456',
+    };
+
+    const POLLED_TASK = {
+      id: 'task-9',
+      serverAgentId: 'agent-server-7',
+      chainId: 'chain-c1',
+      hopIndex: 2,
+      capabilityToken: 'jwt.opaque.token',
+    };
+
+    it('toolCallContextFromTask lifts the four task-binding fields', () => {
+      const ctx = toolCallContextFromTask(POLLED_TASK);
+      expect(ctx).toEqual({
+        taskId: 'task-9',
+        agentId: 'agent-server-7',
+        chainId: 'chain-c1',
+        capabilityToken: 'jwt.opaque.token',
+      });
+    });
+
+    it('trackToolCall forwards the four fields as X-Praesidia-* headers', async () => {
+      globalThis.fetch = makeFetchMock([
+        { ok: true, status: 201, body: TASK_CREATED },
+      ]) as typeof fetch;
+
+      const guard = new PraesidiaGuard(config);
+      await guard.trackToolCall({
+        name: 'search',
+        args: { q: 'x' },
+        ...toolCallContextFromTask(POLLED_TASK),
+      });
+
+      const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+        .calls[0] as [string, RequestInit];
+      const headers = init.headers as Record<string, string>;
+      expect(headers['X-Praesidia-Capability-Token']).toBe('jwt.opaque.token');
+      expect(headers['X-Praesidia-Task-Id']).toBe('task-9');
+      expect(headers['X-Praesidia-Agent-Id']).toBe('agent-server-7');
+      expect(headers['X-Praesidia-Chain-Id']).toBe('chain-c1');
+    });
+
+    it('never puts the capability token in the request body', async () => {
+      globalThis.fetch = makeFetchMock([
+        { ok: true, status: 201, body: TASK_CREATED },
+      ]) as typeof fetch;
+
+      const guard = new PraesidiaGuard(config);
+      await guard.trackToolCall({
+        name: 'search',
+        capabilityToken: 'jwt.opaque.token',
+        taskId: 'task-9',
+      });
+
+      const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+        .calls[0] as [string, RequestInit];
+      expect(init.body as string).not.toContain('jwt.opaque.token');
+    });
+
+    it('never logs the capability token in local/offline mode', async () => {
+      const guard = new PraesidiaGuard({ apiKey: undefined, orgId: undefined });
+      const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      await guard.trackToolCall({
+        name: 'search',
+        capabilityToken: 'jwt.opaque.token',
+        taskId: 'task-9',
+      });
+
+      expect(spy).toHaveBeenCalledOnce();
+      const logged = (spy.mock.calls[0] as unknown[]).join(' ');
+      expect(logged).not.toContain('jwt.opaque.token');
     });
   });
 

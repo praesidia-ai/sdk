@@ -10,10 +10,34 @@ import type {
   CheckResult,
   GuardConfig,
   GuardedResult,
+  PolledTaskRow,
   RunOptions,
   TaskRecord,
+  ToolCallContext,
   ToolCallRecord,
 } from './types.js';
+
+/** Q4-02 — request headers the SDK forwards on a task-scoped MCP tool call. */
+const TASK_ID_HEADER = 'X-Praesidia-Task-Id';
+const AGENT_ID_HEADER = 'X-Praesidia-Agent-Id';
+const CHAIN_ID_HEADER = 'X-Praesidia-Chain-Id';
+const CAPABILITY_TOKEN_HEADER = 'X-Praesidia-Capability-Token';
+
+/**
+ * Q3-02 / Q4-02 — extract the chain + capability context off a polled task row
+ * so it can be threaded straight into `trackToolCall`. The capability token is
+ * copied opaquely (never inspected, never logged).
+ */
+export function toolCallContextFromTask(
+  task: Pick<PolledTaskRow, 'id' | 'chainId' | 'capabilityToken' | 'serverAgentId'>,
+): ToolCallContext {
+  return {
+    taskId: task.id,
+    agentId: task.serverAgentId,
+    chainId: task.chainId,
+    capabilityToken: task.capabilityToken,
+  };
+}
 
 const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
 
@@ -76,6 +100,12 @@ export class PraesidiaGuard {
   ): Promise<GuardedResult<T>> {
     const agentId = opts.agentId ?? this.agentId;
 
+    // Q3-02 — forward an inbound chain-trace id (unchanged) so every outbound
+    // call in this run stays joined to the same multi-agent chain.
+    if (opts.chainId) {
+      this.forwardChain(opts.chainId);
+    }
+
     // Step 1 — input check (fail-CLOSED on block)
     const inputCheck = await this.checkInput(opts.input, {
       agentId,
@@ -112,6 +142,7 @@ export class PraesidiaGuard {
         startedAt,
         completedAt,
         status: 'completed',
+        chainId: opts.chainId,
       });
     } catch {
       // logTask failure is always swallowed — audit is best-effort
@@ -165,6 +196,9 @@ export class PraesidiaGuard {
     }
 
     const agentId = task.agentId ?? this.agentId;
+    // Q3-02 — a task can carry an inbound chain id explicitly, otherwise the
+    // client forwards whatever chain is currently being propagated.
+    const chainId = task.chainId ?? this.client.getChainId();
     try {
       const res = await this.client.post<{ id: string }>(
         `/organizations/${this.orgId}/tasks`,
@@ -178,6 +212,8 @@ export class PraesidiaGuard {
           startedAt: task.startedAt ?? new Date().toISOString(),
           completedAt: task.completedAt ?? new Date().toISOString(),
           status: task.status ?? 'completed',
+          // Q3-02 — join the logged task to the inbound chain when present.
+          ...(chainId ? { chainId } : {}),
         },
       );
       return res.id;
@@ -187,28 +223,63 @@ export class PraesidiaGuard {
   }
 
   /**
+   * Q3-02 — adopt an inbound chain-trace id and forward it (unchanged) on every
+   * subsequent outbound call as `X-Praesidia-Chain-Id`. Call this with the id
+   * echoed from an inbound `X-Praesidia-Chain-Id` header so a chain stays
+   * correlated across SDK-driven hops. Pass `null` to stop propagating.
+   *
+   * The SDK NEVER mints a chainId — it only propagates one it received. No-op
+   * in local/offline mode (no connected client).
+   */
+  forwardChain(chainId: string | null | undefined): void {
+    this.client?.setChainId(chainId);
+  }
+
+  /**
    * Track a tool call associated with a task.
    * Best-effort — never throws on network failure.
+   *
+   * Q4-02 — when the tool call is scoped to a claimed task, thread the four
+   * task-binding fields (`capabilityToken`, `taskId`, `agentId`, `chainId`)
+   * straight off the polled task (see {@link toolCallContextFromTask}). They
+   * are forwarded to the backend as `X-Praesidia-*` request headers so the
+   * capability-token gate can bind the call to the live task. The capability
+   * token is treated as opaque and is NEVER logged.
    */
   async trackToolCall(call: ToolCallRecord): Promise<void> {
     if (!this.client || !this.orgId) {
-      this.consoleLog('tool_call', call);
+      // Never emit the opaque capability token to logs.
+      this.consoleLog('tool_call', this.redactToolCall(call));
       return;
     }
 
-    const agentId = this.agentId;
+    const agentId = call.agentId ?? this.agentId;
+    const chainId = call.chainId ?? this.client.getChainId();
+    // Q4-02 — forward the task-binding fields as X-Praesidia-* headers. The
+    // capability token rides only in the header, never in the JSON body or logs.
+    const headers: Record<string, string> = {};
+    if (call.capabilityToken) headers[CAPABILITY_TOKEN_HEADER] = call.capabilityToken;
+    if (call.taskId) headers[TASK_ID_HEADER] = call.taskId;
+    if (agentId) headers[AGENT_ID_HEADER] = agentId;
+    if (chainId) headers[CHAIN_ID_HEADER] = chainId;
+
     try {
-      await this.client.post(`/organizations/${this.orgId}/tasks`, {
-        agentId,
-        taskType: 'tool_call',
-        input: call.name,
-        context: {
-          toolName: call.name,
-          toolArgs: call.args,
-          parentTaskId: call.taskId,
+      await this.client.post(
+        `/organizations/${this.orgId}/tasks`,
+        {
+          agentId,
+          taskType: 'tool_call',
+          input: call.name,
+          context: {
+            toolName: call.name,
+            toolArgs: call.args,
+            parentTaskId: call.taskId,
+          },
+          status: 'completed',
+          ...(chainId ? { chainId } : {}),
         },
-        status: 'completed',
-      });
+        Object.keys(headers).length ? headers : undefined,
+      );
     } catch {
       // tool-call tracking is always best-effort
     }
@@ -319,6 +390,16 @@ export class PraesidiaGuard {
       );
     }
     return undefined as T;
+  }
+
+  /**
+   * Q4-02 — strip the opaque capability token before a tool-call record is
+   * ever written to a log line. The token is a bearer secret; it must never
+   * appear in stdout even in local/offline mode.
+   */
+  private redactToolCall(call: ToolCallRecord): Omit<ToolCallRecord, 'capabilityToken'> {
+    const { capabilityToken: _redacted, ...rest } = call;
+    return rest;
   }
 
   /** Emit a structured log line for local/offline mode. */

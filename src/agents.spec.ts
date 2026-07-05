@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PraesidiaAgents } from './agents.js';
 import { PraesidiaGuard } from './guard.js';
-import { PraesidiaConfigError } from './errors.js';
+import { PraesidiaApiError, PraesidiaConfigError } from './errors.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -109,6 +109,40 @@ describe('PraesidiaAgents', () => {
     const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
       .calls[0] as [string, RequestInit];
     expect(JSON.parse(init.body as string)).toEqual({});
+  });
+
+  it('rotateClientSecret surfaces a clear error on a JIT-first 403 (Q4-05)', async () => {
+    globalThis.fetch = makeFetchMock([
+      {
+        ok: false,
+        status: 403,
+        body: { message: 'Static client secrets are deprecated and disabled' },
+      },
+    ]) as typeof fetch;
+
+    const agents = new PraesidiaAgents(config);
+    let caught: unknown;
+    try {
+      await agents.rotateClientSecret('agent-uuid-456');
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(PraesidiaApiError);
+    const apiErr = caught as PraesidiaApiError;
+    expect(apiErr.status).toBe(403);
+    expect(apiErr.message).toContain('JIT-first');
+    expect(apiErr.message).toContain('capability tokens');
+  });
+
+  it('rotateClientSecret passes through non-403 errors unchanged', async () => {
+    globalThis.fetch = makeFetchMock([
+      { ok: false, status: 500, body: { message: 'boom' } },
+    ]) as typeof fetch;
+
+    const agents = new PraesidiaAgents(config);
+    await expect(agents.rotateClientSecret('agent-uuid-456')).rejects.toThrow(
+      PraesidiaApiError,
+    );
   });
 
   it('rotateClientSecret url-encodes the agent id', async () => {

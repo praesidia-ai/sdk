@@ -94,6 +94,46 @@ Manually log a task to the audit trail. Returns the Praesidia `taskId`.
 
 Record a tool call. Best-effort — never throws.
 
+When the tool call runs on behalf of a claimed task, thread the task-binding
+fields so the backend's use-time capability-token gate can bind the call to the
+live task (see [Chain trace + JIT capability tokens](#chain-trace--jit-capability-tokens-q3-02--q4-02)):
+
+```typescript
+import { toolCallContextFromTask } from '@praesidia/sdk';
+
+await guard.trackToolCall({
+  name: 'search',
+  args: { q: 'quarterly filings' },
+  ...toolCallContextFromTask(polledTask), // taskId, agentId, chainId, capabilityToken
+});
+```
+
+## Chain trace + JIT capability tokens (Q3-02 / Q4-02)
+
+Praesidia correlates a multi-agent call chain with an **unsigned** chain-trace
+id carried in the `X-Praesidia-Chain-Id` header, and gates task-scoped MCP tool
+calls with a short-lived **JIT capability token**.
+
+- **Forward the inbound chain id.** When your agent receives an inbound
+  `X-Praesidia-Chain-Id` header, hand it to `guard.forwardChain(chainId)` (or
+  pass `chainId` to `guard.run(...)`). Every subsequent outbound call then
+  carries the same header so the chain stays joined across SDK-driven hops. The
+  SDK **never mints** a chainId — it only propagates one it received. Pass
+  `null` to stop.
+- **Carry the capability context on tool calls.** A polled task row now includes
+  `chainId`, `hopIndex`, and (when governance is active) an opaque
+  `capabilityToken` (may be absent). `toolCallContextFromTask(task)` lifts the
+  four task-binding fields — `taskId`, `agentId`, `chainId`, `capabilityToken` —
+  and `trackToolCall` forwards them as `X-Praesidia-*` request headers. The
+  capability token is treated as **opaque and is never logged** (not in headers
+  echoed to stdout, not in the request body, not in local/offline mode).
+
+```typescript
+guard.forwardChain(inboundChainId); // propagate the inbound X-Praesidia-Chain-Id
+
+const result = await guard.run(fn, { input, chainId: inboundChainId });
+```
+
 ## Compliance report export (EU AI Act)
 
 `PraesidiaCompliance` provides a programmatic export of the EU AI Act
@@ -187,6 +227,22 @@ used). Like `PraesidiaCompliance` there is no local mode — a missing
 `RotateClientSecretResult`: `{ clientId, clientSecret, graceEndsAt: string | null, gracePeriodSeconds }`.
 The `clientSecret` is returned **exactly once** — the SDK never logs it and
 Praesidia stores only its hash.
+
+**JIT-first orgs (Q4-05).** Organizations on the ephemeral/JIT-first default
+have static client secrets disabled — there is no static secret to rotate. In
+that case `rotateClientSecret` surfaces a `PraesidiaApiError` with `status: 403`
+and a clear message (the org authenticates with ephemeral JIT capability tokens
+instead), rather than crashing:
+
+```typescript
+try {
+  await agents.rotateClientSecret(agentId);
+} catch (err) {
+  if (err instanceof PraesidiaApiError && err.status === 403) {
+    // JIT-first org — nothing to rotate; use the JIT capability-token flow.
+  }
+}
+```
 
 ## Fail-open / fail-closed
 

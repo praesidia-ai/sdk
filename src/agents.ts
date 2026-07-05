@@ -1,5 +1,5 @@
 import { PraesidiaClient } from './client.js';
-import { PraesidiaConfigError } from './errors.js';
+import { PraesidiaApiError, PraesidiaConfigError } from './errors.js';
 import type {
   GuardConfig,
   RotateClientSecretOptions,
@@ -71,6 +71,12 @@ export class PraesidiaAgents {
    * EXACTLY ONCE — store it now (it is never recoverable) and never log it.
    * Distinct from the instant `regenerate-secret` endpoint, which has no grace
    * window.
+   *
+   * Q4-05: JIT-first organizations have static client secrets disabled — the
+   * backend answers this endpoint with 403. That surfaces as a
+   * PraesidiaApiError carrying a clear, actionable message (no static secret to
+   * rotate; the org authenticates with ephemeral JIT capability tokens) rather
+   * than a raw crash.
    */
   async rotateClientSecret(
     agentId: string,
@@ -80,10 +86,34 @@ export class PraesidiaAgents {
     if (opts.gracePeriodSeconds !== undefined) {
       body.gracePeriodSeconds = opts.gracePeriodSeconds;
     }
-    return this.client.post<RotateClientSecretResult>(
-      `${this.agentsBase}/${encodeURIComponent(agentId)}/client-secret/rotate`,
-      body,
-    );
+    const path = `${this.agentsBase}/${encodeURIComponent(agentId)}/client-secret/rotate`;
+    try {
+      return await this.client.post<RotateClientSecretResult>(path, body);
+    } catch (err) {
+      throw this.explainStaticSecretForbidden(err, path);
+    }
+  }
+
+  /**
+   * Q4-05 — turn the backend's 403 for a JIT-first org into a clear, typed
+   * error. The org has opted out of long-lived static secrets, so there is
+   * nothing to rotate/regenerate; it authenticates with ephemeral JIT
+   * capability tokens (Q4-02) instead. Any non-403 error is passed through
+   * unchanged.
+   */
+  private explainStaticSecretForbidden(err: unknown, path: string): unknown {
+    if (err instanceof PraesidiaApiError && err.status === 403) {
+      return new PraesidiaApiError(
+        403,
+        path,
+        'Static client secrets are disabled for this organization (JIT-first). ' +
+          'There is no static secret to rotate — this org authenticates with ' +
+          'ephemeral JIT capability tokens (Q4-02). To re-enable legacy static ' +
+          'secrets, an organization owner must turn on the `legacyStaticCredentials` ' +
+          'setting (a deliberate security downgrade).',
+      );
+    }
+    return err;
   }
 
   /**

@@ -39,6 +39,13 @@ export interface RunOptions {
   agentId?: string;
   /** Task type label surfaced in the audit log. */
   taskType?: string;
+  /**
+   * Q3-02 — Chain-trace id to continue. When set (an id echoed from an inbound
+   * `X-Praesidia-Chain-Id` header) the run is joined to this existing chain and
+   * the id is forwarded on every subsequent outbound call. The SDK never mints
+   * a chainId; it only propagates one it received.
+   */
+  chainId?: string;
 }
 
 /**
@@ -122,18 +129,85 @@ export interface TaskRecord {
   completedAt?: string;
   /** Task status. Defaults to "completed". */
   status?: 'pending' | 'running' | 'completed' | 'failed';
+  /**
+   * Q3-02 — Chain-trace id this task belongs to. Echo the id received on an
+   * inbound `X-Praesidia-Chain-Id` header so the logged task stays joined to
+   * the same multi-agent chain. Absent for a chain-root task (the server
+   * mints a fresh chainId).
+   */
+  chainId?: string;
+}
+
+// ── A2A chain trace + JIT capability tokens (Q3-02 / Q4-02) ──────────────────
+
+/**
+ * Q4-02 — the four fields the SDK must carry to the backend when it executes
+ * an MCP tool call on behalf of a claimed task. `capabilityToken` is an opaque
+ * bearer JWT (never log it, never parse it); `taskId`/`agentId`/`chainId` bind
+ * the call to the live task so the AGV-025 use-time gate can fail-closed verify
+ * scope + expiry. Thread these straight from a polled task (see `PolledTaskRow`
+ * / `toolCallContextFromTask`) into `trackToolCall`.
+ */
+export interface ToolCallContext {
+  /** The task on whose behalf the tool is firing. */
+  taskId?: string;
+  /** The agent id executing the tool call. */
+  agentId?: string;
+  /**
+   * Q3-02 — chain-trace id the tool call belongs to (echoed from the task's
+   * `chainId`). Forwarded as `X-Praesidia-Chain-Id`.
+   */
+  chainId?: string | null;
+  /**
+   * Q4-02 — the short-lived JIT capability token minted for the task, scoped
+   * to (org, agent, task, chain) and the task's declared toolset. Opaque
+   * bearer secret — forwarded as `X-Praesidia-Capability-Token` and NEVER
+   * logged. Absent when governance is off / no token was minted.
+   */
+  capabilityToken?: string;
 }
 
 /**
  * A tool-call record for tracking via guard.trackToolCall().
+ *
+ * The Q4-02 fields (`agentId`, `chainId`, `capabilityToken`) are forwarded to
+ * the backend as `X-Praesidia-*` request headers so the capability-token gate
+ * can bind the call to the live task. The capability token is opaque and is
+ * never logged.
  */
-export interface ToolCallRecord {
+export interface ToolCallRecord extends ToolCallContext {
   /** Name of the tool that was invoked. */
   name: string;
   /** Arguments passed to the tool. */
   args?: unknown;
-  /** Associate this tool call with an existing Praesidia task ID. */
-  taskId?: string;
+}
+
+/**
+ * Q3-02 / Q4-02 — a task row as returned on the A2A poll response. A polling
+ * agent reads `chainId` + `hopIndex` (chain identity) and `capabilityToken`
+ * (JIT token) off the claimed task, then forwards them on downstream A2A/MCP
+ * hops. `capabilityToken` may be absent (governance off / token service
+ * unavailable). Field names mirror the backend `AgentTaskPollerRow` wire shape.
+ */
+export interface PolledTaskRow {
+  id: string;
+  type?: string;
+  input?: Record<string, unknown>;
+  clientAgentId?: string;
+  serverAgentId?: string;
+  connectionId?: string;
+  organizationId?: string;
+  status?: string;
+  createdAt?: string;
+  /** Q3-02 — chain identity to echo on downstream hops. */
+  chainId: string | null;
+  /** Q3-02 — monotonic hop position within the chain. */
+  hopIndex: number | null;
+  /**
+   * Q4-02 — opaque JIT capability token bound to this task. May be absent.
+   * NEVER log this value.
+   */
+  capabilityToken?: string;
 }
 
 // ── Compliance report export (Q1-04) ─────────────────────────────────────────
