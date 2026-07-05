@@ -15,7 +15,9 @@
 
 export { PraesidiaGuard } from './guard.js';
 export { PraesidiaCompliance } from './compliance.js';
+export { PraesidiaAgents } from './agents.js';
 export { PraesidiaClient } from './client.js';
+export { MAX_CLIENT_SECRET_GRACE_SECONDS } from './types.js';
 export {
   GuardrailBlockedError,
   PraesidiaApiError,
@@ -46,4 +48,7 @@ export type {
   JurisdictionMetadata,
   TestedMetadata,
   ReportPollOptions,
+  // Agent client-secret rotation (Q4-01)
+  RotateClientSecretOptions,
+  RotateClientSecretResult,
 } from './types.js';

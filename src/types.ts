@@ -281,3 +281,46 @@ export interface ReportPollOptions {
   /** Delay between status polls in milliseconds. Defaults to 2000. */
   pollIntervalMs?: number;
 }
+
+// ── Agent client-secret rotation (Q4-01) ──────────────────────────────────────
+// Rotate an agent's A2A client secret with an optional grace/overlap window so a
+// long-lived consumer can adopt the new secret with zero downtime.
+// Endpoint: POST /organizations/:orgId/agents/:agentId/client-secret/rotate
+
+/** Server-side hard cap on the rotation grace window — 7 days, in seconds. */
+export const MAX_CLIENT_SECRET_GRACE_SECONDS = 7 * 24 * 60 * 60;
+
+/** Options for PraesidiaAgents.rotateClientSecret(). */
+export interface RotateClientSecretOptions {
+  /**
+   * Overlap window, in seconds, during which the OUTGOING client secret stays
+   * valid alongside the freshly minted one (zero-downtime rotation). Omit or
+   * pass 0 for an instant, fail-closed rotation (the old secret is revoked the
+   * moment the new one is minted). Range 0..604800; clamped server-side.
+   */
+  gracePeriodSeconds?: number;
+}
+
+/**
+ * Result of a client-secret rotation.
+ *
+ * SECURITY: `clientSecret` is the NEW plaintext secret and is returned EXACTLY
+ * ONCE — Praesidia stores only its hash. Persist it immediately; it is never
+ * recoverable afterwards. Never log it.
+ */
+export interface RotateClientSecretResult {
+  /** The agent A2A client id (unchanged by rotation). */
+  clientId: string;
+  /** The freshly minted plaintext client secret. Shown ONCE — store it now. */
+  clientSecret: string;
+  /**
+   * UTC ISO-8601 timestamp until which the PREVIOUS secret also remains valid,
+   * or null for an instant (no-grace) rotation.
+   */
+  graceEndsAt: string | null;
+  /**
+   * The effective grace window in seconds actually applied (after server-side
+   * clamping). 0 means the old secret was revoked instantly.
+   */
+  gracePeriodSeconds: number;
+}

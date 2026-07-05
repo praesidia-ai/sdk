@@ -214,6 +214,28 @@ export class PraesidiaGuard {
     }
   }
 
+  /**
+   * Adopt a rotated credential in-process, at runtime (zero-downtime swap).
+   *
+   * The guard authenticates with a static key by default; call this to swap in
+   * a freshly rotated agent client secret (see
+   * PraesidiaAgents.rotateClientSecret) without recreating the guard or
+   * restarting the process. Combined with the server-side grace window, the
+   * previous secret keeps working until `graceEndsAt`, so long-running guarded
+   * calls are never rejected mid-rotation.
+   *
+   * SECURITY: the credential is held only in memory and is never logged.
+   * Throws PraesidiaConfigError in local/offline mode (no client configured).
+   */
+  refreshCredential(apiKey: string): void {
+    if (!this.client) {
+      throw new PraesidiaConfigError(
+        'refreshCredential requires a connected client (PRAESIDIA_API_KEY and PRAESIDIA_ORG_ID)',
+      );
+    }
+    this.client.setApiKey(apiKey);
+  }
+
   // ── Private helpers ─────────────────────────────────────────────────────────
 
   private async checkContent(

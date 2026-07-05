@@ -143,6 +143,51 @@ becomes `failed`, or if `timeoutMs` elapses before it is ready. The JSON/PDF
 downloads throw `PraesidiaApiError` with status `409` if called before the
 report is `completed`.
 
+## Agent client-secret rotation
+
+`PraesidiaAgents` rotates an agent's A2A client secret and lets a long-lived
+client adopt the new secret at runtime for a **zero-downtime** swap.
+
+```typescript
+import { PraesidiaAgents } from '@praesidia/sdk';
+
+// Zero config: reads PRAESIDIA_API_KEY, PRAESIDIA_ORG_ID, PRAESIDIA_BASE_URL
+const agents = new PraesidiaAgents();
+
+// Rotate with a 1-hour grace overlap so the OLD secret keeps working while
+// consumers roll over. Omit gracePeriodSeconds (or pass 0) for an instant,
+// fail-closed rotation (the old secret dies immediately — the panic button).
+const rotated = await agents.rotateClientSecret(agentId, {
+  gracePeriodSeconds: 3600, // 0..604800 (MAX_CLIENT_SECRET_GRACE_SECONDS), clamped server-side
+});
+
+// rotated.clientSecret is the NEW plaintext secret — shown ONCE. Store it now
+// (it is never recoverable) and NEVER log it.
+// rotated.graceEndsAt — ISO-8601 until which the previous secret also works (or null).
+
+// Adopt the rotated secret in-process without a restart:
+agents.refreshCredential(rotated.clientSecret);
+```
+
+`refreshCredential(secret)` is also available on `PraesidiaGuard` — a
+long-lived guard can swap in a rotated credential mid-flight; the server-side
+grace overlap means in-flight guarded calls are never rejected during the swap.
+
+### `new PraesidiaAgents(config?)`
+
+Same config shape as `PraesidiaGuard` (only `apiKey`, `orgId`, `baseUrl` are
+used). Like `PraesidiaCompliance` there is no local mode — a missing
+`apiKey`/`orgId` throws `PraesidiaConfigError` at construction.
+
+| Method | Returns | Endpoint |
+|---|---|---|
+| `rotateClientSecret(agentId, opts?)` | `Promise<RotateClientSecretResult>` | `POST .../agents/:agentId/client-secret/rotate` |
+| `refreshCredential(secret)` | `void` | in-memory credential swap (no request) |
+
+`RotateClientSecretResult`: `{ clientId, clientSecret, graceEndsAt: string | null, gracePeriodSeconds }`.
+The `clientSecret` is returned **exactly once** — the SDK never logs it and
+Praesidia stores only its hash.
+
 ## Fail-open / fail-closed
 
 | Scenario | Default behaviour |
@@ -173,6 +218,7 @@ try {
 |---|---|---|
 | `checkInput` / `checkOutput` | `POST /organizations/:orgId/guardrails/validate` | `agents:invoke` or `*` |
 | `logTask` | `POST /organizations/:orgId/tasks` | `agents:invoke` or `*` |
+| `rotateClientSecret` | `POST /organizations/:orgId/agents/:agentId/client-secret/rotate` | `AGENTS_CONFIGURE` |
 | `requestReport` | `POST /organizations/:orgId/compliance/eu-ai-act/reports` | `COMPLIANCE_MANAGE` |
 | `getReportStatus` / `getReportJson` / `getReportPdf` | `GET /organizations/:orgId/compliance/eu-ai-act/reports/:id[/json\|/pdf]` | `COMPLIANCE_VIEW` |
 
