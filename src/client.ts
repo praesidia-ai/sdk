@@ -53,4 +53,30 @@ export class PraesidiaClient {
 
     return response.json() as Promise<T>;
   }
+
+  /**
+   * GET a binary response body (e.g. a rendered PDF) as raw bytes.
+   *
+   * Returns a `Uint8Array`; in Node wrap with `Buffer.from(bytes)` to write
+   * to disk. Throws `PraesidiaApiError` on any non-2xx response (including the
+   * 409 returned while a report is still generating).
+   */
+  async getBytes(path: string): Promise<Uint8Array> {
+    const url = `${this.baseUrl}${path}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/octet-stream',
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new PraesidiaApiError(response.status, path, text);
+    }
+
+    const buffer = await response.arrayBuffer();
+    return new Uint8Array(buffer);
+  }
 }

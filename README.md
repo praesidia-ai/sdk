@@ -94,6 +94,55 @@ Manually log a task to the audit trail. Returns the Praesidia `taskId`.
 
 Record a tool call. Best-effort — never throws.
 
+## Compliance report export (EU AI Act)
+
+`PraesidiaCompliance` provides a programmatic export of the EU AI Act
+auditor/DPO compliance report. Generation is asynchronous: request a report,
+poll until it is ready, then download the structured JSON and/or rendered PDF.
+
+```typescript
+import { PraesidiaCompliance } from '@praesidia/sdk';
+import { writeFileSync } from 'node:fs';
+
+// Zero config: reads PRAESIDIA_API_KEY, PRAESIDIA_ORG_ID, PRAESIDIA_BASE_URL
+const compliance = new PraesidiaCompliance();
+
+// Request + wait (timeout + poll interval are configurable)
+const status = await compliance.generateAndWait({
+  timeoutMs: 120_000,   // default: 120000
+  pollIntervalMs: 2000, // default: 2000
+});
+
+// Download artifacts once ready
+const doc = await compliance.getReportJson(status.reportId); // AuditorReportDocument
+const pdf = await compliance.getReportPdf(status.reportId);  // Uint8Array
+writeFileSync('eu-ai-act-report.pdf', Buffer.from(pdf));
+```
+
+Unlike `PraesidiaGuard`, there is no local/offline mode — every call is a
+connected, authenticated request, so a missing `apiKey`/`orgId` throws
+`PraesidiaConfigError` at construction.
+
+### `new PraesidiaCompliance(config?)`
+
+Same config shape as `PraesidiaGuard` (only `apiKey`, `orgId`, `baseUrl` are used).
+
+### Methods
+
+| Method | Returns | Endpoint |
+|---|---|---|
+| `requestReport()` | `Promise<ReportRequestResult>` | `POST .../reports` |
+| `getReportStatus(reportId)` | `Promise<AuditorReportStatus>` | `GET .../reports/:id` |
+| `getReportJson(reportId)` | `Promise<AuditorReportDocument>` | `GET .../reports/:id/json` |
+| `getReportPdf(reportId)` | `Promise<Uint8Array>` | `GET .../reports/:id/pdf` |
+| `waitForReport(reportId, opts?)` | `Promise<AuditorReportStatus>` | polls status |
+| `generateAndWait(opts?)` | `Promise<AuditorReportStatus>` | request + poll |
+
+`waitForReport` / `generateAndWait` throw an `Error` if the report status
+becomes `failed`, or if `timeoutMs` elapses before it is ready. The JSON/PDF
+downloads throw `PraesidiaApiError` with status `409` if called before the
+report is `completed`.
+
 ## Fail-open / fail-closed
 
 | Scenario | Default behaviour |
@@ -124,6 +173,8 @@ try {
 |---|---|---|
 | `checkInput` / `checkOutput` | `POST /organizations/:orgId/guardrails/validate` | `agents:invoke` or `*` |
 | `logTask` | `POST /organizations/:orgId/tasks` | `agents:invoke` or `*` |
+| `requestReport` | `POST /organizations/:orgId/compliance/eu-ai-act/reports` | `COMPLIANCE_MANAGE` |
+| `getReportStatus` / `getReportJson` / `getReportPdf` | `GET /organizations/:orgId/compliance/eu-ai-act/reports/:id[/json\|/pdf]` | `COMPLIANCE_VIEW` |
 
 Authentication: `Authorization: Bearer <apiKey>` (org-scoped API key).
 

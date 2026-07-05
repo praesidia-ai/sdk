@@ -135,3 +135,149 @@ export interface ToolCallRecord {
   /** Associate this tool call with an existing Praesidia task ID. */
   taskId?: string;
 }
+
+// ── Compliance report export (Q1-04) ─────────────────────────────────────────
+// Programmatic export of the EU AI Act auditor/DPO compliance report.
+// Endpoint base: /organizations/:orgId/compliance/eu-ai-act/reports
+
+/** Lifecycle state of an async auditor-report generation job. */
+export type AuditorReportGenerationStatus =
+  | 'pending'
+  | 'processing'
+  | 'completed'
+  | 'failed';
+
+/** Result of enqueuing a report — POST .../reports. */
+export interface ReportRequestResult {
+  /** Report id — the poll + download key. */
+  reportId: string;
+  /** BullMQ job id once enqueued (diagnostics), null if not queued. */
+  jobId: string | null;
+  /** Initial generation state. */
+  status: AuditorReportGenerationStatus;
+}
+
+/** Polling status of a report generation — GET .../reports/:reportId. */
+export interface AuditorReportStatus {
+  reportId: string;
+  status: AuditorReportGenerationStatus;
+  /** True once the PDF + JSON artifacts are downloadable. */
+  ready: boolean;
+  /** Rendered PDF size in bytes (null until completed). */
+  pdfByteLength: number | null;
+  /** Failure reason when status is `failed`. */
+  error: string | null;
+  /** ISO-8601 timestamp of the request. */
+  requestedAt: string;
+  /** ISO-8601 timestamp of completion (null while pending/processing). */
+  completedAt: string | null;
+}
+
+/** Q2-05 extension slot — jurisdiction metadata. */
+export interface JurisdictionMetadata {
+  code: string;
+  label: string;
+  notes?: string | null;
+}
+
+/** Q5-04 extension slot — testing metadata. */
+export interface TestedMetadata {
+  tested: boolean;
+  methodology?: string | null;
+  lastTestedAt?: string | null;
+}
+
+export interface AuditorReportMetadata {
+  title: string;
+  standard: string;
+  standardReference: string;
+  generatedByUserId: string;
+  jurisdiction: JurisdictionMetadata | null;
+  tested: TestedMetadata | null;
+}
+
+export interface AuditorReportSummary {
+  totalDiscovered: number;
+  totalClassified: number;
+  byRiskLevel: Record<string, number>;
+  byComplianceStatus: Record<string, number>;
+  articleStatusCounts: Record<string, number>;
+  openGaps: number;
+}
+
+export interface DiscoveredInventoryItem {
+  id: string;
+  entityType: string;
+  state: string;
+  clientId: string | null;
+  endpoint: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  sightingCount: number;
+  observedSurfaces: string[];
+}
+
+export interface ClassifiedEntitySummary {
+  id: string;
+  entityType: string;
+  entityId: string;
+  entityName: string;
+  riskLevel: string;
+  riskCategory: string;
+  complianceStatus: string;
+  classificationSource: string;
+  assessedAt: string;
+}
+
+/** One (entity × article) row in the per-entity EU AI Act compliance matrix. */
+export interface ArticleMapping {
+  article: string;
+  status: string;
+  evidenceType: string;
+  evidenceRefs: string[];
+  rationale: string;
+  resolvedAt: string;
+}
+
+export interface EntityArticleMatrix {
+  organizationId: string;
+  entityType: string;
+  entityId: string;
+  entityName: string;
+  riskLevel: string | null;
+  articles: ArticleMapping[];
+}
+
+export interface MerkleAnchoring {
+  available: boolean;
+  rootCount: number;
+  latestRootHash: string | null;
+  latestRootPeriodEnd: string | null;
+}
+
+export interface TamperEvidence {
+  merkleAnchoring: MerkleAnchoring;
+  statement: string;
+}
+
+/** The full structured report — body of the JSON download (schemaVersion 'q1-04-v1'). */
+export interface AuditorReportDocument {
+  schemaVersion: string;
+  reportId: string;
+  organizationId: string;
+  generatedAt: string;
+  metadata: AuditorReportMetadata;
+  summary: AuditorReportSummary;
+  discoveredInventory: DiscoveredInventoryItem[];
+  classifiedEntities: ClassifiedEntitySummary[];
+  articleMatrix: EntityArticleMatrix[];
+  tamperEvidence: TamperEvidence;
+}
+
+/** Options for waitForReport / generateAndWait polling. */
+export interface ReportPollOptions {
+  /** Give up after this many milliseconds. Defaults to 120000 (2 min). */
+  timeoutMs?: number;
+  /** Delay between status polls in milliseconds. Defaults to 2000. */
+  pollIntervalMs?: number;
+}

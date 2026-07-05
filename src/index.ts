@@ -14,6 +14,7 @@
  */
 
 export { PraesidiaGuard } from './guard.js';
+export { PraesidiaCompliance } from './compliance.js';
 export { PraesidiaClient } from './client.js';
 export {
   GuardrailBlockedError,
@@ -29,4 +30,20 @@ export type {
   TaskRecord,
   ToolCallRecord,
   TriggeredGuardrail,
+  // Compliance report export (Q1-04)
+  AuditorReportGenerationStatus,
+  ReportRequestResult,
+  AuditorReportStatus,
+  AuditorReportDocument,
+  AuditorReportMetadata,
+  AuditorReportSummary,
+  DiscoveredInventoryItem,
+  ClassifiedEntitySummary,
+  ArticleMapping,
+  EntityArticleMatrix,
+  MerkleAnchoring,
+  TamperEvidence,
+  JurisdictionMetadata,
+  TestedMetadata,
+  ReportPollOptions,
 } from './types.js';
