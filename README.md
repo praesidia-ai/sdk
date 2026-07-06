@@ -244,6 +244,139 @@ try {
 }
 ```
 
+## Agent identity + task lifecycle + guardrail hooks (H1-02a)
+
+Beyond the all-in-one `run()`, the guard exposes lower-level primitives that
+framework adapters (and your own code) can wire directly.
+
+```typescript
+// Who am I running as?
+const id = guard.identity();
+// { orgId, agentId, baseUrl, connected }
+
+// Guardrail PRE hook — fail-CLOSED: throws GuardrailBlockedError on a block.
+await guard.guardInput(userMessage);
+
+// Guardrail POST hook — fail-OPEN by default: returns the CheckResult.
+// Pass { throwOnBlock: true } (or construct with strict:true) to hard-block.
+const out = await callMyLLM(userMessage);
+const check = await guard.guardOutput(out, { throwOnBlock: false });
+
+// Explicit task lifecycle — records EXACTLY ONE audit row per task.
+const task = guard.beginTask({ input: userMessage, taskType: 'chat' });
+try {
+  const output = await callMyLLM(userMessage);
+  await task.complete(output, { usage: { totalTokens: 128 } });
+} catch (err) {
+  await task.fail(err); // one 'failed' row, error message captured as output
+  throw err;
+}
+```
+
+| Method | Returns | Notes |
+|---|---|---|
+| `identity()` | `AgentIdentity` | sync; `{ orgId, agentId, baseUrl, connected }` |
+| `guardInput(input, opts?)` | `Promise<CheckResult>` | throws `GuardrailBlockedError` on block |
+| `guardOutput(output, opts?)` | `Promise<CheckResult>` | throws only when `throwOnBlock`/`strict` |
+| `beginTask(opts?)` | `TaskHandle` | `.complete(output, opts?)` / `.fail(error, opts?)` |
+
+## OTLP GenAI telemetry — become an OBSERVED agent (H1-02)
+
+`PraesidiaTelemetry` pushes OTLP/HTTP GenAI-convention traces to
+`POST /telemetry/otlp/v1/traces`. The backend buffers them and materialises the
+emitting agent as an **observed** agent from the GenAI spans — no registration.
+
+This is a **minimal, dependency-free emitter** — the SDK does not vendor an
+OpenTelemetry SDK. If you already run the OTel SDK, point its OTLP/HTTP exporter
+at `telemetry.tracesEndpoint` with `Authorization: Bearer <org pk_ key>` instead.
+
+```typescript
+import { PraesidiaTelemetry } from '@praesidia/sdk';
+
+// Auth is an ORGANIZATION API key (pk_...); the endpoint takes the tenant
+// solely from the key (there is no orgId in the path).
+const telemetry = new PraesidiaTelemetry({ serviceName: 'support-bot' });
+
+await telemetry.emitGenAiSpan({
+  agentName: 'support-bot',
+  system: 'openai',
+  requestModel: 'gpt-4o',
+  inputTokens: 812,
+  outputTokens: 143,
+});
+// → { accepted: true, buffered: 1 }
+
+// Already have raw OTLP resourceSpans (e.g. from the OTel SDK)? Send them:
+await telemetry.emit(resourceSpans);
+```
+
+Client-side bounds mirror the server (fail-fast before the network): ≤100
+resourceSpans, ≤2 MB body, 120 req/min. `genAiSpan(input)` is exported if you
+want to build a span without sending it.
+
+## Agent memory (H2-06e)
+
+`PraesidiaMemory` wraps the org-scoped memory API. Writes are PII-redacted +
+poisoning-scanned and encrypted per-org on the backend; reads are decrypted and
+carry provenance + guardrail metadata.
+
+```typescript
+import { PraesidiaMemory } from '@praesidia/sdk';
+
+const memory = new PraesidiaMemory(); // reads PRAESIDIA_API_KEY + PRAESIDIA_ORG_ID
+
+const m = await memory.create({
+  content: 'The customer prefers email.',
+  subjectId: 'user-42',       // binds the memory for a later GDPR Art-17 erase
+  tags: ['crm'],
+});
+const hits = await memory.search({ query: 'contact preference', topK: 5 });
+const page = await memory.list({ limit: 20, tag: 'crm' });
+await memory.get(m.id);
+await memory.erase({ subjectId: 'user-42', reason: 'GDPR Art-17 request' });
+await memory.delete(m.id);
+```
+
+| Method | Returns | Endpoint |
+|---|---|---|
+| `create(input)` | `Promise<MemoryRecord>` | `POST .../memories` |
+| `list(query?)` | `Promise<{ data: MemoryRecord[] }>` | `GET .../memories` |
+| `search(input)` | `Promise<MemoryRecord[]>` | `POST .../memories/search` |
+| `erase(input)` | `Promise<EraseMemoryResult>` | `POST .../memories/erase` |
+| `get(id)` | `Promise<MemoryRecord>` | `GET .../memories/:id` |
+| `delete(id)` | `Promise<void>` | `DELETE .../memories/:id` |
+
+## Trust passport — verify a peer agent's reputation offline (H3-02f)
+
+`PraesidiaTrust` fetches an agent's signed trust passport from the **public**
+trust routes and verifies the detached Ed25519 proof **locally** — the "verify a
+peer's reputation without trusting Praesidia" client. Offline verification uses
+the hand-written primitives in `crypto.ts` (`verifyEd25519`, `canonicalJson`,
+`ed25519PublicKeyFromJwk`) — the same offline-verify pattern as
+`@praesidia/audit-verifier`. No API key is needed.
+
+```typescript
+import { PraesidiaTrust } from '@praesidia/sdk';
+
+const trust = new PraesidiaTrust(); // no auth — public routes
+
+const { verified, passport, reason } = await trust.fetchAndVerify(peerAgentId);
+if (verified && passport.credentialSubject.trustScore >= 70) {
+  // The signed reputation is genuine and fresh — safe to trust the peer.
+}
+
+// Or verify a passport handed to you out-of-band:
+const bundle = await trust.fetchVerifyBundle(peerAgentId);
+const result = trust.verifyPassport(bundle.passport, bundle.publicKeyJwk);
+// result.reason ∈ ok | missing-proof | malformed-public-key
+//                  | signature-mismatch | expired
+```
+
+`verifyPassport` reconstructs the canonical JSON of the passport with its `proof`
+member removed (RFC-8785-style), base64-decodes `proof.proofValue`, and verifies
+the EdDSA signature over those exact bytes; it also checks `expirationDate`. It
+never throws — a malformed passport / key yields `{ verified: false, reason }`.
+
 ## Fail-open / fail-closed
 
 | Scenario | Default behaviour |
@@ -277,8 +410,12 @@ try {
 | `rotateClientSecret` | `POST /organizations/:orgId/agents/:agentId/client-secret/rotate` | `AGENTS_CONFIGURE` |
 | `requestReport` | `POST /organizations/:orgId/compliance/eu-ai-act/reports` | `COMPLIANCE_MANAGE` |
 | `getReportStatus` / `getReportJson` / `getReportPdf` | `GET /organizations/:orgId/compliance/eu-ai-act/reports/:id[/json\|/pdf]` | `COMPLIANCE_VIEW` |
+| `PraesidiaTelemetry.emit*` | `POST /telemetry/otlp/v1/traces` | organization API key |
+| `PraesidiaMemory.*` | `POST/GET/DELETE /organizations/:orgId/memories[/…]` | `MEMORY_CREATE` / `MEMORY_VIEW` / `MEMORY_ERASE` / `MEMORY_DELETE` |
+| `PraesidiaTrust.fetch*` | `GET /trust/passport/:agentId[/verify]` | public (no auth) |
 
-Authentication: `Authorization: Bearer <apiKey>` (org-scoped API key).
+Authentication: `Authorization: Bearer <apiKey>` (org-scoped API key). The trust
+passport routes are public; `PraesidiaTrust` verifies signatures offline.
 
 ## License
 

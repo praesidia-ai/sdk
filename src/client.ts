@@ -110,6 +110,27 @@ export class PraesidiaClient {
   }
 
   /**
+   * DELETE a resource. Tolerates an empty (204 No Content) body — the backend's
+   * soft-delete routes answer 204 with no JSON — so callers get `void` back and
+   * are not forced to parse an empty response.
+   */
+  async del(
+    path: string,
+    extraHeaders?: Record<string, string>,
+  ): Promise<void> {
+    const url = `${this.baseUrl}${path}`;
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: this.buildHeaders(extraHeaders),
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new PraesidiaApiError(response.status, path, text);
+    }
+  }
+
+  /**
    * GET a binary response body (e.g. a rendered PDF) as raw bytes.
    *
    * Returns a `Uint8Array`; in Node wrap with `Buffer.from(bytes)` to write

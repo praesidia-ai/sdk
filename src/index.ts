@@ -16,8 +16,20 @@
 export { PraesidiaGuard, toolCallContextFromTask } from './guard.js';
 export { PraesidiaCompliance } from './compliance.js';
 export { PraesidiaAgents } from './agents.js';
+export { PraesidiaMemory } from './memory.js';
+export { PraesidiaTelemetry, genAiSpan } from './telemetry.js';
+export { PraesidiaTrust } from './trust.js';
 export { PraesidiaClient, CHAIN_ID_HEADER } from './client.js';
-export { MAX_CLIENT_SECRET_GRACE_SECONDS } from './types.js';
+export {
+  verifyEd25519,
+  canonicalJson,
+  ed25519PublicKeyFromJwk,
+} from './crypto.js';
+export {
+  MAX_CLIENT_SECRET_GRACE_SECONDS,
+  OTLP_MAX_RESOURCE_SPANS,
+  OTLP_MAX_BODY_BYTES,
+} from './types.js';
 export {
   GuardrailBlockedError,
   PraesidiaApiError,
@@ -34,6 +46,11 @@ export type {
   ToolCallContext,
   PolledTaskRow,
   TriggeredGuardrail,
+  // Agent identity + task lifecycle (H1-02a)
+  AgentIdentity,
+  BeginTaskOptions,
+  CompleteTaskOptions,
+  TaskHandle,
   // Compliance report export (Q1-04)
   AuditorReportGenerationStatus,
   ReportRequestResult,
@@ -53,4 +70,37 @@ export type {
   // Agent client-secret rotation (Q4-01)
   RotateClientSecretOptions,
   RotateClientSecretResult,
+  // Agent memory (H2-06e)
+  CreateMemoryInput,
+  SearchMemoryInput,
+  ListMemoriesQuery,
+  EraseMemoryInput,
+  MemoryRecord,
+  MemoryProvenance,
+  MemoryGuardrail,
+  MemoryRetention,
+  MemorySourceType,
+  MemoryRetentionRegime,
+  EraseMemoryResult,
+  // OTLP GenAI telemetry emit (H1-02)
+  OtlpAnyValue,
+  OtlpKeyValue,
+  OtlpSpan,
+  OtlpScopeSpans,
+  OtlpResource,
+  OtlpResourceSpans,
+  OtlpExportTraceServiceRequest,
+  OtlpIngestAck,
+  GenAiSpanInput,
+  // Trust passport verify (H3-02f)
+  TrustPassport,
+  TrustPassportProof,
+  TrustPassportCredentialSubject,
+  TrustPassportPosture,
+  TrustPassportRedTeam,
+  TrustPassportAttestations,
+  TrustPassportVerifyBundle,
+  TrustVerificationResult,
+  TrustVerificationReason,
+  TrustFetchAndVerifyResult,
 } from './types.js';

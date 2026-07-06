@@ -6,12 +6,16 @@ import {
 } from './errors.js';
 import { runLocalRules } from './local-rules.js';
 import type {
+  AgentIdentity,
+  BeginTaskOptions,
   CheckOptions,
   CheckResult,
+  CompleteTaskOptions,
   GuardConfig,
   GuardedResult,
   PolledTaskRow,
   RunOptions,
+  TaskHandle,
   TaskRecord,
   ToolCallContext,
   ToolCallRecord,
@@ -83,6 +87,117 @@ export class PraesidiaGuard {
   }
 
   // ── Public API ──────────────────────────────────────────────────────────────
+
+  /**
+   * H1-02a — the agent identity this guard operates as (org + agent + base URL).
+   *
+   * Synchronous, side-effect-free accessor so a framework adapter (H1-02c) or an
+   * agent can introspect who it is running as before instrumenting a call.
+   * `orgId` / `agentId` are undefined in local/offline mode; `connected` is true
+   * only when an authenticated client is configured.
+   */
+  identity(): AgentIdentity {
+    return {
+      orgId: this.orgId,
+      agentId: this.agentId,
+      baseUrl: this.baseUrl,
+      connected: this.client !== undefined,
+    };
+  }
+
+  /**
+   * H1-02a — the guardrail PRE hook: check input and FAIL-CLOSED on a block.
+   *
+   * A drop-in for framework adapters (LangGraph/CrewAI/etc.) that need a single
+   * call which throws `GuardrailBlockedError` when the input is blocked (the
+   * wrapped model call must not run) and otherwise returns the `CheckResult`.
+   * This is exactly the step `run()` performs internally, exposed standalone so
+   * an adapter can wire it as a "before" middleware.
+   */
+  async guardInput(
+    input: string,
+    opts: CheckOptions = {},
+  ): Promise<CheckResult> {
+    const result = await this.checkInput(input, opts);
+    if (!result.passed) {
+      throw new GuardrailBlockedError(result.triggered);
+    }
+    return result;
+  }
+
+  /**
+   * H1-02a — the guardrail POST hook: check output after the model has answered.
+   *
+   * By convention the output check is fail-OPEN (the agent already produced the
+   * output) — it returns the `CheckResult` for the caller to inspect/record and
+   * only THROWS `GuardrailBlockedError` when `throwOnBlock` is set (or the guard
+   * was constructed with `strict: true`), so a strict adapter can hard-block a
+   * violating response.
+   */
+  async guardOutput(
+    output: string,
+    opts: CheckOptions & { throwOnBlock?: boolean } = {},
+  ): Promise<CheckResult> {
+    const result = await this.checkOutput(output, opts);
+    if (!result.passed && (opts.throwOnBlock ?? this.strict)) {
+      throw new GuardrailBlockedError(result.triggered);
+    }
+    return result;
+  }
+
+  /**
+   * H1-02a — open an explicit task-lifecycle handle.
+   *
+   * Captures the start time (and input/agent/chain/context) locally and records
+   * EXACTLY ONE audit task row when you call `handle.complete(output)` or
+   * `handle.fail(error)` — never two — so a lifecycle maps 1:1 to a single task.
+   * Use it when you want begin/end semantics around your own agent code instead
+   * of the all-in-one `run()`:
+   *
+   *   const task = guard.beginTask({ input, taskType: 'chat' });
+   *   try {
+   *     const out = await callMyLLM(input);
+   *     await task.complete(out, { usage });
+   *   } catch (e) {
+   *     await task.fail(e);
+   *     throw e;
+   *   }
+   *
+   * Best-effort like `logTask`: recording never throws on a network error
+   * (unless `strict`), so the lifecycle can't disrupt the agent.
+   */
+  beginTask(opts: BeginTaskOptions = {}): TaskHandle {
+    const startedAt = new Date().toISOString();
+    const base = {
+      agentId: opts.agentId ?? this.agentId,
+      input: opts.input,
+      taskType: opts.taskType ?? 'run',
+      context: opts.context,
+      chainId: opts.chainId,
+      startedAt,
+    };
+    const record = (
+      status: 'completed' | 'failed',
+      output: string | undefined,
+      finalize: CompleteTaskOptions | undefined,
+    ): Promise<string | undefined> =>
+      this.logTask({
+        ...base,
+        output,
+        usage: finalize?.usage,
+        context: finalize?.context
+          ? { ...(base.context ?? {}), ...finalize.context }
+          : base.context,
+        completedAt: new Date().toISOString(),
+        status,
+      });
+
+    return {
+      complete: (output, finalize) => record('completed', output, finalize),
+      fail: (error, finalize) =>
+        record('failed', this.errorToString(error), finalize),
+    };
+  }
 
   /**
    * Wrap an async agent function with guardrail checks and audit logging.
@@ -406,6 +521,13 @@ export class PraesidiaGuard {
   private consoleLog(type: string, data: unknown): void {
     const ts = new Date().toISOString();
     console.log(JSON.stringify({ timestamp: ts, praesidia: true, type, data }));
+  }
+
+  /** Convert a thrown value into a concise message for a failed task record. */
+  private errorToString(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'string') return error;
+    return this.stringify(error);
   }
 
   /** Safely convert an arbitrary value to a string for content checks. */

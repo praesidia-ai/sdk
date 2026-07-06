@@ -398,3 +398,364 @@ export interface RotateClientSecretResult {
    */
   gracePeriodSeconds: number;
 }
+
+// ── Agent identity + task lifecycle (H1-02a) ─────────────────────────────────
+
+/**
+ * H1-02a — the identity an SDK instance operates as. `agentId` is the agent the
+ * guard represents; `orgId` is the tenant. Both may be undefined in
+ * local/offline mode (no connected client).
+ */
+export interface AgentIdentity {
+  orgId?: string;
+  agentId?: string;
+  baseUrl: string;
+  /** True when a connected, authenticated client is configured. */
+  connected: boolean;
+}
+
+/** H1-02a — options to open a task-lifecycle handle via `guard.beginTask`. */
+export interface BeginTaskOptions {
+  /** Input prompt / message for this task. */
+  input?: string;
+  /** Override the agent id (falls back to config.agentId). */
+  agentId?: string;
+  /** Task type label surfaced in the audit log. */
+  taskType?: string;
+  /** Arbitrary key/value context attached to the audit record. */
+  context?: Record<string, unknown>;
+  /** Q3-02 — chain-trace id this task belongs to (echoed from an inbound hop). */
+  chainId?: string;
+}
+
+/** H1-02a — how a task-lifecycle handle is finalised. */
+export interface CompleteTaskOptions {
+  /** Token usage for cost tracking. */
+  usage?: TaskRecord['usage'];
+  /** Extra context to merge onto the record at completion. */
+  context?: Record<string, unknown>;
+}
+
+/**
+ * H1-02a — a live task-lifecycle handle returned by `guard.beginTask`. Captures
+ * the start time locally and records EXACTLY ONE audit task row on `complete`
+ * or `fail` (never two), so the lifecycle maps 1:1 to a single task.
+ */
+export interface TaskHandle {
+  /** Mark the task complete and record it. Resolves with the server taskId. */
+  complete(
+    output?: string,
+    opts?: CompleteTaskOptions,
+  ): Promise<string | undefined>;
+  /** Mark the task failed and record it. Resolves with the server taskId. */
+  fail(
+    error: unknown,
+    opts?: CompleteTaskOptions,
+  ): Promise<string | undefined>;
+}
+
+// ── Agent memory (H2-06e) ────────────────────────────────────────────────────
+// Endpoint base: /organizations/:orgId/memories
+
+/** H2-06 — provenance: what kind of principal wrote a memory. */
+export type MemorySourceType = 'agent' | 'user' | 'system' | 'tool' | 'import';
+
+/** H2-06 — compliance retention regime governing a memory. */
+export type MemoryRetentionRegime =
+  | 'none'
+  | 'gdpr'
+  | 'hipaa'
+  | 'sox'
+  | 'custom';
+
+/** H2-06e — write a memory (CreateMemoryDto). */
+export interface CreateMemoryInput {
+  /** Content to store (scanned for PII + poisoning, encrypted per-org). */
+  content: string;
+  /** Opaque data-subject id — enables per-subject GDPR Art-17 crypto-shred. */
+  subjectId?: string;
+  /** Optional logical grouping key (namespace / conversation id). */
+  memoryKey?: string;
+  /** Free-form tags for retrieval filtering. */
+  tags?: string[];
+  /** Provenance: what kind of principal is writing this memory. */
+  sourceType?: MemorySourceType;
+  /** Provenance: the agent that produced this memory. */
+  sourceAgentId?: string;
+  /** Provenance: free-form origin reference (task id, url, tool call). */
+  sourceReference?: string;
+  /** Compliance retention regime governing this memory. */
+  retentionRegime?: MemoryRetentionRegime;
+  /** Custom retention window in days (only honoured when regime=custom). */
+  retentionDays?: number;
+}
+
+/** H2-06e — relevance search over memories (SearchMemoryDto). */
+export interface SearchMemoryInput {
+  /** Query text to match stored memories against. */
+  query: string;
+  /** Restrict search to a logical grouping key. */
+  memoryKey?: string;
+  /** Max number of results to return (1..50, default 10). */
+  topK?: number;
+}
+
+/** H2-06e — org-scoped list query. */
+export interface ListMemoriesQuery {
+  page?: number;
+  limit?: number;
+  memoryKey?: string;
+  sourceType?: MemorySourceType;
+  tag?: string;
+}
+
+/** H2-06d — GDPR Art-17 crypto-shred of a data subject's memories. */
+export interface EraseMemoryInput {
+  /** The data-subject identifier whose memories must be crypto-shredded. */
+  subjectId: string;
+  /** Reason for erasure (recorded on the erasure certificate). */
+  reason: string;
+}
+
+/** H2-06c — provenance lineage attached to a retrieved memory. */
+export interface MemoryProvenance {
+  sourceType: MemorySourceType;
+  sourceAgentId: string | null;
+  authorUserId: string | null;
+  sourceReference: string | null;
+  writtenAt: string;
+}
+
+/** H2-06b — write-path guardrail outcome surfaced on read. */
+export interface MemoryGuardrail {
+  poisoningScore: number;
+  piiRedacted: boolean;
+}
+
+/** H2-06 — retention state of a memory. */
+export interface MemoryRetention {
+  regime: MemoryRetentionRegime;
+  expiresAt: string | null;
+}
+
+/** H2-06 — a single memory as returned by the API. */
+export interface MemoryRecord {
+  id: string;
+  organizationId: string;
+  /** Decrypted (PII-redacted) content, or "[erased]" after a crypto-shred. */
+  content: string;
+  memoryKey: string | null;
+  tags: string[] | null;
+  provenance: MemoryProvenance;
+  guardrail: MemoryGuardrail;
+  retention: MemoryRetention;
+  erasedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** H2-06d — result of a subject-scoped crypto-shred. */
+export interface EraseMemoryResult {
+  subjectExternalIdHash: string;
+  memoriesErased: number;
+  dekDestroyed: boolean;
+  certificateId: string | null;
+}
+
+// ── OTLP/HTTP GenAI telemetry emit (H1-02 / H1-02e) ──────────────────────────
+// POST /telemetry/otlp/v1/traces — org-key auth. Body is an OTLP/HTTP
+// ExportTraceServiceRequest: { resourceSpans: [...] }.
+
+/** Server-side cap on resourceSpans[] per request (mirrors OTLP_LIMITS). */
+export const OTLP_MAX_RESOURCE_SPANS = 100;
+
+/** Server-side raw body cap in bytes (global 2 MB limit). */
+export const OTLP_MAX_BODY_BYTES = 2 * 1024 * 1024;
+
+/** An OTLP AnyValue (only the variants the GenAI convention uses). */
+export interface OtlpAnyValue {
+  stringValue?: string;
+  intValue?: number | string;
+  boolValue?: boolean;
+  doubleValue?: number;
+}
+
+/** An OTLP KeyValue attribute. */
+export interface OtlpKeyValue {
+  key: string;
+  value: OtlpAnyValue;
+}
+
+/** An OTLP Span (OTLP/HTTP JSON shape). */
+export interface OtlpSpan {
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  name: string;
+  /** SPAN_KIND_* — 3 (CLIENT) for a GenAI inference call. */
+  kind?: number;
+  /** Unix nanoseconds as a decimal string. */
+  startTimeUnixNano?: string;
+  endTimeUnixNano?: string;
+  attributes?: OtlpKeyValue[];
+  status?: { code?: number; message?: string };
+}
+
+/** OTLP InstrumentationScope + its spans. */
+export interface OtlpScopeSpans {
+  scope?: { name?: string; version?: string };
+  spans: OtlpSpan[];
+}
+
+/** OTLP Resource (its attributes carry service.name etc.). */
+export interface OtlpResource {
+  attributes?: OtlpKeyValue[];
+}
+
+/** One OTLP ResourceSpans entry. */
+export interface OtlpResourceSpans {
+  resource?: OtlpResource;
+  scopeSpans: OtlpScopeSpans[];
+}
+
+/** The OTLP/HTTP ExportTraceServiceRequest body. */
+export interface OtlpExportTraceServiceRequest {
+  resourceSpans: OtlpResourceSpans[];
+}
+
+/** Ack returned by the ingest endpoint (HTTP 202). */
+export interface OtlpIngestAck {
+  accepted: boolean;
+  /** Number of resourceSpans buffered for async processing. */
+  buffered: number;
+}
+
+/**
+ * H1-02 — the minimal inputs to synthesize ONE GenAI-convention span via
+ * {@link genAiSpan}. Field names map to OpenTelemetry `gen_ai.*` attributes so
+ * the backend's `otlp-genai.util.ts` parser materialises an OBSERVED agent.
+ */
+export interface GenAiSpanInput {
+  /** gen_ai.agent.name — the observed agent's display name. */
+  agentName: string;
+  /** gen_ai.agent.id — stable agent id (optional). */
+  agentId?: string;
+  /** gen_ai.system — provider (e.g. 'openai', 'anthropic'). */
+  system?: string;
+  /** gen_ai.request.model — requested model. */
+  requestModel?: string;
+  /** gen_ai.response.model — actual model that answered. */
+  responseModel?: string;
+  /** gen_ai.operation.name — e.g. 'chat', 'text_completion'. */
+  operationName?: string;
+  /** gen_ai.usage.input_tokens. */
+  inputTokens?: number;
+  /** gen_ai.usage.output_tokens. */
+  outputTokens?: number;
+  /** Span name (defaults to `${operationName} ${requestModel}`). */
+  name?: string;
+  /** Duration in milliseconds (defaults to 0 → start == end). */
+  durationMs?: number;
+  /** Extra raw OTLP attributes to append. */
+  extraAttributes?: OtlpKeyValue[];
+}
+
+// ── Trust passport verify client (H3-02f) ────────────────────────────────────
+// Public routes: GET /trust/passport/:agentId[/verify]
+
+/** H3-02b — coarse posture status inside a passport credential subject. */
+export interface TrustPassportPosture {
+  status: string;
+  expiresAt: string | null;
+}
+
+/** H3-02b — red-team summary inside a passport credential subject. */
+export interface TrustPassportRedTeam {
+  completedRuns: number;
+  lastTestedAt: string | null;
+}
+
+/** H3-02b — attestation summary inside a passport credential subject. */
+export interface TrustPassportAttestations {
+  activeCount: number;
+  identityVerified: boolean;
+  guardrailsActive: boolean;
+  auditTrailEnabled: boolean;
+  spendCapConfigured: boolean;
+}
+
+/** H3-02b — the signed credential subject of a trust passport. */
+export interface TrustPassportCredentialSubject {
+  id: string;
+  agentName: string;
+  trustLevel: string;
+  trustScore: number;
+  posture: TrustPassportPosture;
+  redTeam: TrustPassportRedTeam;
+  attestations: TrustPassportAttestations;
+  compliance: string[];
+}
+
+/**
+ * H3-02b — the Ed25519 detached proof. `proofValue` is a STANDARD base64
+ * Ed25519 signature over the canonical JSON of the passport WITHOUT its `proof`
+ * member.
+ */
+export interface TrustPassportProof {
+  type: string;
+  created: string;
+  proofPurpose: string;
+  verificationMethod: string;
+  keyVersion: number;
+  proofValue: string;
+}
+
+/** H3-02b — the signed, verifiable trust passport (W3C VC shape). */
+export interface TrustPassport {
+  '@context': string[];
+  type: string[];
+  id: string;
+  issuer: string;
+  issuanceDate: string;
+  expirationDate: string;
+  credentialSubject: TrustPassportCredentialSubject;
+  proof: TrustPassportProof;
+}
+
+/** H3-02f — the verification bundle returned by the `/verify` endpoint. */
+export interface TrustPassportVerifyBundle {
+  passport: TrustPassport;
+  /** Public key JWK (OKP Ed25519) for offline signature verification. */
+  publicKeyJwk: Record<string, unknown>;
+  /** URL to the agent DID document for key resolution. */
+  didDocumentUrl: string;
+  verificationHint?: string;
+  embed?: Record<string, unknown>;
+}
+
+/** H3-02f — reasons a local passport verification can fail. */
+export type TrustVerificationReason =
+  | 'ok'
+  | 'missing-proof'
+  | 'malformed-public-key'
+  | 'signature-mismatch'
+  | 'expired';
+
+/** H3-02f — the outcome of `PraesidiaTrust.verifyPassport`. */
+export interface TrustVerificationResult {
+  /** True iff the Ed25519 signature verified AND the passport is not expired. */
+  verified: boolean;
+  /** True iff the Ed25519 signature is cryptographically valid (ignores expiry). */
+  signatureValid: boolean;
+  /** True iff `expirationDate` is in the past. */
+  expired: boolean;
+  /** Machine-readable reason. */
+  reason: TrustVerificationReason;
+}
+
+/** H3-02f — result of `PraesidiaTrust.fetchAndVerify`. */
+export interface TrustFetchAndVerifyResult extends TrustVerificationResult {
+  passport: TrustPassport;
+  publicKeyJwk: Record<string, unknown>;
+  didDocumentUrl: string;
+}
