@@ -108,9 +108,8 @@ export class PraesidiaAgents {
         path,
         'Static client secrets are disabled for this organization (JIT-first). ' +
           'There is no static secret to rotate — this org authenticates with ' +
-          'ephemeral JIT capability tokens (Q4-02). To re-enable legacy static ' +
-          'secrets, an organization owner must turn on the `legacyStaticCredentials` ' +
-          'setting (a deliberate security downgrade).',
+          'ephemeral JIT capability tokens (Q4-02). Static credentials have been ' +
+          'permanently retired and can no longer be re-enabled.',
       );
     }
     return err;
