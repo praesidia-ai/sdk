@@ -27,10 +27,9 @@ export class PraesidiaClient {
   /**
    * Swap the credential this client authenticates with, at runtime.
    *
-   * Enables zero-downtime credential rotation for a long-lived client: after
-   * rotating an agent's client secret (see PraesidiaAgents.rotateClientSecret)
-   * with a grace window, adopt the new secret here and rely on the server-side
-   * grace overlap so in-flight callers are never rejected during the swap.
+   * Enables zero-downtime credential rotation for a long-lived client: adopt a
+   * newly provisioned agent client secret here so subsequent requests
+   * authenticate with the new secret without recreating the client.
    *
    * SECURITY: the new credential is held only in memory and is never logged.
    */

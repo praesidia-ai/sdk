@@ -33,7 +33,10 @@ const CAPABILITY_TOKEN_HEADER = 'X-Praesidia-Capability-Token';
  * copied opaquely (never inspected, never logged).
  */
 export function toolCallContextFromTask(
-  task: Pick<PolledTaskRow, 'id' | 'chainId' | 'capabilityToken' | 'serverAgentId'>,
+  task: Pick<
+    PolledTaskRow,
+    'id' | 'chainId' | 'capabilityToken' | 'serverAgentId'
+  >,
 ): ToolCallContext {
   return {
     taskId: task.id,
@@ -373,7 +376,8 @@ export class PraesidiaGuard {
     // Q4-02 — forward the task-binding fields as X-Praesidia-* headers. The
     // capability token rides only in the header, never in the JSON body or logs.
     const headers: Record<string, string> = {};
-    if (call.capabilityToken) headers[CAPABILITY_TOKEN_HEADER] = call.capabilityToken;
+    if (call.capabilityToken)
+      headers[CAPABILITY_TOKEN_HEADER] = call.capabilityToken;
     if (call.taskId) headers[TASK_ID_HEADER] = call.taskId;
     if (agentId) headers[AGENT_ID_HEADER] = agentId;
     if (chainId) headers[CHAIN_ID_HEADER] = chainId;
@@ -404,11 +408,9 @@ export class PraesidiaGuard {
    * Adopt a rotated credential in-process, at runtime (zero-downtime swap).
    *
    * The guard authenticates with a static key by default; call this to swap in
-   * a freshly rotated agent client secret (see
-   * PraesidiaAgents.rotateClientSecret) without recreating the guard or
-   * restarting the process. Combined with the server-side grace window, the
-   * previous secret keeps working until `graceEndsAt`, so long-running guarded
-   * calls are never rejected mid-rotation.
+   * a freshly provisioned agent client secret without recreating the guard or
+   * restarting the process, so long-running guarded calls keep working across a
+   * credential swap.
    *
    * SECURITY: the credential is held only in memory and is never logged.
    * Throws PraesidiaConfigError in local/offline mode (no client configured).
@@ -512,7 +514,9 @@ export class PraesidiaGuard {
    * ever written to a log line. The token is a bearer secret; it must never
    * appear in stdout even in local/offline mode.
    */
-  private redactToolCall(call: ToolCallRecord): Omit<ToolCallRecord, 'capabilityToken'> {
+  private redactToolCall(
+    call: ToolCallRecord,
+  ): Omit<ToolCallRecord, 'capabilityToken'> {
     const { capabilityToken: _redacted, ...rest } = call;
     return rest;
   }

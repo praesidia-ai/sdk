@@ -25,11 +25,7 @@ export {
   canonicalJson,
   ed25519PublicKeyFromJwk,
 } from './crypto.js';
-export {
-  MAX_CLIENT_SECRET_GRACE_SECONDS,
-  OTLP_MAX_RESOURCE_SPANS,
-  OTLP_MAX_BODY_BYTES,
-} from './types.js';
+export { OTLP_MAX_RESOURCE_SPANS, OTLP_MAX_BODY_BYTES } from './types.js';
 export {
   GuardrailBlockedError,
   PraesidiaApiError,
@@ -67,9 +63,6 @@ export type {
   JurisdictionMetadata,
   TestedMetadata,
   ReportPollOptions,
-  // Agent client-secret rotation (Q4-01)
-  RotateClientSecretOptions,
-  RotateClientSecretResult,
   // Agent memory (H2-06e)
   CreateMemoryInput,
   SearchMemoryInput,
