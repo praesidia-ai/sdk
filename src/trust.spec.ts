@@ -12,6 +12,7 @@ import {
   verifyEd25519,
 } from './crypto.js';
 import type { TrustPassport } from './types.js';
+import { makeFetchMock } from './__tests__/fetch-mock.js';
 
 // ---------------------------------------------------------------------------
 // Fixture: mint a real Ed25519 keypair and sign a passport exactly like be-core
@@ -197,12 +198,7 @@ describe('PraesidiaTrust', () => {
       didDocumentUrl: 'https://api.praesidia.ai/agents/agent-1/did.json',
       verificationHint: 'Import publicKeyJwk...',
     };
-    globalThis.fetch = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => bundle,
-      text: async () => JSON.stringify(bundle),
-    })) as unknown as typeof fetch;
+    globalThis.fetch = makeFetchMock([{ ok: true, status: 200, json: bundle }]);
 
     const trust = new PraesidiaTrust({ baseUrl: 'https://api.praesidia.ai' });
     const result = await trust.fetchAndVerify('agent-1');
@@ -221,14 +217,13 @@ describe('PraesidiaTrust', () => {
   });
 
   it('fetchPassport surfaces a 404 as PraesidiaApiError', async () => {
-    globalThis.fetch = vi.fn(async () => ({
-      ok: false,
-      status: 404,
-      json: async () => ({}),
-      text: async () => 'not found',
-    })) as unknown as typeof fetch;
+    globalThis.fetch = makeFetchMock([
+      { ok: false, status: 404, text: 'not found' },
+    ]);
 
     const trust = new PraesidiaTrust();
-    await expect(trust.fetchPassport('nope')).rejects.toThrow(PraesidiaApiError);
+    await expect(trust.fetchPassport('nope')).rejects.toThrow(
+      PraesidiaApiError,
+    );
   });
 });

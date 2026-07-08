@@ -1,26 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PraesidiaMemory } from './memory.js';
 import { PraesidiaApiError, PraesidiaConfigError } from './errors.js';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function makeFetchMock(
-  responses: Array<{ ok: boolean; status?: number; body: unknown }>,
-) {
-  let call = 0;
-  return vi.fn(async () => {
-    const r = responses[call % responses.length];
-    call++;
-    return {
-      ok: r.ok,
-      status: r.status ?? (r.ok ? 200 : 400),
-      json: async () => r.body,
-      text: async () => JSON.stringify(r.body),
-    };
-  });
-}
+import { makeFetchMock } from './__tests__/fetch-mock.js';
 
 const config = { apiKey: 'pk_test_key', orgId: 'org-uuid-123' };
 
@@ -67,9 +48,7 @@ describe('PraesidiaMemory', () => {
   });
 
   it('create POSTs the CreateMemoryDto to the memories endpoint', async () => {
-    globalThis.fetch = makeFetchMock([
-      { ok: true, status: 201, body: MEMORY },
-    ]) as typeof fetch;
+    globalThis.fetch = makeFetchMock([{ ok: true, status: 201, body: MEMORY }]);
 
     const memory = new PraesidiaMemory(config);
     const result = await memory.create({
@@ -96,10 +75,14 @@ describe('PraesidiaMemory', () => {
   it('list GETs with a built query string', async () => {
     globalThis.fetch = makeFetchMock([
       { ok: true, body: { data: [MEMORY], total: 1, page: 1 } },
-    ]) as typeof fetch;
+    ]);
 
     const memory = new PraesidiaMemory(config);
-    const res = await memory.list({ limit: 5, memoryKey: 'conv-1', tag: 'crm' });
+    const res = await memory.list({
+      limit: 5,
+      memoryKey: 'conv-1',
+      tag: 'crm',
+    });
 
     expect(res.data).toHaveLength(1);
     const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
@@ -111,9 +94,7 @@ describe('PraesidiaMemory', () => {
   });
 
   it('search POSTs the SearchMemoryDto to /memories/search', async () => {
-    globalThis.fetch = makeFetchMock([
-      { ok: true, body: [MEMORY] },
-    ]) as typeof fetch;
+    globalThis.fetch = makeFetchMock([{ ok: true, body: [MEMORY] }]);
 
     const memory = new PraesidiaMemory(config);
     const hits = await memory.search({ query: 'contact preference', topK: 5 });
@@ -139,7 +120,7 @@ describe('PraesidiaMemory', () => {
           certificateId: 'cert-1',
         },
       },
-    ]) as typeof fetch;
+    ]);
 
     const memory = new PraesidiaMemory(config);
     const res = await memory.erase({
@@ -159,7 +140,7 @@ describe('PraesidiaMemory', () => {
   });
 
   it('get url-encodes the memory id', async () => {
-    globalThis.fetch = makeFetchMock([{ ok: true, body: MEMORY }]) as typeof fetch;
+    globalThis.fetch = makeFetchMock([{ ok: true, body: MEMORY }]);
 
     const memory = new PraesidiaMemory(config);
     await memory.get('a/../b');
@@ -170,14 +151,7 @@ describe('PraesidiaMemory', () => {
   });
 
   it('delete DELETEs the memory and tolerates a 204 empty body', async () => {
-    globalThis.fetch = vi.fn(async () => ({
-      ok: true,
-      status: 204,
-      json: async () => {
-        throw new Error('no body');
-      },
-      text: async () => '',
-    })) as unknown as typeof fetch;
+    globalThis.fetch = makeFetchMock([{ ok: true, status: 204 }]);
 
     const memory = new PraesidiaMemory(config);
     await expect(memory.delete('mem-1')).resolves.toBeUndefined();
@@ -191,7 +165,7 @@ describe('PraesidiaMemory', () => {
   it('surfaces a PraesidiaApiError on a non-2xx response', async () => {
     globalThis.fetch = makeFetchMock([
       { ok: false, status: 403, body: { message: 'forbidden' } },
-    ]) as typeof fetch;
+    ]);
 
     const memory = new PraesidiaMemory(config);
     await expect(memory.get('mem-1')).rejects.toThrow(PraesidiaApiError);

@@ -1,26 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PraesidiaGuard, toolCallContextFromTask } from './guard.js';
 import { GuardrailBlockedError, PraesidiaApiError } from './errors.js';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function makeFetchMock(
-  responses: Array<{ ok: boolean; status?: number; body: unknown }>,
-) {
-  let call = 0;
-  return vi.fn(async () => {
-    const r = responses[call % responses.length];
-    call++;
-    return {
-      ok: r.ok,
-      status: r.status ?? (r.ok ? 200 : 400),
-      json: async () => r.body,
-      text: async () => JSON.stringify(r.body),
-    };
-  });
-}
+import { makeFetchMock } from './__tests__/fetch-mock.js';
 
 const PASS_RESULT = {
   passed: true,
@@ -138,9 +119,7 @@ describe('PraesidiaGuard', () => {
 
     it('checkInput calls guardrails/validate endpoint', async () => {
       // fetch called once for validate
-      globalThis.fetch = makeFetchMock([
-        { ok: true, body: PASS_RESULT },
-      ]) as typeof fetch;
+      globalThis.fetch = makeFetchMock([{ ok: true, body: PASS_RESULT }]);
 
       const guard = new PraesidiaGuard(config);
       const result = await guard.checkInput('hello');
@@ -158,9 +137,7 @@ describe('PraesidiaGuard', () => {
     });
 
     it('checkInput surfaces triggered guardrails from remote', async () => {
-      globalThis.fetch = makeFetchMock([
-        { ok: true, body: BLOCK_RESULT },
-      ]) as typeof fetch;
+      globalThis.fetch = makeFetchMock([{ ok: true, body: BLOCK_RESULT }]);
 
       const guard = new PraesidiaGuard(config);
       const result = await guard.checkInput('inject me');
@@ -172,9 +149,7 @@ describe('PraesidiaGuard', () => {
 
     it('run() does not call fn when remote check blocks', async () => {
       // First fetch = validate (block), no further calls
-      globalThis.fetch = makeFetchMock([
-        { ok: true, body: BLOCK_RESULT },
-      ]) as typeof fetch;
+      globalThis.fetch = makeFetchMock([{ ok: true, body: BLOCK_RESULT }]);
 
       const guard = new PraesidiaGuard(config);
       const fn = vi.fn(async () => 'secret');
@@ -191,7 +166,7 @@ describe('PraesidiaGuard', () => {
         { ok: true, body: PASS_RESULT },
         { ok: true, body: PASS_RESULT },
         { ok: true, status: 201, body: TASK_CREATED },
-      ]) as typeof fetch;
+      ]);
 
       const guard = new PraesidiaGuard(config);
       const result = await guard.run(async () => 'AI response', {
@@ -208,7 +183,7 @@ describe('PraesidiaGuard', () => {
     it('logTask POSTs a CreateAgentTaskDto-valid body and reads id (AUDIT-SDK-02)', async () => {
       globalThis.fetch = makeFetchMock([
         { ok: true, status: 201, body: TASK_CREATED },
-      ]) as typeof fetch;
+      ]);
 
       const guard = new PraesidiaGuard(config);
       const taskId = await guard.logTask({
@@ -238,7 +213,7 @@ describe('PraesidiaGuard', () => {
     it('logTask skips (no 400) when no connectionId is resolvable (AUDIT-SDK-02)', async () => {
       globalThis.fetch = makeFetchMock([
         { ok: true, status: 201, body: TASK_CREATED },
-      ]) as typeof fetch;
+      ]);
       const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
       const guard = new PraesidiaGuard({
         apiKey: 'pk_test_key',
@@ -264,7 +239,7 @@ describe('PraesidiaGuard', () => {
     it('degrades to local rules when remote check returns non-OK (failOpen default)', async () => {
       globalThis.fetch = makeFetchMock([
         { ok: false, status: 503, body: { message: 'Service unavailable' } },
-      ]) as typeof fetch;
+      ]);
 
       const guard = new PraesidiaGuard(config);
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -279,7 +254,7 @@ describe('PraesidiaGuard', () => {
     it('throws PraesidiaApiError when strict=true and remote fails', async () => {
       globalThis.fetch = makeFetchMock([
         { ok: false, status: 503, body: { message: 'Service unavailable' } },
-      ]) as typeof fetch;
+      ]);
 
       const guard = new PraesidiaGuard({ ...config, strict: true });
 
@@ -291,7 +266,7 @@ describe('PraesidiaGuard', () => {
     it('trackToolCall POSTs a tool_call task record', async () => {
       globalThis.fetch = makeFetchMock([
         { ok: true, status: 201, body: TASK_CREATED },
-      ]) as typeof fetch;
+      ]);
 
       const guard = new PraesidiaGuard(config);
       await expect(
@@ -326,9 +301,7 @@ describe('PraesidiaGuard', () => {
     };
 
     it('forwardChain attaches X-Praesidia-Chain-Id to subsequent calls', async () => {
-      globalThis.fetch = makeFetchMock([
-        { ok: true, body: PASS_RESULT },
-      ]) as typeof fetch;
+      globalThis.fetch = makeFetchMock([{ ok: true, body: PASS_RESULT }]);
 
       const guard = new PraesidiaGuard(config);
       guard.forwardChain('chain-uuid-abc');
@@ -347,7 +320,7 @@ describe('PraesidiaGuard', () => {
         { ok: true, body: PASS_RESULT },
         { ok: true, body: PASS_RESULT },
         { ok: true, status: 201, body: TASK_CREATED },
-      ]) as typeof fetch;
+      ]);
 
       // AUDIT-SDK-02 — CreateAgentTaskDto.chainId is @IsUUID; the SDK only ever
       // echoes a server-minted (UUID) chain id, so use a real UUID here.
@@ -376,7 +349,7 @@ describe('PraesidiaGuard', () => {
         { ok: true, body: PASS_RESULT },
         { ok: true, body: PASS_RESULT },
         { ok: true, status: 201, body: TASK_CREATED },
-      ]) as typeof fetch;
+      ]);
 
       const guard = new PraesidiaGuard(config);
       await guard.run(async () => 'ok', {
@@ -392,9 +365,7 @@ describe('PraesidiaGuard', () => {
     });
 
     it('forwardChain(null) stops propagating the chain id', async () => {
-      globalThis.fetch = makeFetchMock([
-        { ok: true, body: PASS_RESULT },
-      ]) as typeof fetch;
+      globalThis.fetch = makeFetchMock([{ ok: true, body: PASS_RESULT }]);
 
       const guard = new PraesidiaGuard(config);
       guard.forwardChain('chain-1');
@@ -441,7 +412,7 @@ describe('PraesidiaGuard', () => {
     it('trackToolCall forwards the four fields as X-Praesidia-* headers', async () => {
       globalThis.fetch = makeFetchMock([
         { ok: true, status: 201, body: TASK_CREATED },
-      ]) as typeof fetch;
+      ]);
 
       const guard = new PraesidiaGuard(config);
       await guard.trackToolCall({
@@ -462,7 +433,7 @@ describe('PraesidiaGuard', () => {
     it('never puts the capability token in the request body', async () => {
       globalThis.fetch = makeFetchMock([
         { ok: true, status: 201, body: TASK_CREATED },
-      ]) as typeof fetch;
+      ]);
 
       const guard = new PraesidiaGuard(config);
       await guard.trackToolCall({

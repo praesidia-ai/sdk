@@ -2,26 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PraesidiaTelemetry, genAiSpan } from './telemetry.js';
 import { PraesidiaConfigError } from './errors.js';
 import { OTLP_MAX_RESOURCE_SPANS } from './types.js';
+import { makeFetchMock } from './__tests__/fetch-mock.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function makeFetchMock(
-  responses: Array<{ ok: boolean; status?: number; body: unknown }>,
-) {
-  let call = 0;
-  return vi.fn(async () => {
-    const r = responses[call % responses.length];
-    call++;
-    return {
-      ok: r.ok,
-      status: r.status ?? (r.ok ? 202 : 400),
-      json: async () => r.body,
-      text: async () => JSON.stringify(r.body),
-    };
-  });
-}
 
 const config = { apiKey: 'pk_test_key' };
 const ACK = { accepted: true, buffered: 1 };
@@ -60,7 +45,7 @@ describe('PraesidiaTelemetry', () => {
   // ── emitGenAiSpan ─────────────────────────────────────────────────────────
 
   it('POSTs an OTLP ExportTraceServiceRequest to the ingest endpoint with Bearer auth', async () => {
-    globalThis.fetch = makeFetchMock([{ ok: true, body: ACK }]) as typeof fetch;
+    globalThis.fetch = makeFetchMock([{ ok: true, body: ACK }]);
 
     const telemetry = new PraesidiaTelemetry({
       ...config,
@@ -113,8 +98,8 @@ describe('PraesidiaTelemetry', () => {
   });
 
   it('rejects a batch that exceeds the resourceSpans cap without calling fetch', async () => {
-    const spy = vi.fn();
-    globalThis.fetch = spy as unknown as typeof fetch;
+    const spy = makeFetchMock([]);
+    globalThis.fetch = spy;
 
     const telemetry = new PraesidiaTelemetry(config);
     const tooMany = Array.from({ length: OTLP_MAX_RESOURCE_SPANS + 1 }, () => ({

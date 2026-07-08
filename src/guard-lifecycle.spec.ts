@@ -1,26 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PraesidiaGuard } from './guard.js';
 import { GuardrailBlockedError } from './errors.js';
-
-// ---------------------------------------------------------------------------
-// Helpers (mirror guard.spec.ts)
-// ---------------------------------------------------------------------------
-
-function makeFetchMock(
-  responses: Array<{ ok: boolean; status?: number; body: unknown }>,
-) {
-  let call = 0;
-  return vi.fn(async () => {
-    const r = responses[call % responses.length];
-    call++;
-    return {
-      ok: r.ok,
-      status: r.status ?? (r.ok ? 200 : 400),
-      json: async () => r.body,
-      text: async () => JSON.stringify(r.body),
-    };
-  });
-}
+import { makeFetchMock } from './__tests__/fetch-mock.js';
 
 const config = {
   apiKey: 'pk_test_key',
@@ -82,9 +63,7 @@ describe('H1-02a — guardrail pre/post hooks', () => {
   });
 
   it('guardInput throws GuardrailBlockedError on a block (fail-closed)', async () => {
-    globalThis.fetch = makeFetchMock([
-      { ok: true, body: BLOCK },
-    ]) as typeof fetch;
+    globalThis.fetch = makeFetchMock([{ ok: true, body: BLOCK }]);
     const guard = new PraesidiaGuard(config);
     await expect(guard.guardInput('My SSN is ...')).rejects.toThrow(
       GuardrailBlockedError,
@@ -92,18 +71,14 @@ describe('H1-02a — guardrail pre/post hooks', () => {
   });
 
   it('guardInput returns the CheckResult when the input passes', async () => {
-    globalThis.fetch = makeFetchMock([
-      { ok: true, body: PASS },
-    ]) as typeof fetch;
+    globalThis.fetch = makeFetchMock([{ ok: true, body: PASS }]);
     const guard = new PraesidiaGuard(config);
     const result = await guard.guardInput('hello');
     expect(result.passed).toBe(true);
   });
 
   it('guardOutput is fail-open by default (returns block, does not throw)', async () => {
-    globalThis.fetch = makeFetchMock([
-      { ok: true, body: BLOCK },
-    ]) as typeof fetch;
+    globalThis.fetch = makeFetchMock([{ ok: true, body: BLOCK }]);
     const guard = new PraesidiaGuard(config);
     const result = await guard.guardOutput('leaky output');
     expect(result.passed).toBe(false);
@@ -111,9 +86,7 @@ describe('H1-02a — guardrail pre/post hooks', () => {
   });
 
   it('guardOutput throws when throwOnBlock is set', async () => {
-    globalThis.fetch = makeFetchMock([
-      { ok: true, body: BLOCK },
-    ]) as typeof fetch;
+    globalThis.fetch = makeFetchMock([{ ok: true, body: BLOCK }]);
     const guard = new PraesidiaGuard(config);
     await expect(
       guard.guardOutput('leaky output', { throwOnBlock: true }),
@@ -132,9 +105,7 @@ describe('H1-02a — task lifecycle handle', () => {
   });
 
   it('complete() records exactly one task row (status completed)', async () => {
-    globalThis.fetch = makeFetchMock([
-      { ok: true, status: 201, body: TASK },
-    ]) as typeof fetch;
+    globalThis.fetch = makeFetchMock([{ ok: true, status: 201, body: TASK }]);
 
     const guard = new PraesidiaGuard(config);
     const task = guard.beginTask({ input: 'hi', taskType: 'chat' });
@@ -164,9 +135,7 @@ describe('H1-02a — task lifecycle handle', () => {
   });
 
   it('fail() records one failed task row with the error message as output', async () => {
-    globalThis.fetch = makeFetchMock([
-      { ok: true, status: 201, body: TASK },
-    ]) as typeof fetch;
+    globalThis.fetch = makeFetchMock([{ ok: true, status: 201, body: TASK }]);
 
     const guard = new PraesidiaGuard(config);
     const task = guard.beginTask({ input: 'do a thing' });
@@ -180,9 +149,7 @@ describe('H1-02a — task lifecycle handle', () => {
   });
 
   it('forwards chainId on the lifecycle task body', async () => {
-    globalThis.fetch = makeFetchMock([
-      { ok: true, status: 201, body: TASK },
-    ]) as typeof fetch;
+    globalThis.fetch = makeFetchMock([{ ok: true, status: 201, body: TASK }]);
 
     // AUDIT-SDK-02 — CreateAgentTaskDto.chainId is @IsUUID; use a real UUID.
     const CHAIN_UUID = '22222222-2222-4222-8222-222222222222';

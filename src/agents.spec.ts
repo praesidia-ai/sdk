@@ -2,26 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PraesidiaAgents } from './agents.js';
 import { PraesidiaGuard } from './guard.js';
 import { PraesidiaConfigError } from './errors.js';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function makeFetchMock(
-  responses: Array<{ ok: boolean; status?: number; body: unknown }>,
-) {
-  let call = 0;
-  return vi.fn(async () => {
-    const r = responses[call % responses.length];
-    call++;
-    return {
-      ok: r.ok,
-      status: r.status ?? (r.ok ? 200 : 400),
-      json: async () => r.body,
-      text: async () => JSON.stringify(r.body),
-    };
-  });
-}
+import { makeFetchMock } from './__tests__/fetch-mock.js';
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -52,7 +33,7 @@ describe('PraesidiaGuard.refreshCredential', () => {
   it('swaps the credential used on subsequent guarded calls', async () => {
     globalThis.fetch = makeFetchMock([
       { ok: true, body: { passed: true, triggered: [], processingTimeMs: 1 } },
-    ]) as typeof fetch;
+    ]);
 
     const guard = new PraesidiaGuard({
       apiKey: 'pk_old',

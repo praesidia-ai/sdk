@@ -1,34 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PraesidiaCompliance } from './compliance.js';
 import { PraesidiaApiError, PraesidiaConfigError } from './errors.js';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-interface MockResponse {
-  ok: boolean;
-  status?: number;
-  json?: unknown;
-  bytes?: Uint8Array;
-  text?: string;
-}
-
-/** Sequential fetch mock — one entry per expected call, in order. */
-function makeFetchMock(responses: MockResponse[]) {
-  let call = 0;
-  return vi.fn(async () => {
-    const r = responses[Math.min(call, responses.length - 1)];
-    call++;
-    return {
-      ok: r.ok,
-      status: r.status ?? (r.ok ? 200 : 400),
-      json: async () => r.json,
-      text: async () => r.text ?? JSON.stringify(r.json ?? {}),
-      arrayBuffer: async () => (r.bytes ?? new Uint8Array()).buffer,
-    };
-  });
-}
+import { makeFetchMock } from './__tests__/fetch-mock.js';
 
 const CONFIG = {
   apiKey: 'pk_test_key',
@@ -110,9 +83,7 @@ describe('PraesidiaCompliance', () => {
 
   describe('requestReport', () => {
     it('POSTs to the reports endpoint and returns the id + status', async () => {
-      globalThis.fetch = makeFetchMock([
-        { ok: true, json: REQUEST_RESULT },
-      ]) as typeof fetch;
+      globalThis.fetch = makeFetchMock([{ ok: true, json: REQUEST_RESULT }]);
 
       const compliance = new PraesidiaCompliance(CONFIG);
       const result = await compliance.requestReport();
@@ -135,9 +106,7 @@ describe('PraesidiaCompliance', () => {
 
   describe('getReportStatus', () => {
     it('GETs the status endpoint for the report id', async () => {
-      globalThis.fetch = makeFetchMock([
-        { ok: true, json: STATUS_READY },
-      ]) as typeof fetch;
+      globalThis.fetch = makeFetchMock([{ ok: true, json: STATUS_READY }]);
 
       const compliance = new PraesidiaCompliance(CONFIG);
       const status = await compliance.getReportStatus('rep-1');
@@ -155,9 +124,7 @@ describe('PraesidiaCompliance', () => {
 
   describe('getReportJson', () => {
     it('returns the structured document', async () => {
-      globalThis.fetch = makeFetchMock([
-        { ok: true, json: DOCUMENT },
-      ]) as typeof fetch;
+      globalThis.fetch = makeFetchMock([{ ok: true, json: DOCUMENT }]);
 
       const compliance = new PraesidiaCompliance(CONFIG);
       const doc = await compliance.getReportJson('rep-1');
@@ -171,7 +138,7 @@ describe('PraesidiaCompliance', () => {
     it('surfaces a 409 as PraesidiaApiError when the report is not complete', async () => {
       globalThis.fetch = makeFetchMock([
         { ok: false, status: 409, text: 'Report not completed' },
-      ]) as typeof fetch;
+      ]);
 
       const compliance = new PraesidiaCompliance(CONFIG);
       await expect(compliance.getReportJson('rep-1')).rejects.toThrow(
@@ -183,9 +150,7 @@ describe('PraesidiaCompliance', () => {
   describe('getReportPdf', () => {
     it('returns raw PDF bytes', async () => {
       const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]); // %PDF
-      globalThis.fetch = makeFetchMock([
-        { ok: true, bytes: pdfBytes },
-      ]) as typeof fetch;
+      globalThis.fetch = makeFetchMock([{ ok: true, bytes: pdfBytes }]);
 
       const compliance = new PraesidiaCompliance(CONFIG);
       const bytes = await compliance.getReportPdf('rep-1');
@@ -205,7 +170,7 @@ describe('PraesidiaCompliance', () => {
         { ok: true, json: STATUS_PENDING },
         { ok: true, json: STATUS_PENDING },
         { ok: true, json: STATUS_READY },
-      ]) as typeof fetch;
+      ]);
 
       const compliance = new PraesidiaCompliance(CONFIG);
       const status = await compliance.waitForReport('rep-1', {
@@ -218,9 +183,7 @@ describe('PraesidiaCompliance', () => {
     });
 
     it('throws when the report fails', async () => {
-      globalThis.fetch = makeFetchMock([
-        { ok: true, json: STATUS_FAILED },
-      ]) as typeof fetch;
+      globalThis.fetch = makeFetchMock([{ ok: true, json: STATUS_FAILED }]);
 
       const compliance = new PraesidiaCompliance(CONFIG);
       await expect(
@@ -229,9 +192,7 @@ describe('PraesidiaCompliance', () => {
     });
 
     it('throws on timeout when the report never becomes ready', async () => {
-      globalThis.fetch = makeFetchMock([
-        { ok: true, json: STATUS_PENDING },
-      ]) as typeof fetch;
+      globalThis.fetch = makeFetchMock([{ ok: true, json: STATUS_PENDING }]);
 
       const compliance = new PraesidiaCompliance(CONFIG);
       await expect(
@@ -249,7 +210,7 @@ describe('PraesidiaCompliance', () => {
         { ok: true, json: REQUEST_RESULT }, // POST create
         { ok: true, json: STATUS_PENDING }, // poll 1
         { ok: true, json: STATUS_READY }, // poll 2
-      ]) as typeof fetch;
+      ]);
 
       const compliance = new PraesidiaCompliance(CONFIG);
       const status = await compliance.generateAndWait({ pollIntervalMs: 1 });
