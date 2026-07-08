@@ -32,6 +32,11 @@ const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
  * Endpoint base: /organizations/:orgId/memories
  * Auth: Authorization: Bearer <apiKey>. Requires the AGENT_MEMORY feature and
  * the MEMORY_CREATE / MEMORY_VIEW / MEMORY_ERASE / MEMORY_DELETE permissions.
+ *
+ * AUDIT-SDK-04 — genuinely API-key-reachable: the memory controller's route
+ * guard was opened to API keys (be-core commit 0bff5a0a), so a personal `pk_`
+ * Bearer key whose owner holds the MEMORY_* permission in the org authenticates
+ * here (scoped by OrgMembershipGuard + PermissionsGuard) like a dashboard JWT.
  */
 export class PraesidiaMemory {
   private readonly orgId: string;
@@ -121,9 +126,7 @@ export class PraesidiaMemory {
    * (MEMORY_DELETE). Resolves once the backend answers 204 No Content.
    */
   async delete(id: string): Promise<void> {
-    return this.client.del(
-      `${this.memoriesBase}/${encodeURIComponent(id)}`,
-    );
+    return this.client.del(`${this.memoriesBase}/${encodeURIComponent(id)}`);
   }
 
   /**

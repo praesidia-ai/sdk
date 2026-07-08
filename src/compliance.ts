@@ -34,6 +34,12 @@ const DEFAULT_TIMEOUT_MS = 120_000;
  * Endpoint base: /organizations/:orgId/compliance/eu-ai-act/reports
  * Auth: Authorization: Bearer <apiKey>. Requires COMPLIANCE_MANAGE (create)
  * and COMPLIANCE_VIEW (status/download) permissions.
+ *
+ * AUDIT-SDK-04 — genuinely API-key-reachable: the auditor-report controller's
+ * route guard was opened to API keys (be-core commit 0bff5a0a), so a personal
+ * `pk_` Bearer key whose owner holds COMPLIANCE_VIEW/MANAGE in the org
+ * authenticates here (scoped by OrgMembershipGuard + PermissionsGuard) exactly
+ * like a dashboard JWT.
  */
 export class PraesidiaCompliance {
   private readonly orgId: string;
