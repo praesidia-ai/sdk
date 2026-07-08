@@ -7,6 +7,7 @@ import {
 import { runLocalRules } from './local-rules.js';
 import type {
   AgentIdentity,
+  AgentTaskType,
   BeginTaskOptions,
   CheckOptions,
   CheckResult,
@@ -48,6 +49,50 @@ export function toolCallContextFromTask(
 
 const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
 
+/** AUDIT-SDK-02 — RFC-4122 UUID matcher. `CreateAgentTaskDto.chainId` is
+ *  `@IsUUID`, so only a real UUID may be forwarded as `chainId`. */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function isUuid(value: string): boolean {
+  return UUID_RE.test(value);
+}
+
+/**
+ * AUDIT-SDK-02 — build the DTO-required non-empty `input` OBJECT for
+ * `CreateAgentTaskDto` from a `TaskRecord`-shaped record. A string prompt is
+ * wrapped as `{ message }`; an object input is spread as-is. The SDK's
+ * telemetry (output/usage/context) is preserved as NESTED keys — they are not
+ * top-level DTO fields, so nesting keeps the body valid under the backend's
+ * `whitelist` + `forbidNonWhitelisted` ValidationPipe (main.ts:344-346).
+ */
+function buildTaskInput(task: {
+  input?: string | Record<string, unknown>;
+  output?: string;
+  usage?: unknown;
+  context?: Record<string, unknown>;
+  taskType?: string;
+  status?: string;
+  startedAt?: string;
+  completedAt?: string;
+}): Record<string, unknown> {
+  const input: Record<string, unknown> = {};
+  if (typeof task.input === 'string') {
+    input.message = task.input;
+  } else if (task.input && typeof task.input === 'object') {
+    Object.assign(input, task.input);
+  }
+  if (task.output !== undefined) input.output = task.output;
+  if (task.usage !== undefined) input.usage = task.usage;
+  if (task.context !== undefined) input.context = task.context;
+  if (task.taskType !== undefined) input.taskType = task.taskType;
+  if (task.status !== undefined) input.status = task.status;
+  if (task.startedAt !== undefined) input.startedAt = task.startedAt;
+  if (task.completedAt !== undefined) input.completedAt = task.completedAt;
+  // @IsObject + @IsNotEmpty require a present object; guarantee ≥1 key.
+  if (Object.keys(input).length === 0) input.message = '';
+  return input;
+}
+
 /**
  * PraesidiaGuard — the primary entry point for the @praesidia/sdk.
  *
@@ -70,6 +115,7 @@ export class PraesidiaGuard {
   private readonly apiKey: string | undefined;
   private readonly orgId: string | undefined;
   private readonly agentId: string | undefined;
+  private readonly connectionId: string | undefined;
   private readonly baseUrl: string;
   private readonly strict: boolean;
   private readonly failOpen: boolean;
@@ -79,6 +125,9 @@ export class PraesidiaGuard {
     this.apiKey = config.apiKey ?? process.env['PRAESIDIA_API_KEY'];
     this.orgId = config.orgId ?? process.env['PRAESIDIA_ORG_ID'];
     this.agentId = config.agentId ?? process.env['PRAESIDIA_AGENT_ID'];
+    // AUDIT-SDK-02 — default connection tasks are routed through.
+    this.connectionId =
+      config.connectionId ?? process.env['PRAESIDIA_CONNECTION_ID'];
     this.baseUrl =
       config.baseUrl ?? process.env['PRAESIDIA_BASE_URL'] ?? DEFAULT_BASE_URL;
     this.strict = config.strict ?? false;
@@ -176,6 +225,9 @@ export class PraesidiaGuard {
       input: opts.input,
       taskType: opts.taskType ?? 'run',
       context: opts.context,
+      // AUDIT-SDK-02 — carry the connection + DTO task type through to logTask.
+      connectionId: opts.connectionId,
+      type: opts.type,
       chainId: opts.chainId,
       startedAt,
     };
@@ -257,6 +309,9 @@ export class PraesidiaGuard {
         output: outputStr,
         taskType: opts.taskType ?? 'run',
         context: opts.context,
+        // AUDIT-SDK-02 — required to build a valid CreateAgentTaskDto.
+        connectionId: opts.connectionId,
+        type: opts.type,
         startedAt,
         completedAt,
         status: 'completed',
@@ -313,31 +368,59 @@ export class PraesidiaGuard {
       return undefined;
     }
 
-    const agentId = task.agentId ?? this.agentId;
+    // AUDIT-SDK-02 — `POST /organizations/:orgId/tasks` binds
+    // `CreateAgentTaskDto`, which REQUIRES `connectionId` (UUID), `type`
+    // (AgentTaskType) and a non-empty `input` OBJECT. Resolve the connection;
+    // without one no valid DTO can be built, so surface it clearly (strict →
+    // throw, otherwise warn + skip) instead of silently 400ing as the old
+    // `{ agentId, input:<string>, output, … }` body did.
+    const connectionId = task.connectionId ?? this.connectionId;
+    if (!connectionId) {
+      if (this.strict) {
+        throw new PraesidiaConfigError(
+          'logTask requires a connectionId — pass task.connectionId or set ' +
+            'connectionId in the Praesidia config (env PRAESIDIA_CONNECTION_ID)',
+        );
+      }
+      this.consoleLog('task:skipped(no connectionId)', task);
+      return undefined;
+    }
+
     // Q3-02 — a task can carry an inbound chain id explicitly, otherwise the
     // client forwards whatever chain is currently being propagated.
     const chainId = task.chainId ?? this.client.getChainId();
     try {
       const res = await this.client.post<{ id: string }>(
         `/organizations/${this.orgId}/tasks`,
-        {
-          agentId,
-          input: task.input,
-          output: task.output,
-          taskType: task.taskType ?? 'sdk',
-          context: task.context,
-          usage: task.usage,
-          startedAt: task.startedAt ?? new Date().toISOString(),
-          completedAt: task.completedAt ?? new Date().toISOString(),
-          status: task.status ?? 'completed',
-          // Q3-02 — join the logged task to the inbound chain when present.
-          ...(chainId ? { chainId } : {}),
-        },
+        this.buildTaskBody(
+          connectionId,
+          task.type ?? 'MESSAGE',
+          buildTaskInput(task),
+          chainId,
+        ),
       );
       return res.id;
     } catch (err) {
       return this.handleNetworkError(err, 'logTask');
     }
+  }
+
+  /**
+   * AUDIT-SDK-02 — assemble a `CreateAgentTaskDto`-valid request body. Only DTO
+   * fields are emitted (the backend's whitelist ValidationPipe rejects unknown
+   * keys). `chainId` is forwarded ONLY when it is a real UUID — the DTO's
+   * `@IsUUID` would 400 otherwise, and the SDK only ever echoes a server-minted
+   * (UUID) chain id.
+   */
+  private buildTaskBody(
+    connectionId: string,
+    type: AgentTaskType,
+    input: Record<string, unknown>,
+    chainId?: string | null,
+  ): Record<string, unknown> {
+    const body: Record<string, unknown> = { connectionId, type, input };
+    if (chainId && isUuid(chainId)) body.chainId = chainId;
+    return body;
   }
 
   /**
@@ -373,6 +456,16 @@ export class PraesidiaGuard {
 
     const agentId = call.agentId ?? this.agentId;
     const chainId = call.chainId ?? this.client.getChainId();
+
+    // AUDIT-SDK-02 — a tracked tool call is submitted as a TOOL_CALL task and
+    // therefore needs a connection id like any other task. Best-effort: skip
+    // (log locally) rather than 400 when none is resolvable.
+    const connectionId = call.connectionId ?? this.connectionId;
+    if (!connectionId) {
+      this.consoleLog('tool_call', this.redactToolCall(call));
+      return;
+    }
+
     // Q4-02 — forward the task-binding fields as X-Praesidia-* headers. The
     // capability token rides only in the header, never in the JSON body or logs.
     const headers: Record<string, string> = {};
@@ -382,21 +475,16 @@ export class PraesidiaGuard {
     if (agentId) headers[AGENT_ID_HEADER] = agentId;
     if (chainId) headers[CHAIN_ID_HEADER] = chainId;
 
+    // AUDIT-SDK-02 — DTO `input` must be a non-empty OBJECT; carry the tool
+    // name + args (and the owning task id) inside it.
+    const input: Record<string, unknown> = { tool: call.name };
+    if (call.args !== undefined) input.args = call.args;
+    if (call.taskId) input.parentTaskId = call.taskId;
+
     try {
       await this.client.post(
         `/organizations/${this.orgId}/tasks`,
-        {
-          agentId,
-          taskType: 'tool_call',
-          input: call.name,
-          context: {
-            toolName: call.name,
-            toolArgs: call.args,
-            parentTaskId: call.taskId,
-          },
-          status: 'completed',
-          ...(chainId ? { chainId } : {}),
-        },
+        this.buildTaskBody(connectionId, 'TOOL_CALL', input, chainId),
         Object.keys(headers).length ? headers : undefined,
       );
     } catch {

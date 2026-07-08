@@ -7,11 +7,26 @@
  *   PRAESIDIA_AGENT_ID   — agent UUID (optional; scopes guardrail evaluation)
  *   PRAESIDIA_BASE_URL   — defaults to https://api.praesidia.ai
  */
+/**
+ * AUDIT-SDK-02 — task type accepted by `POST /organizations/:orgId/tasks`.
+ * Mirrors the backend `AgentTaskType` enum
+ * (src/agent-tasks/entities/agent-task.entity.ts).
+ */
+export type AgentTaskType = 'MESSAGE' | 'TOOL_CALL' | 'DELEGATION';
+
 export interface GuardConfig {
   apiKey?: string;
   orgId?: string;
   agentId?: string;
   baseUrl?: string;
+  /**
+   * AUDIT-SDK-02 — Default connection id (UUID) that `run`/`logTask`/
+   * `beginTask`/`trackToolCall` route submitted tasks through. The backend
+   * `CreateAgentTaskDto.connectionId` is a REQUIRED UUID, so a task cannot be
+   * submitted without one. Override per call via the matching `connectionId`
+   * option. Read from `PRAESIDIA_CONNECTION_ID` when unset.
+   */
+  connectionId?: string;
   /**
    * When true, a network error reaching Praesidia throws instead of being
    * swallowed. Input guardrail blocks always throw regardless of this flag
@@ -39,6 +54,15 @@ export interface RunOptions {
   agentId?: string;
   /** Task type label surfaced in the audit log. */
   taskType?: string;
+  /**
+   * AUDIT-SDK-02 — Connection id (UUID) to route the submitted task through.
+   * Falls back to `config.connectionId`. Required (backend-side) to persist
+   * the task — without a resolvable connectionId the audit submit is skipped
+   * (or throws in strict mode) instead of silently 400ing.
+   */
+  connectionId?: string;
+  /** AUDIT-SDK-02 — task type for the submit DTO. Defaults to `MESSAGE`. */
+  type?: AgentTaskType;
   /**
    * Q3-02 — Chain-trace id to continue. When set (an id echoed from an inbound
    * `X-Praesidia-Chain-Id` header) the run is joined to this existing chain and
@@ -123,6 +147,13 @@ export interface TaskRecord {
   };
   /** Arbitrary context attached to the audit record. */
   context?: Record<string, unknown>;
+  /**
+   * AUDIT-SDK-02 — Connection id (UUID) to route the submitted task through.
+   * Falls back to `config.connectionId`. Required (backend-side) to persist.
+   */
+  connectionId?: string;
+  /** AUDIT-SDK-02 — submit DTO task type. Defaults to `MESSAGE`. */
+  type?: AgentTaskType;
   /** ISO-8601 timestamp. Defaults to now. */
   startedAt?: string;
   /** ISO-8601 timestamp. Defaults to now. */
@@ -180,6 +211,12 @@ export interface ToolCallRecord extends ToolCallContext {
   name: string;
   /** Arguments passed to the tool. */
   args?: unknown;
+  /**
+   * AUDIT-SDK-02 — Connection id (UUID) to route the TOOL_CALL task through.
+   * Falls back to `config.connectionId`. When unresolved the tool-call submit
+   * is skipped (best-effort), never 400s.
+   */
+  connectionId?: string;
 }
 
 /**
@@ -379,6 +416,13 @@ export interface BeginTaskOptions {
   agentId?: string;
   /** Task type label surfaced in the audit log. */
   taskType?: string;
+  /**
+   * AUDIT-SDK-02 — Connection id (UUID) to route the submitted task through.
+   * Falls back to `config.connectionId`. Required (backend-side) to persist.
+   */
+  connectionId?: string;
+  /** AUDIT-SDK-02 — submit DTO task type. Defaults to `MESSAGE`. */
+  type?: AgentTaskType;
   /** Arbitrary key/value context attached to the audit record. */
   context?: Record<string, unknown>;
   /** Q3-02 — chain-trace id this task belongs to (echoed from an inbound hop). */

@@ -26,6 +26,8 @@ const config = {
   apiKey: 'pk_test_key',
   orgId: 'org-uuid-123',
   agentId: 'agent-uuid-456',
+  // AUDIT-SDK-02 — required to submit a CreateAgentTaskDto-valid task.
+  connectionId: '00000000-0000-4000-8000-000000000c01',
 };
 
 const PASS = { passed: true, triggered: [], processingTimeMs: 1 };
@@ -80,7 +82,9 @@ describe('H1-02a — guardrail pre/post hooks', () => {
   });
 
   it('guardInput throws GuardrailBlockedError on a block (fail-closed)', async () => {
-    globalThis.fetch = makeFetchMock([{ ok: true, body: BLOCK }]) as typeof fetch;
+    globalThis.fetch = makeFetchMock([
+      { ok: true, body: BLOCK },
+    ]) as typeof fetch;
     const guard = new PraesidiaGuard(config);
     await expect(guard.guardInput('My SSN is ...')).rejects.toThrow(
       GuardrailBlockedError,
@@ -88,14 +92,18 @@ describe('H1-02a — guardrail pre/post hooks', () => {
   });
 
   it('guardInput returns the CheckResult when the input passes', async () => {
-    globalThis.fetch = makeFetchMock([{ ok: true, body: PASS }]) as typeof fetch;
+    globalThis.fetch = makeFetchMock([
+      { ok: true, body: PASS },
+    ]) as typeof fetch;
     const guard = new PraesidiaGuard(config);
     const result = await guard.guardInput('hello');
     expect(result.passed).toBe(true);
   });
 
   it('guardOutput is fail-open by default (returns block, does not throw)', async () => {
-    globalThis.fetch = makeFetchMock([{ ok: true, body: BLOCK }]) as typeof fetch;
+    globalThis.fetch = makeFetchMock([
+      { ok: true, body: BLOCK },
+    ]) as typeof fetch;
     const guard = new PraesidiaGuard(config);
     const result = await guard.guardOutput('leaky output');
     expect(result.passed).toBe(false);
@@ -103,7 +111,9 @@ describe('H1-02a — guardrail pre/post hooks', () => {
   });
 
   it('guardOutput throws when throwOnBlock is set', async () => {
-    globalThis.fetch = makeFetchMock([{ ok: true, body: BLOCK }]) as typeof fetch;
+    globalThis.fetch = makeFetchMock([
+      { ok: true, body: BLOCK },
+    ]) as typeof fetch;
     const guard = new PraesidiaGuard(config);
     await expect(
       guard.guardOutput('leaky output', { throwOnBlock: true }),
@@ -138,14 +148,19 @@ describe('H1-02a — task lifecycle handle', () => {
       .calls[0] as [string, RequestInit];
     expect(url).toContain('/organizations/org-uuid-123/tasks');
     const body = JSON.parse(init.body as string);
-    expect(body.status).toBe('completed');
-    expect(body.input).toBe('hi');
-    expect(body.output).toBe('there');
-    expect(body.taskType).toBe('chat');
-    expect(body.usage).toEqual({ totalTokens: 42 });
+    // AUDIT-SDK-02 — CreateAgentTaskDto-valid body: connectionId + type +
+    // non-empty input OBJECT. The SDK's telemetry is preserved as NESTED keys
+    // under `input` (they are not top-level DTO fields).
+    expect(body.connectionId).toBe('00000000-0000-4000-8000-000000000c01');
+    expect(body.type).toBe('MESSAGE');
+    expect(body.input.message).toBe('hi');
+    expect(body.input.output).toBe('there');
+    expect(body.input.taskType).toBe('chat');
+    expect(body.input.status).toBe('completed');
+    expect(body.input.usage).toEqual({ totalTokens: 42 });
     // startedAt captured at begin(), completedAt at complete().
-    expect(body.startedAt).toBeTruthy();
-    expect(body.completedAt).toBeTruthy();
+    expect(body.input.startedAt).toBeTruthy();
+    expect(body.input.completedAt).toBeTruthy();
   });
 
   it('fail() records one failed task row with the error message as output', async () => {
@@ -160,8 +175,8 @@ describe('H1-02a — task lifecycle handle', () => {
     const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
       .calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
-    expect(body.status).toBe('failed');
-    expect(body.output).toBe('model timeout');
+    expect(body.input.status).toBe('failed');
+    expect(body.input.output).toBe('model timeout');
   });
 
   it('forwards chainId on the lifecycle task body', async () => {
@@ -169,13 +184,15 @@ describe('H1-02a — task lifecycle handle', () => {
       { ok: true, status: 201, body: TASK },
     ]) as typeof fetch;
 
+    // AUDIT-SDK-02 — CreateAgentTaskDto.chainId is @IsUUID; use a real UUID.
+    const CHAIN_UUID = '22222222-2222-4222-8222-222222222222';
     const guard = new PraesidiaGuard(config);
-    const task = guard.beginTask({ input: 'hi', chainId: 'chain-xyz' });
+    const task = guard.beginTask({ input: 'hi', chainId: CHAIN_UUID });
     await task.complete('ok');
 
     const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
       .calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
-    expect(body.chainId).toBe('chain-xyz');
+    expect(body.chainId).toBe(CHAIN_UUID);
   });
 });

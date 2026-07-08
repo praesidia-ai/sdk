@@ -34,6 +34,8 @@ export {
 export type {
   GuardConfig,
   RunOptions,
+  // AUDIT-SDK-02 — task type accepted by POST /organizations/:orgId/tasks
+  AgentTaskType,
   CheckOptions,
   CheckResult,
   GuardedResult,

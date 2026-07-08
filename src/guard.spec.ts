@@ -132,6 +132,8 @@ describe('PraesidiaGuard', () => {
       apiKey: 'pk_test_key',
       orgId: 'org-uuid-123',
       agentId: 'agent-uuid-456',
+      // AUDIT-SDK-02 — required to submit a CreateAgentTaskDto-valid task.
+      connectionId: '00000000-0000-4000-8000-000000000c01',
     };
 
     it('checkInput calls guardrails/validate endpoint', async () => {
@@ -203,7 +205,7 @@ describe('PraesidiaGuard', () => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(3);
     });
 
-    it('logTask POSTs to /organizations/:orgId/tasks', async () => {
+    it('logTask POSTs a CreateAgentTaskDto-valid body and reads id (AUDIT-SDK-02)', async () => {
       globalThis.fetch = makeFetchMock([
         { ok: true, status: 201, body: TASK_CREATED },
       ]) as typeof fetch;
@@ -216,9 +218,47 @@ describe('PraesidiaGuard', () => {
       });
 
       expect(taskId).toBe('task-abc-123');
-      const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
-        .calls[0] as [string];
+      const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+        .calls[0] as [string, RequestInit];
       expect(url).toContain('/organizations/org-uuid-123/tasks');
+      const body = JSON.parse(init.body as string);
+      // Contract: CreateAgentTaskDto requires connectionId (UUID), type (enum),
+      // and a non-empty input OBJECT. The old string-input/agentId body 400'd.
+      expect(body.connectionId).toBe('00000000-0000-4000-8000-000000000c01');
+      expect(body.type).toBe('MESSAGE');
+      expect(typeof body.input).toBe('object');
+      expect(body.input.message).toBe('hi');
+      expect(body.input.output).toBe('there');
+      // No forbidden top-level keys (whitelist ValidationPipe rejects them).
+      expect(body.agentId).toBeUndefined();
+      expect(body.status).toBeUndefined();
+      expect(body.output).toBeUndefined();
+    });
+
+    it('logTask skips (no 400) when no connectionId is resolvable (AUDIT-SDK-02)', async () => {
+      globalThis.fetch = makeFetchMock([
+        { ok: true, status: 201, body: TASK_CREATED },
+      ]) as typeof fetch;
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const guard = new PraesidiaGuard({
+        apiKey: 'pk_test_key',
+        orgId: 'org-uuid-123',
+      });
+      const taskId = await guard.logTask({ input: 'hi' });
+      expect(taskId).toBeUndefined();
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+      logSpy.mockRestore();
+    });
+
+    it('logTask throws in strict mode when no connectionId is resolvable', async () => {
+      const guard = new PraesidiaGuard({
+        apiKey: 'pk_test_key',
+        orgId: 'org-uuid-123',
+        strict: true,
+      });
+      await expect(guard.logTask({ input: 'hi' })).rejects.toThrow(
+        /connectionId/,
+      );
     });
 
     it('degrades to local rules when remote check returns non-OK (failOpen default)', async () => {
@@ -261,6 +301,16 @@ describe('PraesidiaGuard', () => {
           taskId: 'task-parent',
         }),
       ).resolves.toBeUndefined();
+
+      // AUDIT-SDK-02 — submitted as a TOOL_CALL task with a valid DTO body.
+      const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+        .calls[0] as [string, RequestInit];
+      expect(url).toContain('/organizations/org-uuid-123/tasks');
+      const body = JSON.parse(init.body as string);
+      expect(body.connectionId).toBe('00000000-0000-4000-8000-000000000c01');
+      expect(body.type).toBe('TOOL_CALL');
+      expect(body.input.tool).toBe('search');
+      expect(body.input.args).toEqual({ q: 'test' });
     });
   });
 
@@ -271,6 +321,8 @@ describe('PraesidiaGuard', () => {
       apiKey: 'pk_test_key',
       orgId: 'org-uuid-123',
       agentId: 'agent-uuid-456',
+      // AUDIT-SDK-02 — required to submit a CreateAgentTaskDto-valid task.
+      connectionId: '00000000-0000-4000-8000-000000000c01',
     };
 
     it('forwardChain attaches X-Praesidia-Chain-Id to subsequent calls', async () => {
@@ -297,10 +349,13 @@ describe('PraesidiaGuard', () => {
         { ok: true, status: 201, body: TASK_CREATED },
       ]) as typeof fetch;
 
+      // AUDIT-SDK-02 — CreateAgentTaskDto.chainId is @IsUUID; the SDK only ever
+      // echoes a server-minted (UUID) chain id, so use a real UUID here.
+      const CHAIN_UUID = '11111111-1111-4111-8111-111111111111';
       const guard = new PraesidiaGuard(config);
       await guard.run(async () => 'ok', {
         input: 'clean',
-        chainId: 'chain-xyz',
+        chainId: CHAIN_UUID,
       });
 
       const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
@@ -309,11 +364,31 @@ describe('PraesidiaGuard', () => {
       for (const [, init] of calls) {
         expect(
           (init.headers as Record<string, string>)['X-Praesidia-Chain-Id'],
-        ).toBe('chain-xyz');
+        ).toBe(CHAIN_UUID);
       }
-      // The logged task body echoes the chainId.
+      // The submitted task body echoes the (UUID) chainId.
       const logBody = JSON.parse(calls[2][1].body as string);
-      expect(logBody.chainId).toBe('chain-xyz');
+      expect(logBody.chainId).toBe(CHAIN_UUID);
+    });
+
+    it('run() drops a non-UUID chainId from the task body (AUDIT-SDK-02)', async () => {
+      globalThis.fetch = makeFetchMock([
+        { ok: true, body: PASS_RESULT },
+        { ok: true, body: PASS_RESULT },
+        { ok: true, status: 201, body: TASK_CREATED },
+      ]) as typeof fetch;
+
+      const guard = new PraesidiaGuard(config);
+      await guard.run(async () => 'ok', {
+        input: 'clean',
+        chainId: 'not-a-uuid',
+      });
+
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+        .calls as [string, RequestInit][];
+      const logBody = JSON.parse(calls[2][1].body as string);
+      // Non-UUID chainId would 400 the @IsUUID DTO — dropped from the body.
+      expect(logBody.chainId).toBeUndefined();
     });
 
     it('forwardChain(null) stops propagating the chain id', async () => {
@@ -341,6 +416,8 @@ describe('PraesidiaGuard', () => {
       apiKey: 'pk_test_key',
       orgId: 'org-uuid-123',
       agentId: 'agent-uuid-456',
+      // AUDIT-SDK-02 — required to submit a CreateAgentTaskDto-valid task.
+      connectionId: '00000000-0000-4000-8000-000000000c01',
     };
 
     const POLLED_TASK = {

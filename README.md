@@ -41,10 +41,18 @@ const guard = new PraesidiaGuard(); // no env vars → local mode
 Set three environment variables to enable remote guardrails, audit logging, and analytics:
 
 ```bash
-PRAESIDIA_API_KEY=pk_...    # org-scoped API key (agents:invoke scope)
-PRAESIDIA_ORG_ID=org-uuid   # your organization ID
-PRAESIDIA_AGENT_ID=ag-uuid  # the agent running the SDK (optional)
+PRAESIDIA_API_KEY=pk_...          # org-scoped API key (agents:invoke scope)
+PRAESIDIA_ORG_ID=org-uuid         # your organization ID
+PRAESIDIA_AGENT_ID=ag-uuid        # the agent running the SDK (optional)
+PRAESIDIA_CONNECTION_ID=conn-uuid # default connection the audit task is routed through
 ```
+
+> **Audit-task persistence needs a `connectionId`.** `POST /organizations/:orgId/tasks`
+> binds `CreateAgentTaskDto`, whose `connectionId` is a **required UUID**. Set
+> `PRAESIDIA_CONNECTION_ID` (or pass `connectionId` in the config / per call) to have
+> `run`/`logTask`/`beginTask`/`trackToolCall` persist their audit record. Without a
+> resolvable connection id the audit submit is **skipped** (or throws in `strict` mode) —
+> it never silently 400s.
 
 ## API
 
@@ -55,6 +63,7 @@ const guard = new PraesidiaGuard({
   apiKey:  'pk_...',                    // falls back to PRAESIDIA_API_KEY
   orgId:   'org-uuid',                 // falls back to PRAESIDIA_ORG_ID
   agentId: 'agent-uuid',              // falls back to PRAESIDIA_AGENT_ID
+  connectionId: 'conn-uuid',          // falls back to PRAESIDIA_CONNECTION_ID; required (UUID) to persist audit tasks
   baseUrl: 'https://api.praesidia.ai', // falls back to PRAESIDIA_BASE_URL
   strict:  false, // true → throw on network errors (default: false = degrade gracefully)
   failOpen: false, // true → silently swallow network errors (default: false = warn + local fallback)
@@ -71,7 +80,9 @@ const result = await guard.run(
   {
     input: prompt,
     context: { userId: '123', sessionId: 'abc' },
-    taskType: 'chat',   // optional label in the audit log
+    taskType: 'chat',        // optional free-form label carried inside the audit input
+    connectionId: 'conn-uuid', // optional; falls back to config.connectionId (required to persist)
+    type: 'MESSAGE',         // AgentTaskType for the submit DTO — 'MESSAGE' (default) | 'TOOL_CALL' | 'DELEGATION'
   },
 );
 ```
@@ -88,11 +99,19 @@ Standalone output check.
 
 ### `guard.logTask(task)` → `Promise<string | undefined>`
 
-Manually log a task to the audit trail. Returns the Praesidia `taskId`.
+Manually log a task to the audit trail. Returns the created task's `id`. The task body
+is a `CreateAgentTaskDto`: a `connectionId` (UUID, from `task.connectionId` or the config /
+`PRAESIDIA_CONNECTION_ID`), a `type` (`AgentTaskType`, default `MESSAGE`), and a **non-empty
+`input` object** — a string `input` is wrapped as `{ message }` and the SDK's
+`output`/`usage`/`status`/`taskType` telemetry is nested under `input` (they are not top-level
+DTO fields). When no `connectionId` is resolvable the submit is skipped (returns `undefined`),
+or throws in `strict` mode.
 
 ### `guard.trackToolCall(call)` → `Promise<void>`
 
-Record a tool call. Best-effort — never throws.
+Record a tool call as a `TOOL_CALL` task (`input: { tool, args, parentTaskId }`). Best-effort —
+never throws, and is **skipped** (logged locally) when no `connectionId` is resolvable
+(`call.connectionId` → config / `PRAESIDIA_CONNECTION_ID`).
 
 When the tool call runs on behalf of a claimed task, thread the task-binding
 fields so the backend's use-time capability-token gate can bind the call to the
