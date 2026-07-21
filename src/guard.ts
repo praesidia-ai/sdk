@@ -517,7 +517,7 @@ export class PraesidiaGuard {
   private async checkContent(
     content: string,
     opts: CheckOptions,
-    _scope: 'INPUT' | 'OUTPUT',
+    scope: 'INPUT' | 'OUTPUT',
   ): Promise<CheckResult> {
     // Local mode — no API key configured
     if (!this.client || !this.orgId) {
@@ -528,7 +528,7 @@ export class PraesidiaGuard {
 
     try {
       // POST /organizations/:orgId/guardrails/validate
-      // ValidateContentDto: { content, agentId?, context? }
+      // ValidateContentDto: { content, agentId?, scope?, context? }
       const result = await this.client.post<{
         passed: boolean;
         triggered: Array<{
@@ -547,6 +547,7 @@ export class PraesidiaGuard {
       }>(`/organizations/${this.orgId}/guardrails/validate`, {
         content,
         agentId,
+        scope,
         context: opts.context,
       });
 

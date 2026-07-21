@@ -136,6 +136,27 @@ describe('PraesidiaGuard', () => {
       );
     });
 
+    it('checkInput forwards scope="INPUT" and checkOutput forwards scope="OUTPUT" to the validate DTO', async () => {
+      globalThis.fetch = makeFetchMock([
+        { ok: true, body: PASS_RESULT },
+        { ok: true, body: PASS_RESULT },
+      ]);
+
+      const guard = new PraesidiaGuard(config);
+      await guard.checkInput('hello');
+      await guard.checkOutput('world');
+
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const inputBody = JSON.parse(
+        (calls[0] as [string, RequestInit])[1].body as string,
+      );
+      const outputBody = JSON.parse(
+        (calls[1] as [string, RequestInit])[1].body as string,
+      );
+      expect(inputBody.scope).toBe('INPUT');
+      expect(outputBody.scope).toBe('OUTPUT');
+    });
+
     it('checkInput surfaces triggered guardrails from remote', async () => {
       globalThis.fetch = makeFetchMock([{ ok: true, body: BLOCK_RESULT }]);
 
