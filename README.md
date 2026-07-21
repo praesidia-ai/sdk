@@ -320,6 +320,7 @@ const m = await memory.create({
 });
 const hits = await memory.search({ query: 'contact preference', topK: 5 });
 const page = await memory.list({ limit: 20, tag: 'crm' });
+// page.meta.page / page.meta.totalPages / page.meta.hasNextPage (nested, not top-level)
 await memory.get(m.id);
 await memory.erase({ subjectId: 'user-42', reason: 'GDPR Art-17 request' });
 await memory.delete(m.id);
@@ -328,7 +329,7 @@ await memory.delete(m.id);
 | Method | Returns | Endpoint |
 |---|---|---|
 | `create(input)` | `Promise<MemoryRecord>` | `POST .../memories` |
-| `list(query?)` | `Promise<{ data: MemoryRecord[] }>` | `GET .../memories` |
+| `list(query?)` | `Promise<{ data: MemoryRecord[]; total: number; meta: {page,limit,total,totalPages,hasNextPage,hasPrevPage} }>` | `GET .../memories` |
 | `search(input)` | `Promise<MemoryRecord[]>` | `POST .../memories/search` |
 | `erase(input)` | `Promise<EraseMemoryResult>` | `POST .../memories/erase` |
 | `get(id)` | `Promise<MemoryRecord>` | `GET .../memories/:id` |

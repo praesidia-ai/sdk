@@ -74,7 +74,21 @@ describe('PraesidiaMemory', () => {
 
   it('list GETs with a built query string', async () => {
     globalThis.fetch = makeFetchMock([
-      { ok: true, body: { data: [MEMORY], total: 1, page: 1 } },
+      {
+        ok: true,
+        body: {
+          data: [MEMORY],
+          total: 1,
+          meta: {
+            page: 1,
+            limit: 5,
+            total: 1,
+            totalPages: 1,
+            hasNextPage: false,
+            hasPrevPage: false,
+          },
+        },
+      },
     ]);
 
     const memory = new PraesidiaMemory(config);
@@ -85,6 +99,8 @@ describe('PraesidiaMemory', () => {
     });
 
     expect(res.data).toHaveLength(1);
+    expect(res.meta.page).toBe(1);
+    expect(res.meta.totalPages).toBe(1);
     const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
       .calls[0] as [string];
     expect(url).toContain('/organizations/org-uuid-123/memories?');

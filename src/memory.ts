@@ -76,16 +76,35 @@ export class PraesidiaMemory {
 
   /**
    * List memories (org-scoped, paginated, decrypted). GET .../memories
-   * (MEMORY_VIEW). Returns the raw list envelope the backend produces.
+   * (MEMORY_VIEW). Returns the raw `PaginatedResult` envelope the backend
+   * produces (be/src/common/dto/pagination.dto.ts) — pagination metadata is
+   * nested under `meta` (page/limit/totalPages/hasNextPage/hasPrevPage), not
+   * top-level. `total` IS top-level too, mirroring `meta.total`.
    */
-  async list(
-    query: ListMemoriesQuery = {},
-  ): Promise<{ data: MemoryRecord[]; total?: number; page?: number }> {
+  async list(query: ListMemoriesQuery = {}): Promise<{
+    data: MemoryRecord[];
+    total: number;
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNextPage: boolean;
+      hasPrevPage: boolean;
+    };
+  }> {
     const qs = buildQueryString(query);
     return this.client.get<{
       data: MemoryRecord[];
-      total?: number;
-      page?: number;
+      total: number;
+      meta: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+        hasNextPage: boolean;
+        hasPrevPage: boolean;
+      };
     }>(`${this.memoriesBase}${qs}`);
   }
 
