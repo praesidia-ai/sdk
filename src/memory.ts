@@ -57,7 +57,11 @@ export class PraesidiaMemory {
     }
 
     this.orgId = orgId;
-    this.client = new PraesidiaClient(this.baseUrl, apiKey);
+    this.client = new PraesidiaClient(
+      this.baseUrl,
+      apiKey,
+      config.requestTimeoutMs,
+    );
     this.memoriesBase = `/organizations/${this.orgId}/memories`;
   }
 

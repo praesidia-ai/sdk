@@ -45,6 +45,7 @@ PRAESIDIA_API_KEY=pk_...          # org-scoped API key (agents:invoke scope)
 PRAESIDIA_ORG_ID=org-uuid         # your organization ID
 PRAESIDIA_AGENT_ID=ag-uuid        # the agent running the SDK (optional)
 PRAESIDIA_CONNECTION_ID=conn-uuid # default connection the audit task is routed through
+PRAESIDIA_REQUEST_TIMEOUT_MS=30000 # per-request deadline (1..300000)
 ```
 
 > **Audit-task persistence needs a `connectionId`.** `POST /organizations/:orgId/tasks`
@@ -65,6 +66,7 @@ const guard = new PraesidiaGuard({
   agentId: 'agent-uuid',              // falls back to PRAESIDIA_AGENT_ID
   connectionId: 'conn-uuid',          // falls back to PRAESIDIA_CONNECTION_ID; required (UUID) to persist audit tasks
   baseUrl: 'https://api.praesidia.ai', // falls back to PRAESIDIA_BASE_URL
+  requestTimeoutMs: 30_000, // falls back to PRAESIDIA_REQUEST_TIMEOUT_MS
   strict:  false, // true → throw on network errors (default: false = degrade gracefully)
   failOpen: false, // true → silently swallow network errors (default: false = warn + local fallback)
 });
@@ -88,6 +90,9 @@ const result = await guard.run(
 ```
 
 Throws `GuardrailBlockedError` if input is blocked. `fn` is **not** called in that case.
+If `fn` throws, `run` records one failed audit task on a best-effort basis and
+then rethrows the original error. Per-run `chainId` headers are request-scoped,
+so concurrent runs on one guard do not overwrite each other's trace context.
 
 ### `guard.checkInput(input, opts?)` → `Promise<CheckResult>`
 
@@ -358,7 +363,7 @@ if (verified && passport.credentialSubject.trustScore >= 70) {
 const bundle = await trust.fetchVerifyBundle(peerAgentId);
 const result = trust.verifyPassport(bundle.passport, bundle.publicKeyJwk);
 // result.reason ∈ ok | missing-proof | malformed-public-key
-//                  | signature-mismatch | expired
+//                  | signature-mismatch | invalid-expiration | expired
 ```
 
 `verifyPassport` reconstructs the canonical JSON of the passport with its `proof`

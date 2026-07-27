@@ -60,7 +60,11 @@ export class PraesidiaCompliance {
     }
 
     this.orgId = orgId;
-    this.client = new PraesidiaClient(this.baseUrl, apiKey);
+    this.client = new PraesidiaClient(
+      this.baseUrl,
+      apiKey,
+      config.requestTimeoutMs,
+    );
     this.reportsBase = `/organizations/${this.orgId}/compliance/eu-ai-act/reports`;
   }
 

@@ -37,7 +37,7 @@ export class PraesidiaAgents {
       );
     }
 
-    this.client = new PraesidiaClient(baseUrl, apiKey);
+    this.client = new PraesidiaClient(baseUrl, apiKey, config.requestTimeoutMs);
   }
 
   // ── Public API ──────────────────────────────────────────────────────────────

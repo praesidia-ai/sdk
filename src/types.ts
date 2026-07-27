@@ -19,6 +19,8 @@ export interface GuardConfig {
   orgId?: string;
   agentId?: string;
   baseUrl?: string;
+  /** Per-request HTTP deadline in milliseconds (default 30000, max 300000). */
+  requestTimeoutMs?: number;
   /**
    * AUDIT-SDK-02 — Default connection id (UUID) that `run`/`logTask`/
    * `beginTask`/`trackToolCall` route submitted tasks through. The backend
@@ -78,6 +80,8 @@ export interface RunOptions {
 export interface CheckOptions {
   agentId?: string;
   context?: Record<string, unknown>;
+  /** Per-call chain id; avoids shared mutable trace state in concurrent runs. */
+  chainId?: string;
 }
 
 /**
@@ -737,6 +741,7 @@ export type TrustVerificationReason =
   | 'missing-proof'
   | 'malformed-public-key'
   | 'signature-mismatch'
+  | 'invalid-expiration'
   | 'expired';
 
 /** H3-02f — the outcome of `PraesidiaTrust.verifyPassport`. */

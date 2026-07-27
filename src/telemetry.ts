@@ -91,7 +91,11 @@ export class PraesidiaTelemetry {
     this.apiKey = apiKey;
     this.serviceName =
       config.serviceName ?? process.env['PRAESIDIA_SERVICE_NAME'] ?? undefined;
-    this.client = new PraesidiaClient(this.baseUrl, apiKey);
+    this.client = new PraesidiaClient(
+      this.baseUrl,
+      apiKey,
+      config.requestTimeoutMs,
+    );
   }
 
   // ── Public API ──────────────────────────────────────────────────────────────

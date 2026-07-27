@@ -180,6 +180,14 @@ describe('PraesidiaTrust', () => {
     expect(result.reason).toBe('expired');
   });
 
+  it('verifyPassport fails closed for a signed but malformed expiration date', () => {
+    const { passport, publicKeyJwk } = makeKeypairAndPassport('not-a-date');
+    const result = new PraesidiaTrust().verifyPassport(passport, publicKeyJwk);
+    expect(result.signatureValid).toBe(true);
+    expect(result.verified).toBe(false);
+    expect(result.reason).toBe('invalid-expiration');
+  });
+
   it('verifyPassport returns malformed-public-key for a bad JWK', () => {
     const { passport } = makeKeypairAndPassport();
     const trust = new PraesidiaTrust();

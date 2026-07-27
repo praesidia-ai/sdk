@@ -201,6 +201,27 @@ describe('PraesidiaGuard', () => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(3);
     });
 
+    it('run() records a failed task before rethrowing the original agent error', async () => {
+      globalThis.fetch = makeFetchMock([
+        { ok: true, body: PASS_RESULT },
+        { ok: true, status: 201, body: TASK_CREATED },
+      ]);
+      const guard = new PraesidiaGuard(config);
+      const failure = new Error('model crashed');
+
+      await expect(
+        guard.run(async () => {
+          throw failure;
+        }, { input: 'clean input' }),
+      ).rejects.toBe(failure);
+
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls as [string, RequestInit][];
+      expect(calls).toHaveLength(2);
+      const taskBody = JSON.parse(calls[1][1].body as string);
+      expect(taskBody.input.status).toBe('failed');
+      expect(taskBody.input.output).toBe('model crashed');
+    });
+
     it('logTask POSTs a CreateAgentTaskDto-valid body and reads id (AUDIT-SDK-02)', async () => {
       globalThis.fetch = makeFetchMock([
         { ok: true, status: 201, body: TASK_CREATED },
@@ -363,6 +384,29 @@ describe('PraesidiaGuard', () => {
       // The submitted task body echoes the (UUID) chainId.
       const logBody = JSON.parse(calls[2][1].body as string);
       expect(logBody.chainId).toBe(CHAIN_UUID);
+    });
+
+    it('keeps concurrent run chain headers isolated', async () => {
+      globalThis.fetch = makeFetchMock([
+        { ok: true, body: { ...PASS_RESULT, id: 'task-id' } },
+      ]);
+      const guard = new PraesidiaGuard(config);
+      const chainA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+      const chainB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+      await Promise.all([
+        guard.run(async () => 'output-a', { input: 'input-a', chainId: chainA }),
+        guard.run(async () => 'output-b', { input: 'input-b', chainId: chainB }),
+      ]);
+
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls as [string, RequestInit][];
+      expect(calls).toHaveLength(6);
+      for (const [, init] of calls) {
+        const body = JSON.parse(init.body as string);
+        const marker = body.content ?? body.input?.message;
+        const expected = String(marker).endsWith('-a') ? chainA : chainB;
+        expect((init.headers as Record<string, string>)['X-Praesidia-Chain-Id']).toBe(expected);
+      }
     });
 
     it('run() drops a non-UUID chainId from the task body (AUDIT-SDK-02)', async () => {

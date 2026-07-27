@@ -15,7 +15,7 @@ RUN npm ci
 COPY tsconfig.json tsconfig.spec.json ./
 COPY src ./src
 COPY README.md LICENSE ./
-RUN npm run build && npx vitest run
+RUN npm run build && npm test && npm run typecheck:spec
 
 # ---- runtime: minimal, non-root, carries only the built output ----
 FROM node:24.18-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS runtime

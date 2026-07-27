@@ -134,7 +134,11 @@ export class PraesidiaGuard {
     this.failOpen = config.failOpen ?? false;
 
     if (this.apiKey && this.orgId) {
-      this.client = new PraesidiaClient(this.baseUrl, this.apiKey);
+      this.client = new PraesidiaClient(
+        this.baseUrl,
+        this.apiKey,
+        config.requestTimeoutMs,
+      );
     }
   }
 
@@ -270,16 +274,11 @@ export class PraesidiaGuard {
   ): Promise<GuardedResult<T>> {
     const agentId = opts.agentId ?? this.agentId;
 
-    // Q3-02 — forward an inbound chain-trace id (unchanged) so every outbound
-    // call in this run stays joined to the same multi-agent chain.
-    if (opts.chainId) {
-      this.forwardChain(opts.chainId);
-    }
-
     // Step 1 — input check (fail-CLOSED on block)
     const inputCheck = await this.checkInput(opts.input, {
       agentId,
       context: opts.context,
+      chainId: opts.chainId,
     });
     if (!inputCheck.passed) {
       throw new GuardrailBlockedError(inputCheck.triggered);
@@ -287,7 +286,29 @@ export class PraesidiaGuard {
 
     // Step 2 — execute the wrapped function
     const startedAt = new Date().toISOString();
-    const output = await fn();
+    let output: T;
+    try {
+      output = await fn();
+    } catch (error) {
+      try {
+        await this.logTask({
+          agentId,
+          input: opts.input,
+          output: this.errorToString(error),
+          taskType: opts.taskType ?? 'run',
+          context: opts.context,
+          connectionId: opts.connectionId,
+          type: opts.type,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          status: 'failed',
+          chainId: opts.chainId,
+        });
+      } catch {
+        // Preserve the agent's original failure; audit recording is best-effort.
+      }
+      throw error;
+    }
     const completedAt = new Date().toISOString();
 
     // Step 3 — output check (fail-OPEN on block by convention — the agent
@@ -298,6 +319,7 @@ export class PraesidiaGuard {
     const outputCheck = await this.checkOutput(outputStr, {
       agentId,
       context: opts.context,
+      chainId: opts.chainId,
     });
 
     // Step 4 — audit log (best-effort; never throws)
@@ -398,6 +420,7 @@ export class PraesidiaGuard {
           buildTaskInput(task),
           chainId,
         ),
+        chainId ? { [CHAIN_ID_HEADER]: chainId } : undefined,
       );
       return res.id;
     } catch (err) {
@@ -544,12 +567,11 @@ export class PraesidiaGuard {
         }>;
         processingTimeMs: number;
         requestId?: string;
-      }>(`/organizations/${this.orgId}/guardrails/validate`, {
-        content,
-        agentId,
-        scope,
-        context: opts.context,
-      });
+      }>(
+        `/organizations/${this.orgId}/guardrails/validate`,
+        { content, agentId, scope, context: opts.context },
+        opts.chainId ? { [CHAIN_ID_HEADER]: opts.chainId } : undefined,
+      );
 
       return {
         passed: result.passed,

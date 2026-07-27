@@ -1,4 +1,4 @@
-import { PraesidiaApiError } from './errors.js';
+import { PraesidiaApiError, PraesidiaConfigError } from './errors.js';
 
 /**
  * Thin HTTP client for the Praesidia REST API.
@@ -9,6 +9,33 @@ import { PraesidiaApiError } from './errors.js';
  */
 /** Canonical Praesidia chain-trace header (Q3-02). */
 export const CHAIN_ID_HEADER = 'X-Praesidia-Chain-Id';
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
+export function resolveRequestTimeoutMs(value?: number): number {
+  const envValue = process.env['PRAESIDIA_REQUEST_TIMEOUT_MS'];
+  const resolved = value ?? (envValue === undefined ? DEFAULT_REQUEST_TIMEOUT_MS : Number(envValue));
+  if (!Number.isInteger(resolved) || resolved < 1 || resolved > 300_000) {
+    throw new PraesidiaConfigError(
+      'requestTimeoutMs/PRAESIDIA_REQUEST_TIMEOUT_MS must be an integer from 1 to 300000',
+    );
+  }
+  return resolved;
+}
+
+export function normalizeBaseUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new PraesidiaConfigError('baseUrl/PRAESIDIA_BASE_URL must be an absolute HTTP(S) URL');
+  }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+    throw new PraesidiaConfigError(
+      'baseUrl/PRAESIDIA_BASE_URL must use HTTP(S) and contain no credentials, query, or fragment',
+    );
+  }
+  return url.toString().replace(/\/$/, '');
+}
 
 export class PraesidiaClient {
   /**
@@ -19,10 +46,14 @@ export class PraesidiaClient {
    */
   private chainId: string | undefined;
 
-  constructor(
-    private readonly baseUrl: string,
-    private apiKey: string,
-  ) {}
+  private readonly baseUrl: string;
+  private readonly requestTimeoutMs: number;
+
+  constructor(baseUrl: string, private apiKey: string, requestTimeoutMs?: number) {
+    this.baseUrl = normalizeBaseUrl(baseUrl);
+    this.requestTimeoutMs = resolveRequestTimeoutMs(requestTimeoutMs);
+    this.assertApiKey(apiKey);
+  }
 
   /**
    * Swap the credential this client authenticates with, at runtime.
@@ -34,7 +65,12 @@ export class PraesidiaClient {
    * SECURITY: the new credential is held only in memory and is never logged.
    */
   setApiKey(apiKey: string): void {
+    this.assertApiKey(apiKey);
     this.apiKey = apiKey;
+  }
+
+  private assertApiKey(apiKey: string): void {
+    if (!apiKey.trim()) throw new PraesidiaConfigError('apiKey must not be empty');
   }
 
   /**
@@ -80,6 +116,7 @@ export class PraesidiaClient {
       method: 'POST',
       headers: this.buildHeaders(extraHeaders),
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(this.requestTimeoutMs),
     });
 
     if (!response.ok) {
@@ -98,6 +135,7 @@ export class PraesidiaClient {
     const response = await fetch(url, {
       method: 'GET',
       headers: this.buildHeaders(extraHeaders),
+      signal: AbortSignal.timeout(this.requestTimeoutMs),
     });
 
     if (!response.ok) {
@@ -121,6 +159,7 @@ export class PraesidiaClient {
     const response = await fetch(url, {
       method: 'DELETE',
       headers: this.buildHeaders(extraHeaders),
+      signal: AbortSignal.timeout(this.requestTimeoutMs),
     });
 
     if (!response.ok) {
@@ -148,6 +187,7 @@ export class PraesidiaClient {
     const response = await fetch(url, {
       method: 'GET',
       headers,
+      signal: AbortSignal.timeout(this.requestTimeoutMs),
     });
 
     if (!response.ok) {

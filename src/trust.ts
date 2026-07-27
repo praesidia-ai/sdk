@@ -1,4 +1,5 @@
 import { PraesidiaApiError } from './errors.js';
+import { normalizeBaseUrl, resolveRequestTimeoutMs } from './client.js';
 import {
   canonicalJson,
   ed25519PublicKeyFromJwk,
@@ -10,6 +11,7 @@ import type {
   TrustPassportVerifyBundle,
   TrustVerificationResult,
 } from './types.js';
+import type { GuardConfig } from './types.js';
 
 const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
 
@@ -35,10 +37,13 @@ const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
  */
 export class PraesidiaTrust {
   private readonly baseUrl: string;
+  private readonly requestTimeoutMs: number;
 
-  constructor(config: { baseUrl?: string } = {}) {
-    this.baseUrl =
-      config.baseUrl ?? process.env['PRAESIDIA_BASE_URL'] ?? DEFAULT_BASE_URL;
+  constructor(config: Pick<GuardConfig, 'baseUrl' | 'requestTimeoutMs'> = {}) {
+    this.baseUrl = normalizeBaseUrl(
+      config.baseUrl ?? process.env['PRAESIDIA_BASE_URL'] ?? DEFAULT_BASE_URL,
+    );
+    this.requestTimeoutMs = resolveRequestTimeoutMs(config.requestTimeoutMs);
   }
 
   // ── Public API ──────────────────────────────────────────────────────────────
@@ -110,7 +115,8 @@ export class PraesidiaTrust {
       publicKey,
     );
 
-    const expired = isExpired(passport.expirationDate);
+    const expiration = expirationState(passport.expirationDate);
+    const expired = expiration === 'expired';
 
     if (!signatureValid) {
       return {
@@ -118,6 +124,14 @@ export class PraesidiaTrust {
         signatureValid: false,
         expired,
         reason: 'signature-mismatch',
+      };
+    }
+    if (expiration === 'invalid') {
+      return {
+        verified: false,
+        signatureValid: true,
+        expired: false,
+        reason: 'invalid-expiration',
       };
     }
     if (expired) {
@@ -156,6 +170,7 @@ export class PraesidiaTrust {
     const response = await fetch(`${this.baseUrl}${path}`, {
       method: 'GET',
       headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(this.requestTimeoutMs),
     });
     if (!response.ok) {
       const text = await response.text().catch(() => '');
@@ -166,9 +181,11 @@ export class PraesidiaTrust {
 }
 
 /** True when an ISO-8601 expiry timestamp is in the past. */
-function isExpired(expirationDate: string | undefined): boolean {
-  if (!expirationDate) return false;
+function expirationState(
+  expirationDate: string | undefined,
+): 'valid' | 'expired' | 'invalid' {
+  if (!expirationDate) return 'invalid';
   const t = Date.parse(expirationDate);
-  if (Number.isNaN(t)) return false;
-  return t < Date.now();
+  if (Number.isNaN(t)) return 'invalid';
+  return t < Date.now() ? 'expired' : 'valid';
 }

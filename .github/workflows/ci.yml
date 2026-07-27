@@ -29,8 +29,38 @@ jobs:
       - name: Install (reproducible)
         run: npm ci
 
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
       - name: Build (tsc)
         run: npm run build
 
       - name: Test (vitest)
-        run: npx vitest run
+        run: npm test
+
+      - name: Type-check tests
+        run: npm run typecheck:spec
+
+      - name: Verify publish artifact
+        run: npm pack --dry-run
+
+  image:
+    name: Reproducible image smoke
+    needs: build-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # The Dockerfile repeats build + tests and its final stage must load the
+      # compiled ESM package as a non-root user.
+      - name: Build image
+        run: docker build -t praesidia-sdk:ci .
+
+      - name: Smoke image and verify runtime user
+        run: |
+          docker run --rm praesidia-sdk:ci
+          USER_NAME="$(docker image inspect --format '{{.Config.User}}' praesidia-sdk:ci)"
+          case "${USER_NAME}" in
+            ''|0|root) echo "image runs as unsafe user '${USER_NAME}'"; exit 1 ;;
+          esac
