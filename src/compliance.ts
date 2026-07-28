@@ -1,4 +1,4 @@
-import { PraesidiaClient } from './client.js';
+import { encodePathSegment, PraesidiaClient } from './client.js';
 import { PraesidiaConfigError } from './errors.js';
 import type {
   AuditorReportDocument,
@@ -59,7 +59,7 @@ export class PraesidiaCompliance {
       );
     }
 
-    this.orgId = orgId;
+    this.orgId = encodePathSegment(orgId, 'orgId');
     this.client = new PraesidiaClient(
       this.baseUrl,
       apiKey,
@@ -84,7 +84,7 @@ export class PraesidiaCompliance {
    */
   async getReportStatus(reportId: string): Promise<AuditorReportStatus> {
     return this.client.get<AuditorReportStatus>(
-      `${this.reportsBase}/${encodeURIComponent(reportId)}`,
+      `${this.reportsBase}/${encodePathSegment(reportId, 'reportId')}`,
     );
   }
 
@@ -95,7 +95,7 @@ export class PraesidiaCompliance {
    */
   async getReportJson(reportId: string): Promise<AuditorReportDocument> {
     return this.client.get<AuditorReportDocument>(
-      `${this.reportsBase}/${encodeURIComponent(reportId)}/json`,
+      `${this.reportsBase}/${encodePathSegment(reportId, 'reportId')}/json`,
     );
   }
 
@@ -108,7 +108,7 @@ export class PraesidiaCompliance {
    */
   async getReportPdf(reportId: string): Promise<Uint8Array> {
     return this.client.getBytes(
-      `${this.reportsBase}/${encodeURIComponent(reportId)}/pdf`,
+      `${this.reportsBase}/${encodePathSegment(reportId, 'reportId')}/pdf`,
     );
   }
 
@@ -126,6 +126,8 @@ export class PraesidiaCompliance {
   ): Promise<AuditorReportStatus> {
     const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    assertTimerValue(pollIntervalMs, 'pollIntervalMs', true);
+    assertTimerValue(timeoutMs, 'timeoutMs', false);
     const deadline = Date.now() + timeoutMs;
 
     for (;;) {
@@ -165,4 +167,20 @@ export class PraesidiaCompliance {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function assertTimerValue(
+  value: number,
+  label: string,
+  allowZero: boolean,
+): void {
+  if (
+    !Number.isInteger(value) ||
+    (allowZero ? value < 0 : value < 1) ||
+    value > 2_147_483_647
+  ) {
+    throw new PraesidiaConfigError(
+      `${label} must be an integer from ${allowZero ? 0 : 1} to 2147483647`,
+    );
+  }
 }

@@ -202,6 +202,20 @@ describe('PraesidiaCompliance', () => {
         }),
       ).rejects.toThrow(/Timed out/);
     });
+
+    it.each([
+      { pollIntervalMs: -1 },
+      { pollIntervalMs: Number.NaN },
+      { timeoutMs: 0 },
+      { timeoutMs: 2_147_483_648 },
+    ])('rejects invalid polling timers: %o', async (opts) => {
+      globalThis.fetch = makeFetchMock([]);
+      const compliance = new PraesidiaCompliance(CONFIG);
+      await expect(compliance.waitForReport('rep-1', opts)).rejects.toThrow(
+        PraesidiaConfigError,
+      );
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
   });
 
   describe('generateAndWait', () => {

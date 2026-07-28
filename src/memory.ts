@@ -1,4 +1,4 @@
-import { PraesidiaClient } from './client.js';
+import { encodePathSegment, PraesidiaClient } from './client.js';
 import { PraesidiaConfigError } from './errors.js';
 import type {
   CreateMemoryInput,
@@ -56,7 +56,7 @@ export class PraesidiaMemory {
       );
     }
 
-    this.orgId = orgId;
+    this.orgId = encodePathSegment(orgId, 'orgId');
     this.client = new PraesidiaClient(
       this.baseUrl,
       apiKey,
@@ -140,7 +140,7 @@ export class PraesidiaMemory {
    */
   async get(id: string): Promise<MemoryRecord> {
     return this.client.get<MemoryRecord>(
-      `${this.memoriesBase}/${encodeURIComponent(id)}`,
+      `${this.memoriesBase}/${encodePathSegment(id, 'memoryId')}`,
     );
   }
 
@@ -149,7 +149,9 @@ export class PraesidiaMemory {
    * (MEMORY_DELETE). Resolves once the backend answers 204 No Content.
    */
   async delete(id: string): Promise<void> {
-    return this.client.del(`${this.memoriesBase}/${encodeURIComponent(id)}`);
+    return this.client.del(
+      `${this.memoriesBase}/${encodePathSegment(id, 'memoryId')}`,
+    );
   }
 
   /**

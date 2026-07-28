@@ -23,6 +23,16 @@ export function resolveRequestTimeoutMs(value?: number): number {
 }
 
 export function normalizeBaseUrl(value: string): string {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value !== value.trim() ||
+    /\s|\\/.test(value)
+  ) {
+    throw new PraesidiaConfigError(
+      'baseUrl/PRAESIDIA_BASE_URL must contain no whitespace or backslashes',
+    );
+  }
   let url: URL;
   try {
     url = new URL(value);
@@ -35,6 +45,23 @@ export function normalizeBaseUrl(value: string): string {
     );
   }
   return url.toString().replace(/\/$/, '');
+}
+
+/** Validate and encode one caller-controlled URL path segment. */
+export function encodePathSegment(value: string, label: string): string {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value !== value.trim() ||
+    value === '.' ||
+    value === '..' ||
+    /[\u0000-\u001f\u007f]/.test(value)
+  ) {
+    throw new PraesidiaConfigError(
+      `${label} must be a non-empty path segment without surrounding whitespace, dot traversal, or control characters`,
+    );
+  }
+  return encodeURIComponent(value);
 }
 
 export class PraesidiaClient {
@@ -70,7 +97,16 @@ export class PraesidiaClient {
   }
 
   private assertApiKey(apiKey: string): void {
-    if (!apiKey.trim()) throw new PraesidiaConfigError('apiKey must not be empty');
+    if (
+      typeof apiKey !== 'string' ||
+      !apiKey ||
+      apiKey !== apiKey.trim() ||
+      /[\u0000-\u001f\u007f]/.test(apiKey)
+    ) {
+      throw new PraesidiaConfigError(
+        'apiKey must be non-empty and contain no surrounding whitespace or control characters',
+      );
+    }
   }
 
   /**
@@ -80,6 +116,17 @@ export class PraesidiaClient {
    * echoes one received on an inbound hop.
    */
   setChainId(chainId: string | null | undefined): void {
+    if (
+      chainId !== null &&
+      chainId !== undefined &&
+      (typeof chainId !== 'string' ||
+        chainId !== chainId.trim() ||
+        /[\u0000-\u001f\u007f]/.test(chainId))
+    ) {
+      throw new PraesidiaConfigError(
+        'chainId must be a single-line string without surrounding whitespace',
+      );
+    }
     this.chainId = chainId ? chainId : undefined;
   }
 

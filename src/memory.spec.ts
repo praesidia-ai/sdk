@@ -45,6 +45,22 @@ describe('PraesidiaMemory', () => {
     expect(
       () => new PraesidiaMemory({ apiKey: undefined, orgId: undefined }),
     ).toThrow(PraesidiaConfigError);
+    expect(
+      () => new PraesidiaMemory({ apiKey: 'pk_test', orgId: '' }),
+    ).toThrow(PraesidiaConfigError);
+  });
+
+  it('encodes the organization id as one path segment', async () => {
+    globalThis.fetch = makeFetchMock([{ ok: true, body: { data: [], total: 0, meta: {} } }]);
+    const memory = new PraesidiaMemory({
+      apiKey: 'pk_test',
+      orgId: '../other-org',
+    });
+
+    await memory.list();
+
+    const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
+    expect(url).toContain('/organizations/..%2Fother-org/memories');
   });
 
   it('create POSTs the CreateMemoryDto to the memories endpoint', async () => {

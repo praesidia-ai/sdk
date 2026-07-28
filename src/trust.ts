@@ -1,5 +1,9 @@
 import { PraesidiaApiError } from './errors.js';
-import { normalizeBaseUrl, resolveRequestTimeoutMs } from './client.js';
+import {
+  encodePathSegment,
+  normalizeBaseUrl,
+  resolveRequestTimeoutMs,
+} from './client.js';
 import {
   canonicalJson,
   ed25519PublicKeyFromJwk,
@@ -55,7 +59,7 @@ export class PraesidiaTrust {
    */
   async fetchPassport(agentId: string): Promise<TrustPassport> {
     return this.publicGet<TrustPassport>(
-      `/trust/passport/${encodeURIComponent(agentId)}`,
+      `/trust/passport/${encodePathSegment(agentId, 'agentId')}`,
     );
   }
 
@@ -67,7 +71,7 @@ export class PraesidiaTrust {
     agentId: string,
   ): Promise<TrustPassportVerifyBundle> {
     return this.publicGet<TrustPassportVerifyBundle>(
-      `/trust/passport/${encodeURIComponent(agentId)}/verify`,
+      `/trust/passport/${encodePathSegment(agentId, 'agentId')}/verify`,
     );
   }
 

@@ -305,6 +305,23 @@ describe('PraesidiaGuard', () => {
       );
     });
 
+    it('lets explicit failOpen override strict for connectivity failures', async () => {
+      globalThis.fetch = makeFetchMock([
+        { ok: false, status: 503, body: { message: 'Service unavailable' } },
+      ]);
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const guard = new PraesidiaGuard({
+        ...config,
+        strict: true,
+        failOpen: true,
+      });
+
+      const result = await guard.checkInput('hello');
+
+      expect(result.local).toBe(true);
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
     it('trackToolCall POSTs a tool_call task record', async () => {
       globalThis.fetch = makeFetchMock([
         { ok: true, status: 201, body: TASK_CREATED },

@@ -1,7 +1,6 @@
-import { PraesidiaClient } from './client.js';
+import { encodePathSegment, PraesidiaClient } from './client.js';
 import {
   GuardrailBlockedError,
-  PraesidiaApiError,
   PraesidiaConfigError,
 } from './errors.js';
 import { runLocalRules } from './local-rules.js';
@@ -114,6 +113,7 @@ function buildTaskInput(task: {
 export class PraesidiaGuard {
   private readonly apiKey: string | undefined;
   private readonly orgId: string | undefined;
+  private readonly orgPathSegment: string | undefined;
   private readonly agentId: string | undefined;
   private readonly connectionId: string | undefined;
   private readonly baseUrl: string;
@@ -124,6 +124,9 @@ export class PraesidiaGuard {
   constructor(config: GuardConfig = {}) {
     this.apiKey = config.apiKey ?? process.env['PRAESIDIA_API_KEY'];
     this.orgId = config.orgId ?? process.env['PRAESIDIA_ORG_ID'];
+    this.orgPathSegment = this.orgId
+      ? encodePathSegment(this.orgId, 'orgId')
+      : undefined;
     this.agentId = config.agentId ?? process.env['PRAESIDIA_AGENT_ID'];
     // AUDIT-SDK-02 — default connection tasks are routed through.
     this.connectionId =
@@ -413,7 +416,7 @@ export class PraesidiaGuard {
     const chainId = task.chainId ?? this.client.getChainId();
     try {
       const res = await this.client.post<{ id: string }>(
-        `/organizations/${this.orgId}/tasks`,
+        `/organizations/${this.orgPathSegment}/tasks`,
         this.buildTaskBody(
           connectionId,
           task.type ?? 'MESSAGE',
@@ -506,7 +509,7 @@ export class PraesidiaGuard {
 
     try {
       await this.client.post(
-        `/organizations/${this.orgId}/tasks`,
+        `/organizations/${this.orgPathSegment}/tasks`,
         this.buildTaskBody(connectionId, 'TOOL_CALL', input, chainId),
         Object.keys(headers).length ? headers : undefined,
       );
@@ -568,7 +571,7 @@ export class PraesidiaGuard {
         processingTimeMs: number;
         requestId?: string;
       }>(
-        `/organizations/${this.orgId}/guardrails/validate`,
+        `/organizations/${this.orgPathSegment}/guardrails/validate`,
         { content, agentId, scope, context: opts.context },
         opts.chainId ? { [CHAIN_ID_HEADER]: opts.chainId } : undefined,
       );
@@ -581,23 +584,7 @@ export class PraesidiaGuard {
         local: false,
       };
     } catch (err) {
-      if (err instanceof PraesidiaApiError) {
-        const fallback = await this.handleNetworkError<CheckResult | undefined>(
-          err,
-          'guardrails/validate',
-        );
-        // handleNetworkError returns undefined in non-strict mode
-        if (fallback === undefined) {
-          // Degrade gracefully to local rules
-          return runLocalRules(content);
-        }
-      }
-      // Any other error (network timeout, etc.) — degrade to local
-      if (this.strict) throw err;
-      console.warn(
-        '[praesidia/sdk] guardrail check failed, falling back to local rules:',
-        err,
-      );
+      this.handleNetworkError<void>(err, 'guardrails/validate');
       return runLocalRules(content);
     }
   }
@@ -605,18 +592,19 @@ export class PraesidiaGuard {
   /**
    * Handle a network/API error according to the fail-open / strict config.
    * Returns undefined when the error should be swallowed.
-   * Throws when strict=true.
+   * Throws when strict=true unless failOpen explicitly overrides it.
    */
   private handleNetworkError<T>(err: unknown, operation: string): T {
+    if (this.failOpen) {
+      return undefined as T;
+    }
     if (this.strict) {
       throw err;
     }
-    if (!this.failOpen) {
-      console.warn(
-        `[praesidia/sdk] ${operation} failed (degrading gracefully):`,
-        err,
-      );
-    }
+    console.warn(
+      `[praesidia/sdk] ${operation} failed (degrading gracefully):`,
+      err,
+    );
     return undefined as T;
   }
 
