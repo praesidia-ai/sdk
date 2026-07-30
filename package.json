@@ -1,6 +1,6 @@
 {
   "name": "@praesidia/sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Open-source agent governance SDK for Praesidia — guardrail checks, audit logging, analytics",
   "type": "module",
   "main": "./dist/index.js",

@@ -1,4 +1,12 @@
 import { PraesidiaApiError, PraesidiaConfigError } from './errors.js';
+import {
+  computeBackoffMs,
+  isRetryableStatus,
+  parseRetryAfterMs,
+  resolveRetryConfig,
+  sleep,
+  type RetryConfig,
+} from './retry.js';
 
 /**
  * Thin HTTP client for the Praesidia REST API.
@@ -75,10 +83,17 @@ export class PraesidiaClient {
 
   private readonly baseUrl: string;
   private readonly requestTimeoutMs: number;
+  private readonly retryConfig: Required<RetryConfig> | false;
 
-  constructor(baseUrl: string, private apiKey: string, requestTimeoutMs?: number) {
+  constructor(
+    baseUrl: string,
+    private apiKey: string,
+    requestTimeoutMs?: number,
+    retryConfig?: RetryConfig | false,
+  ) {
     this.baseUrl = normalizeBaseUrl(baseUrl);
     this.requestTimeoutMs = resolveRequestTimeoutMs(requestTimeoutMs);
+    this.retryConfig = resolveRetryConfig(retryConfig);
     this.assertApiKey(apiKey);
   }
 
@@ -153,18 +168,91 @@ export class PraesidiaClient {
     return extraHeaders ? { ...headers, ...extraHeaders } : headers;
   }
 
+  /**
+   * FINDING-4 — bounded retry wrapper. Only ever called for requests known to
+   * be safe to repeat (see call sites below): GET/DELETE unconditionally, and
+   * POST/PATCH only when the caller passed an `idempotencyKey` (added to
+   * `extraHeaders` by the caller before reaching here). A bare POST never
+   * flows through this path, so a transient timeout can never cause a
+   * duplicate create/charge.
+   *
+   * `initFactory` is invoked fresh for every attempt (not reused) because
+   * `AbortSignal.timeout(...)` starts its clock at creation — reusing one
+   * signal across retries would mean later attempts inherit an already
+   * partially (or fully) elapsed deadline.
+   */
+  private async fetchWithRetry(
+    initFactory: () => RequestInit & { method: string },
+    url: string,
+  ): Promise<Response> {
+    if (this.retryConfig === false) {
+      return fetch(url, initFactory());
+    }
+    const { maxAttempts, baseDelayMs, maxDelayMs, maxElapsedMs } = this.retryConfig;
+    const start = Date.now();
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let response: Response;
+      try {
+        response = await fetch(url, initFactory());
+      } catch (err) {
+        // Network-level failure (DNS/connection reset/etc — fetch rejects,
+        // it does not resolve). Retry it exactly like a 5xx, same budget.
+        const elapsed = Date.now() - start;
+        if (attempt >= maxAttempts || elapsed >= maxElapsedMs) throw err;
+        const delay = computeBackoffMs(attempt, baseDelayMs, maxDelayMs);
+        if (elapsed + delay >= maxElapsedMs) throw err;
+        await sleep(delay);
+        continue;
+      }
+
+      if (
+        attempt < maxAttempts &&
+        isRetryableStatus(response.status) &&
+        Date.now() - start < maxElapsedMs
+      ) {
+        const elapsed = Date.now() - start;
+        const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
+        const delay = retryAfterMs ?? computeBackoffMs(attempt, baseDelayMs, maxDelayMs);
+        if (elapsed + delay >= maxElapsedMs) return response;
+        await sleep(delay);
+        continue;
+      }
+      return response;
+    }
+    // Unreachable — the loop above always returns or throws — but keeps
+    // control-flow analysis happy.
+    /* istanbul ignore next */
+    throw new PraesidiaApiError(0, url, 'retry loop exhausted unexpectedly');
+  }
+
   async post<T>(
     path: string,
     body: unknown,
     extraHeaders?: Record<string, string>,
+    opts?: { idempotencyKey?: string },
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: this.buildHeaders(extraHeaders),
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(this.requestTimeoutMs),
-    });
+    const headers = opts?.idempotencyKey
+      ? { ...extraHeaders, 'Idempotency-Key': opts.idempotencyKey }
+      : extraHeaders;
+    const retryable = Boolean(opts?.idempotencyKey);
+    const response = retryable
+      ? await this.fetchWithRetry(
+          () => ({
+            method: 'POST',
+            headers: this.buildHeaders(headers),
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(this.requestTimeoutMs),
+          }),
+          url,
+        )
+      : await fetch(url, {
+          method: 'POST',
+          headers: this.buildHeaders(headers),
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(this.requestTimeoutMs),
+        });
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
@@ -174,16 +262,54 @@ export class PraesidiaClient {
     return response.json() as Promise<T>;
   }
 
+  /**
+   * PATCH a resource. Not retried unless `opts.idempotencyKey` is supplied —
+   * a PATCH is not guaranteed idempotent across this API's whole surface, so
+   * the client stays conservative by default (see FINDING-4).
+   */
+  async patch<T>(
+    path: string,
+    body: unknown,
+    extraHeaders?: Record<string, string>,
+    opts?: { idempotencyKey?: string },
+  ): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+    const headers = opts?.idempotencyKey
+      ? { ...extraHeaders, 'Idempotency-Key': opts.idempotencyKey }
+      : extraHeaders;
+    const retryable = Boolean(opts?.idempotencyKey);
+    const initFactory = (): RequestInit & { method: string } => ({
+      method: 'PATCH',
+      headers: this.buildHeaders(headers),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(this.requestTimeoutMs),
+    });
+    const response = retryable
+      ? await this.fetchWithRetry(initFactory, url)
+      : await fetch(url, initFactory());
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new PraesidiaApiError(response.status, path, text);
+    }
+
+    return response.json() as Promise<T>;
+  }
+
+  /** GET is always idempotent — retried per the configured (or default) policy. */
   async get<T>(
     path: string,
     extraHeaders?: Record<string, string>,
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: this.buildHeaders(extraHeaders),
-      signal: AbortSignal.timeout(this.requestTimeoutMs),
-    });
+    const response = await this.fetchWithRetry(
+      () => ({
+        method: 'GET',
+        headers: this.buildHeaders(extraHeaders),
+        signal: AbortSignal.timeout(this.requestTimeoutMs),
+      }),
+      url,
+    );
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
@@ -196,18 +322,22 @@ export class PraesidiaClient {
   /**
    * DELETE a resource. Tolerates an empty (204 No Content) body — the backend's
    * soft-delete routes answer 204 with no JSON — so callers get `void` back and
-   * are not forced to parse an empty response.
+   * are not forced to parse an empty response. Always idempotent — retried
+   * per the configured (or default) policy.
    */
   async del(
     path: string,
     extraHeaders?: Record<string, string>,
   ): Promise<void> {
     const url = `${this.baseUrl}${path}`;
-    const response = await fetch(url, {
-      method: 'DELETE',
-      headers: this.buildHeaders(extraHeaders),
-      signal: AbortSignal.timeout(this.requestTimeoutMs),
-    });
+    const response = await this.fetchWithRetry(
+      () => ({
+        method: 'DELETE',
+        headers: this.buildHeaders(extraHeaders),
+        signal: AbortSignal.timeout(this.requestTimeoutMs),
+      }),
+      url,
+    );
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
@@ -220,7 +350,8 @@ export class PraesidiaClient {
    *
    * Returns a `Uint8Array`; in Node wrap with `Buffer.from(bytes)` to write
    * to disk. Throws `PraesidiaApiError` on any non-2xx response (including the
-   * 409 returned while a report is still generating).
+   * 409 returned while a report is still generating). Always idempotent —
+   * retried per the configured (or default) policy.
    */
   async getBytes(path: string): Promise<Uint8Array> {
     const url = `${this.baseUrl}${path}`;
@@ -231,11 +362,14 @@ export class PraesidiaClient {
     if (this.chainId) {
       headers[CHAIN_ID_HEADER] = this.chainId;
     }
-    const response = await fetch(url, {
-      method: 'GET',
-      headers,
-      signal: AbortSignal.timeout(this.requestTimeoutMs),
-    });
+    const response = await this.fetchWithRetry(
+      () => ({
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(this.requestTimeoutMs),
+      }),
+      url,
+    );
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');

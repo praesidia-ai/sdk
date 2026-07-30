@@ -95,6 +95,7 @@ export class PraesidiaTelemetry {
       this.baseUrl,
       apiKey,
       config.requestTimeoutMs,
+      config.retry,
     );
   }
 

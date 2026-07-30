@@ -19,7 +19,15 @@ export { PraesidiaAgents } from './agents.js';
 export { PraesidiaMemory } from './memory.js';
 export { PraesidiaTelemetry, genAiSpan } from './telemetry.js';
 export { PraesidiaTrust } from './trust.js';
+// FINDING-2 — parity with the Python SDK's workflows/connections/audit
+// resources; FINDING-1 — analytics implementation matching the README claim.
+export { PraesidiaWorkflows } from './workflows.js';
+export { PraesidiaConnections } from './connections.js';
+export { PraesidiaAudit } from './audit.js';
+export { PraesidiaAnalytics } from './analytics.js';
 export { PraesidiaClient, CHAIN_ID_HEADER } from './client.js';
+// FINDING-4 — retry policy config type.
+export type { RetryConfig } from './retry.js';
 export {
   verifyEd25519,
   canonicalJson,
@@ -31,6 +39,10 @@ export {
   PraesidiaApiError,
   PraesidiaConfigError,
 } from './errors.js';
+export {
+  // FINDING-2 — connection status enum + guard used by PraesidiaConnections.
+  CONNECTION_STATUSES,
+} from './types.js';
 export type {
   GuardConfig,
   RunOptions,
@@ -44,6 +56,22 @@ export type {
   ToolCallContext,
   PolledTaskRow,
   TriggeredGuardrail,
+  // FINDING-2 — agents CRUD / workflows / connections / audit parity types
+  ListAgentsQuery,
+  AgentRecord,
+  ListWorkflowsQuery,
+  ListWorkflowRunsQuery,
+  WorkflowRecord,
+  WorkflowRunRecord,
+  TriggerWorkflowOptions,
+  ListConnectionsQuery,
+  ConnectionRecord,
+  ConnectionStatus,
+  ListAuditLogsQuery,
+  AuditLogEntry,
+  // FINDING-1 — analytics parity types
+  AnalyticsWindowQuery,
+  AnalyticsResult,
   // Agent identity + task lifecycle (H1-02a)
   AgentIdentity,
   BeginTaskOptions,

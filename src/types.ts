@@ -22,6 +22,13 @@ export interface GuardConfig {
   /** Per-request HTTP deadline in milliseconds (default 30000, max 300000). */
   requestTimeoutMs?: number;
   /**
+   * FINDING-4 — bounded retry policy for GET/DELETE (and idempotency-keyed
+   * POST/PATCH) requests. Omit to use the default policy (3 attempts,
+   * jittered exponential backoff, 15s total budget, honours `Retry-After`).
+   * Pass `false` to disable retries entirely.
+   */
+  retry?: import('./retry.js').RetryConfig | false;
+  /**
    * AUDIT-SDK-02 — Default connection id (UUID) that `run`/`logTask`/
    * `beginTask`/`trackToolCall` route submitted tasks through. The backend
    * `CreateAgentTaskDto.connectionId` is a REQUIRED UUID, so a task cannot be
@@ -762,3 +769,104 @@ export interface TrustFetchAndVerifyResult extends TrustVerificationResult {
   publicKeyJwk: Record<string, unknown>;
   didDocumentUrl: string;
 }
+
+// ---------------------------------------------------------------------------
+// FINDING-2 — parity types for the four resource groups the Python SDK had
+// and the TS SDK was missing: agent CRUD, workflows, connections, audit.
+// Response bodies are intentionally loosely typed (`Record<string, unknown>`
+// passthrough for payloads, minimal shape for list/pagination) because the
+// backend DTOs for these resources are broad and still evolving; the SDK's
+// job here is transport + validation of caller-controlled inputs, not a full
+// mirrored response schema (matching the Python SDK's plain-dict approach).
+// ---------------------------------------------------------------------------
+
+/** Query params accepted by `PraesidiaAgents.list`. */
+export interface ListAgentsQuery {
+  page?: number;
+  limit?: number;
+}
+
+/** An agent record as returned by the API (passthrough shape). */
+export type AgentRecord = Record<string, unknown>;
+
+/** Query params accepted by `PraesidiaWorkflows.list`. */
+export interface ListWorkflowsQuery {
+  page?: number;
+  limit?: number;
+}
+
+/** Query params accepted by `PraesidiaWorkflows.listRuns`. */
+export interface ListWorkflowRunsQuery {
+  page?: number;
+  limit?: number;
+}
+
+export type WorkflowRecord = Record<string, unknown>;
+export type WorkflowRunRecord = Record<string, unknown>;
+
+/** Options accepted by `PraesidiaWorkflows.trigger`. */
+export interface TriggerWorkflowOptions {
+  /** Optional run-level input payload. */
+  input?: Record<string, unknown>;
+  /** Optional non-negative auto-pause threshold in USD. */
+  budgetLimitUsd?: number;
+}
+
+/** Query params accepted by `PraesidiaConnections.list`. */
+export interface ListConnectionsQuery {
+  page?: number;
+  limit?: number;
+  clientAgentId?: string;
+  serverAgentId?: string;
+  mcpServerId?: string;
+  status?: string;
+  search?: string;
+}
+
+export type ConnectionRecord = Record<string, unknown>;
+
+/**
+ * Connection status values accepted by `PraesidiaConnections.updateStatus`
+ * (mirrors the Python SDK's `ConnectionsResource.STATUSES`).
+ */
+export const CONNECTION_STATUSES = [
+  'ACTIVE',
+  'IDLE',
+  'ERROR',
+  'PENDING',
+  'DISCONNECTED',
+] as const;
+export type ConnectionStatus = (typeof CONNECTION_STATUSES)[number];
+
+/** Query params accepted by `PraesidiaAudit.list` / `.stream`. */
+export interface ListAuditLogsQuery {
+  /** ISO 8601 start date/time. */
+  fromDate?: string;
+  /** ISO 8601 end date/time. */
+  toDate?: string;
+  /** 1-based page number (default 1). */
+  page?: number;
+  /** Max results per page (default 50, server-clamped to 100). */
+  limit?: number;
+  /**
+   * Filter by action type (e.g. `"agent.created"`). BUGHUNT-SDK-03 (Python
+   * parity) — there is deliberately NO `resourceType` filter: the backend
+   * `FilterAuditDto` whitelists only `search`/`action`/`startDate`/`endDate`
+   * under `forbidNonWhitelisted`, so a `resourceType` param 400s the whole
+   * request. `resourceType` is derived from the `action` prefix at read
+   * time, not a stored column — filter by `action` instead.
+   */
+  action?: string;
+}
+
+export type AuditLogEntry = Record<string, unknown>;
+
+/** Query params accepted by `PraesidiaAnalytics.usage` / advanced endpoints. */
+export interface AnalyticsWindowQuery {
+  /** Rolling window in days (1..365, default 30). */
+  days?: number;
+  fromDate?: string;
+  toDate?: string;
+}
+
+export type AnalyticsResult = Record<string, unknown>;

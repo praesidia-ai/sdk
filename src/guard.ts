@@ -141,6 +141,7 @@ export class PraesidiaGuard {
         this.baseUrl,
         this.apiKey,
         config.requestTimeoutMs,
+        config.retry,
       );
     }
   }

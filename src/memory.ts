@@ -61,6 +61,7 @@ export class PraesidiaMemory {
       this.baseUrl,
       apiKey,
       config.requestTimeoutMs,
+      config.retry,
     );
     this.memoriesBase = `/organizations/${this.orgId}/memories`;
   }

@@ -64,6 +64,7 @@ export class PraesidiaCompliance {
       this.baseUrl,
       apiKey,
       config.requestTimeoutMs,
+      config.retry,
     );
     this.reportsBase = `/organizations/${this.orgId}/compliance/eu-ai-act/reports`;
   }

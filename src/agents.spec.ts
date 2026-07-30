@@ -16,6 +16,71 @@ describe('PraesidiaAgents', () => {
       () => new PraesidiaAgents({ apiKey: undefined, orgId: undefined }),
     ).toThrow(PraesidiaConfigError);
   });
+
+  // ── CRUD (FINDING-2 parity with the Python SDK's AgentsResource) ─────────────
+  describe('CRUD', () => {
+    const originalFetch = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+      vi.restoreAllMocks();
+    });
+
+    it('lists agents against the org-scoped endpoint', async () => {
+      globalThis.fetch = makeFetchMock([{ json: [{ id: 'agent-1' }] }]);
+      const agents = new PraesidiaAgents({ apiKey: 'pk_x', orgId: 'org-1' });
+      expect(await agents.list()).toEqual([{ id: 'agent-1' }]);
+      const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
+      expect(url).toContain('/organizations/org-1/agents');
+    });
+
+    it('gets a single agent by id', async () => {
+      globalThis.fetch = makeFetchMock([{ json: { id: 'agent-1', name: 'Bot' } }]);
+      const agents = new PraesidiaAgents({ apiKey: 'pk_x', orgId: 'org-1' });
+      expect(await agents.get('agent-1')).toEqual({ id: 'agent-1', name: 'Bot' });
+      const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
+      expect(url).toContain('/agents/agent-1');
+    });
+
+    it('creates an agent via POST', async () => {
+      globalThis.fetch = makeFetchMock([
+        { json: { id: 'agent-2', clientId: 'c-1', credentialMode: 'jit', clientSecret: null } },
+      ]);
+      const agents = new PraesidiaAgents({ apiKey: 'pk_x', orgId: 'org-1' });
+      const created = await agents.create({ name: 'New Bot' });
+      expect(created.credentialMode).toBe('jit');
+      const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+        string,
+        RequestInit,
+      ];
+      expect(init.method).toBe('POST');
+      expect(url).toContain('/organizations/org-1/agents');
+    });
+
+    it('updates an agent via PATCH', async () => {
+      globalThis.fetch = makeFetchMock([{ json: { id: 'agent-1', name: 'Renamed' } }]);
+      const agents = new PraesidiaAgents({ apiKey: 'pk_x', orgId: 'org-1' });
+      await agents.update('agent-1', { name: 'Renamed' });
+      const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+        string,
+        RequestInit,
+      ];
+      expect(init.method).toBe('PATCH');
+      expect(url).toContain('/agents/agent-1');
+    });
+
+    it('deletes an agent via DELETE', async () => {
+      globalThis.fetch = makeFetchMock([{ ok: true, status: 204 }]);
+      const agents = new PraesidiaAgents({ apiKey: 'pk_x', orgId: 'org-1' });
+      await agents.delete('agent-1');
+      const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+        string,
+        RequestInit,
+      ];
+      expect(init.method).toBe('DELETE');
+      expect(url).toContain('/agents/agent-1');
+    });
+  });
 });
 
 describe('PraesidiaGuard.refreshCredential', () => {

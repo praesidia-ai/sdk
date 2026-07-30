@@ -340,6 +340,182 @@ await memory.delete(m.id);
 | `get(id)` | `Promise<MemoryRecord>` | `GET .../memories/:id` |
 | `delete(id)` | `Promise<void>` | `DELETE .../memories/:id` |
 
+## Agent CRUD (FINDING-2 parity with the Python SDK)
+
+`PraesidiaAgents` also manages the agent's own lifecycle, not just credential
+refresh:
+
+```typescript
+import { PraesidiaAgents } from '@praesidia/sdk';
+
+const agents = new PraesidiaAgents();
+const list = await agents.list({ page: 1, limit: 20 });
+const agent = await agents.get(list[0].id as string);
+const created = await agents.create({ name: 'Support Bot', type: 'chat' });
+// created.credentialMode is 'jit' (default; clientSecret is null — the agent
+// authenticates with ephemeral JIT tokens) or 'static' (legacy opt-in;
+// clientSecret is the plaintext secret, shown ONCE — persist it immediately).
+await agents.update(created.id as string, { name: 'Renamed Bot' });
+await agents.delete(created.id as string);
+```
+
+Task submission (`run`), polling (`pollPendingTasks`), and task-scoped MCP tool
+calls stay on `PraesidiaGuard` (`run` / `logTask` / `trackToolCall`) — this
+mirrors the SDK's existing organization and is unchanged.
+
+| Method | Returns | Endpoint |
+|---|---|---|
+| `list(query?)` | `Promise<AgentRecord[]>` | `GET .../agents` |
+| `get(id)` | `Promise<AgentRecord>` | `GET .../agents/:id` |
+| `create(data)` | `Promise<AgentRecord>` | `POST .../agents` |
+| `update(id, data)` | `Promise<AgentRecord>` | `PATCH .../agents/:id` |
+| `delete(id)` | `Promise<void>` | `DELETE .../agents/:id` |
+| `refreshCredential(secret)` | `void` | in-memory credential swap (no request) |
+
+## Workflows (FINDING-2 parity with the Python SDK)
+
+`PraesidiaWorkflows` manages approval workflows and their runs.
+
+```typescript
+import { PraesidiaWorkflows } from '@praesidia/sdk';
+
+const workflows = new PraesidiaWorkflows();
+const wf = await workflows.create({ name: 'Refund approval', nodes: [], edges: [] });
+const run = await workflows.trigger(wf.id as string, {
+  input: { message: 'Summarise this week audit report' },
+  budgetLimitUsd: 1.5, // optional auto-pause threshold
+});
+const runs = await workflows.listRuns(wf.id as string);
+const runDetail = await workflows.getRun(wf.id as string, run.id as string);
+```
+
+| Method | Returns | Endpoint |
+|---|---|---|
+| `list(query?)` | `Promise<WorkflowRecord[]>` | `GET .../workflows` |
+| `get(id)` | `Promise<WorkflowRecord>` | `GET .../workflows/:id` |
+| `create(data)` | `Promise<WorkflowRecord>` | `POST .../workflows` |
+| `update(id, data)` | `Promise<WorkflowRecord>` | `PATCH .../workflows/:id` |
+| `delete(id)` | `Promise<void>` | `DELETE .../workflows/:id` |
+| `trigger(id, opts?)` | `Promise<WorkflowRunRecord>` | `POST .../workflows/:id/runs` |
+| `listRuns(id, query?)` | `Promise<WorkflowRunRecord[]>` | `GET .../workflows/:id/runs` |
+| `getRun(id, runId)` | `Promise<WorkflowRunRecord>` | `GET .../workflows/:id/runs/:runId` |
+
+## Connections (FINDING-2 parity with the Python SDK)
+
+`PraesidiaConnections` manages agent-to-agent and agent-to-MCP connections.
+
+```typescript
+import { PraesidiaConnections } from '@praesidia/sdk';
+
+const connections = new PraesidiaConnections();
+const conn = await connections.createAgent({ clientAgentId, serverAgentId });
+await connections.test(conn.id as string);
+await connections.updateStatus(conn.id as string, 'ACTIVE'); // ACTIVE|IDLE|ERROR|PENDING|DISCONNECTED
+const health = await connections.health(conn.id as string);
+```
+
+| Method | Returns | Endpoint |
+|---|---|---|
+| `list(query?)` | `Promise<ConnectionRecord[]>` | `GET .../connections` |
+| `get(id)` | `Promise<ConnectionRecord>` | `GET .../connections/:id` |
+| `createAgent(data)` | `Promise<ConnectionRecord>` | `POST .../connections/agent` |
+| `createMcp(data)` | `Promise<ConnectionRecord>` | `POST .../connections/mcp` |
+| `create(data)` | `Promise<ConnectionRecord>` | alias for `createAgent` |
+| `updateStatus(id, status)` | `Promise<ConnectionRecord>` | `PATCH .../connections/:id/status` |
+| `delete(id)` | `Promise<void>` | `DELETE .../connections/:id` |
+| `test(id)` | `Promise<ConnectionRecord>` | `POST .../connections/:id/test` |
+| `health(id)` | `Promise<ConnectionRecord>` | `GET .../connections/:id/health` |
+
+## Audit log read-back (FINDING-2 parity with the Python SDK)
+
+`PraesidiaAudit` reads back the org audit trail — before this, a TS caller had
+no way to list/stream/export it (only the guardrail-trigger side effect of
+`guard.run()` wrote entries).
+
+```typescript
+import { PraesidiaAudit } from '@praesidia/sdk';
+
+const audit = new PraesidiaAudit();
+const page = await audit.list({ action: 'agent.created', limit: 50 });
+
+for await (const event of audit.stream({ fromDate: '2026-01-01' })) {
+  console.log(event.action, event.createdAt);
+}
+
+const csv = await audit.export({ format: 'csv' });
+```
+
+> **No `resourceType` filter, by design.** The backend `FilterAuditDto`
+> whitelists only `search`/`action`/`startDate`/`endDate` under
+> `forbidNonWhitelisted` — a `resourceType` param 400s the whole request.
+> `resourceType` is derived from the `action` prefix at read time, not a
+> stored column. Filter by `action` instead (e.g. `action: 'agent.created'`).
+>
+> **`stream()` stops on an empty page, not a short one.** The backend
+> hard-clamps `limit` to 100 server-side, so a caller asking for `limit: 500`
+> still gets at most 100 rows per page — treating that first (full-but-clamped)
+> page as the last would silently drop everything past row 100. This mirrors
+> the Python SDK's `BUGHUNT-SDK-01` fix.
+
+| Method | Returns | Endpoint |
+|---|---|---|
+| `list(query?)` | `Promise<AuditLogEntry[]>` | `GET .../audit-logs` |
+| `stream(query?)` | `AsyncGenerator<AuditLogEntry>` | pages `GET .../audit-logs` until empty |
+| `export(query?)` | `Promise<Uint8Array>` | `GET .../audit-logs/export` |
+
+## Analytics (FINDING-1 — the README always claimed this; now it ships)
+
+`PraesidiaAnalytics` queries usage/cost/performance data, matching the
+Python SDK's `AnalyticsResource`.
+
+```typescript
+import { PraesidiaAnalytics } from '@praesidia/sdk';
+
+const analytics = new PraesidiaAnalytics();
+const usage = await analytics.usage({ days: 30 });
+const trends = await analytics.costTrends({ days: 90 });
+const top = await analytics.topAgents({ limit: 5 });
+const csv = await analytics.export();
+```
+
+| Method | Returns | Endpoint |
+|---|---|---|
+| `usage(query?)` | `Promise<AnalyticsResult>` | `GET .../analytics` |
+| `costTrends(query?)` | `Promise<AnalyticsResult>` | `GET .../analytics/advanced/cost-trends` (ADVANCED_ANALYTICS) |
+| `agentPerformance(query?)` | `Promise<AnalyticsResult>` | `GET .../analytics/advanced/agent-performance` (ADVANCED_ANALYTICS) |
+| `topAgents(query?)` | `Promise<AnalyticsResult>` | `GET .../analytics/advanced/top-agents` (ADVANCED_ANALYTICS) |
+| `export(query?)` | `Promise<Uint8Array>` | `GET .../analytics/export` (ANALYTICS_EXPORT + ADVANCED_ANALYTICS) |
+
+## Retry (FINDING-4) — bounded, idempotency-safe by default
+
+Every SDK client retries **only** requests that are safe to repeat: GET,
+DELETE, and any POST/PATCH the caller explicitly marks with an
+`idempotencyKey`. **A bare POST (task submission, agent/workflow/connection
+creation) is never retried** — retrying an already-applied create/charge is a
+duplication bug, not a resilience feature.
+
+Retries use jittered exponential backoff, honour a `Retry-After` header on
+`429`/`5xx`, and are bounded by both an attempt count and a wall-clock budget:
+
+```typescript
+const guard = new PraesidiaGuard({
+  retry: {
+    maxAttempts: 3,     // default: 3 (i.e. up to 2 retries)
+    baseDelayMs: 250,   // default: 250
+    maxDelayMs: 4000,   // default: 4000
+    maxElapsedMs: 15000 // default: 15000 — total budget across all attempts
+  },
+});
+
+// Disable retries entirely:
+const noRetry = new PraesidiaGuard({ retry: false });
+```
+
+Every resource class (`PraesidiaGuard`, `PraesidiaAgents`, `PraesidiaCompliance`,
+`PraesidiaMemory`, `PraesidiaTelemetry`, `PraesidiaWorkflows`,
+`PraesidiaConnections`, `PraesidiaAudit`, `PraesidiaAnalytics`) accepts the same
+`retry` config field.
+
 ## Trust passport — verify a peer agent's reputation offline (H3-02f)
 
 `PraesidiaTrust` fetches an agent's signed trust passport from the **public**
@@ -405,10 +581,35 @@ try {
 | `getReportStatus` / `getReportJson` / `getReportPdf` | `GET /organizations/:orgId/compliance/eu-ai-act/reports/:id[/json\|/pdf]` | `COMPLIANCE_VIEW` |
 | `PraesidiaTelemetry.emit*` | `POST /telemetry/otlp/v1/traces` | organization API key |
 | `PraesidiaMemory.*` | `POST/GET/DELETE /organizations/:orgId/memories[/…]` | `MEMORY_CREATE` / `MEMORY_VIEW` / `MEMORY_ERASE` / `MEMORY_DELETE` |
+| `PraesidiaAgents.*` | `GET/POST/PATCH/DELETE /organizations/:orgId/agents[/…]` | agent management permissions |
+| `PraesidiaWorkflows.*` | `GET/POST/PATCH/DELETE /organizations/:orgId/workflows[/…]` | `WORKFLOWS_*` (`APPROVAL_WORKFLOWS` feature) |
+| `PraesidiaConnections.*` | `GET/POST/PATCH/DELETE /organizations/:orgId/connections[/…]` | `CONNECTIONS_*` (`A2A_COMMUNICATION` feature) |
+| `PraesidiaAudit.*` | `GET /organizations/:orgId/audit-logs[/export]` | `AUDIT_VIEW` / `AUDIT_EXPORT` |
+| `PraesidiaAnalytics.*` | `GET /organizations/:orgId/analytics[/…]` | `ANALYTICS_VIEW` / `ANALYTICS_EXPORT` (`advanced/*` needs `ADVANCED_ANALYTICS`) |
 | `PraesidiaTrust.fetch*` | `GET /trust/passport/:agentId[/verify]` | public (no auth) |
 
 Authentication: `Authorization: Bearer <apiKey>` (org-scoped API key). The trust
 passport routes are public; `PraesidiaTrust` verifies signatures offline.
+
+## Changelog
+
+### Unreleased — PROD16 parity + resilience wave
+
+- **Added** `PraesidiaWorkflows`, `PraesidiaConnections`, `PraesidiaAudit`,
+  `PraesidiaAnalytics` — closes the TS↔Python SDK parity gap (FINDING-2) and
+  makes the README's long-standing "analytics" claim true (FINDING-1). Purely
+  additive — no existing export changed shape.
+- **Added** `PraesidiaAgents.list/get/create/update/delete` (agent CRUD) —
+  previously only `refreshCredential` existed. Additive.
+- **Added** bounded, idempotency-safe retry (FINDING-4): GET/DELETE retry by
+  default; POST/PATCH only retry when called with `{ idempotencyKey }`. New
+  `retry` config field on every resource class, defaulting to an enabled
+  policy (3 attempts, jittered backoff, 15s budget, honours `Retry-After`).
+  **Behavioral, non-breaking** — no existing method signature changed; pass
+  `retry: false` to opt out entirely.
+- **Added** `PraesidiaClient.patch()` — internal transport addition backing
+  the new resources' PATCH routes (`agents.update`, `workflows.update`,
+  `connections.updateStatus`). Not previously exported/used.
 
 ## License
 
