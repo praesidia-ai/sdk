@@ -516,6 +516,13 @@ Every resource class (`PraesidiaGuard`, `PraesidiaAgents`, `PraesidiaCompliance`
 `PraesidiaConnections`, `PraesidiaAudit`, `PraesidiaAnalytics`) accepts the same
 `retry` config field.
 
+> **Known gap:** only `PraesidiaClient.post`/`.patch` currently expose the
+> `idempotencyKey` option directly. No resource method (e.g. `agents.create`,
+> `workflows.trigger`) forwards one yet — to retry a specific write today you
+> need to drop to the client-level API. Widening this to per-method
+> `idempotencyKey` parameters is a natural follow-up, tracked as a known gap
+> rather than silently left unstated.
+
 ## Trust passport — verify a peer agent's reputation offline (H3-02f)
 
 `PraesidiaTrust` fetches an agent's signed trust passport from the **public**
