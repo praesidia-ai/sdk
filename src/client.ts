@@ -1,5 +1,6 @@
 import { PraesidiaApiError, PraesidiaConfigError } from './errors.js';
 import {
+  assertIdempotencyKeySupported,
   computeBackoffMs,
   isRetryableStatus,
   parseRetryAfterMs,
@@ -233,6 +234,7 @@ export class PraesidiaClient {
     opts?: { idempotencyKey?: string },
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
+    if (opts?.idempotencyKey) assertIdempotencyKeySupported('POST', path);
     const headers = opts?.idempotencyKey
       ? { ...extraHeaders, 'Idempotency-Key': opts.idempotencyKey }
       : extraHeaders;
@@ -264,8 +266,9 @@ export class PraesidiaClient {
 
   /**
    * PATCH a resource. Not retried unless `opts.idempotencyKey` is supplied —
-   * a PATCH is not guaranteed idempotent across this API's whole surface, so
-   * the client stays conservative by default (see FINDING-4).
+   * and R-SDK-1: be-core does not honour `Idempotency-Key` on ANY PATCH route
+   * today, so `assertIdempotencyKeySupported` always rejects a PATCH-level
+   * idempotencyKey until a server-side PATCH dedup route exists.
    */
   async patch<T>(
     path: string,
@@ -274,6 +277,7 @@ export class PraesidiaClient {
     opts?: { idempotencyKey?: string },
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
+    if (opts?.idempotencyKey) assertIdempotencyKeySupported('PATCH', path);
     const headers = opts?.idempotencyKey
       ? { ...extraHeaders, 'Idempotency-Key': opts.idempotencyKey }
       : extraHeaders;

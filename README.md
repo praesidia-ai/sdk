@@ -494,6 +494,15 @@ DELETE, and any POST/PATCH the caller explicitly marks with an
 creation) is never retried** — retrying an already-applied create/charge is a
 duplication bug, not a resilience feature.
 
+**R-SDK-1 — `idempotencyKey` is allow-listed, not a blanket promise.**
+be-core only deduplicates a request server-side on `Idempotency-Key` for
+three routes today: `POST /organizations/:orgId/tasks`, `POST /a2a/tasks`,
+and `POST /a2a/tasks/:taskId/result`. Every other route — including every
+PATCH — ignores the header entirely. Passing `idempotencyKey` to
+`PraesidiaClient.post`/`.patch` for any other path throws
+`PraesidiaConfigError` immediately (no request is sent) rather than silently
+retrying a write the server can double-apply.
+
 Retries use jittered exponential backoff, honour a `Retry-After` header on
 `429`/`5xx`, and are bounded by both an attempt count and a wall-clock budget:
 
@@ -517,11 +526,13 @@ Every resource class (`PraesidiaGuard`, `PraesidiaAgents`, `PraesidiaCompliance`
 `retry` config field.
 
 > **Known gap:** only `PraesidiaClient.post`/`.patch` currently expose the
-> `idempotencyKey` option directly. No resource method (e.g. `agents.create`,
-> `workflows.trigger`) forwards one yet — to retry a specific write today you
-> need to drop to the client-level API. Widening this to per-method
-> `idempotencyKey` parameters is a natural follow-up, tracked as a known gap
-> rather than silently left unstated.
+> `idempotencyKey` option directly, and only for the three allow-listed
+> routes above (in practice: `PraesidiaGuard.logTask`/`.trackToolCall`, the
+> two callers of `POST /organizations/:orgId/tasks`). No resource method
+> forwards `idempotencyKey` as a public parameter yet — to retry that write
+> today you need to drop to the client-level API. Widening this to a
+> per-method `idempotencyKey` parameter is a natural follow-up, tracked as a
+> known gap rather than silently left unstated.
 
 ## Trust passport — verify a peer agent's reputation offline (H3-02f)
 
@@ -600,7 +611,18 @@ passport routes are public; `PraesidiaTrust` verifies signatures offline.
 
 ## Changelog
 
-### Unreleased — PROD16 parity + resilience wave
+### 0.2.1 — R-SDK-1: allow-list the routes `idempotencyKey` may retry
+
+- **Fixed** `idempotencyKey` retry is now allow-listed to the routes
+  be-core actually deduplicates (`POST /organizations/:orgId/tasks`,
+  `POST /a2a/tasks`, `POST /a2a/tasks/:taskId/result`); every other path
+  throws `PraesidiaConfigError` instead of retrying a write the server can
+  double-apply. Previously any path accepted the option. **Behavioral,
+  non-breaking for existing callers** — no shipped resource method passed
+  `idempotencyKey` before this fix, so no caller's request shape changes;
+  the client-level escape hatch is simply narrower/safer than before.
+
+### 0.2.0 — PROD16 parity + resilience wave
 
 - **Added** `PraesidiaWorkflows`, `PraesidiaConnections`, `PraesidiaAudit`,
   `PraesidiaAnalytics` — closes the TS↔Python SDK parity gap (FINDING-2) and
@@ -617,6 +639,14 @@ passport routes are public; `PraesidiaTrust` verifies signatures offline.
 - **Added** `PraesidiaClient.patch()` — internal transport addition backing
   the new resources' PATCH routes (`agents.update`, `workflows.update`,
   `connections.updateStatus`). Not previously exported/used.
+- **Fixed (R-SDK-1):** `idempotencyKey` retry is now allow-listed to the
+  routes be-core actually deduplicates (`POST /organizations/:orgId/tasks`,
+  `POST /a2a/tasks`, `POST /a2a/tasks/:taskId/result`); every other path
+  throws `PraesidiaConfigError` instead of retrying a write the server can
+  double-apply. Previously any path accepted the option. **Behavioral,
+  non-breaking for existing callers** — no shipped resource method passed
+  `idempotencyKey` before this fix, so no caller's request shape changes;
+  the client-level escape hatch is simply narrower/safer than before.
 
 ## License
 

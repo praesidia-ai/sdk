@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  assertIdempotencyKeySupported,
   computeBackoffMs,
   isRetryableStatus,
   parseRetryAfterMs,
@@ -93,5 +94,42 @@ describe('computeBackoffMs', () => {
   it('caps at maxDelayMs even for a large attempt number', () => {
     const delay = computeBackoffMs(20, 100, 500);
     expect(delay).toBeLessThanOrEqual(500);
+  });
+});
+
+// R-SDK-1 — the idempotencyKey allow-list. be-core honours Idempotency-Key
+// on exactly three routes; everything else must be rejected client-side.
+describe('assertIdempotencyKeySupported', () => {
+  it('allows POST /organizations/:orgId/tasks', () => {
+    expect(() =>
+      assertIdempotencyKeySupported('POST', '/organizations/org_1/tasks'),
+    ).not.toThrow();
+  });
+
+  it('allows the A2A inbound routes', () => {
+    expect(() =>
+      assertIdempotencyKeySupported('POST', '/a2a/tasks'),
+    ).not.toThrow();
+    expect(() =>
+      assertIdempotencyKeySupported('POST', '/a2a/tasks/task-1/result'),
+    ).not.toThrow();
+  });
+
+  it('rejects any other POST path', () => {
+    expect(() =>
+      assertIdempotencyKeySupported('POST', '/organizations/org_1/agents'),
+    ).toThrow(PraesidiaConfigError);
+    expect(() =>
+      assertIdempotencyKeySupported(
+        'POST',
+        '/organizations/org_1/tasks/task-1/approve',
+      ),
+    ).toThrow(PraesidiaConfigError);
+  });
+
+  it('rejects every PATCH path (be-core honours no PATCH route today)', () => {
+    expect(() =>
+      assertIdempotencyKeySupported('PATCH', '/organizations/org_1/tasks'),
+    ).toThrow(PraesidiaConfigError);
   });
 });

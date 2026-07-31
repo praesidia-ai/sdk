@@ -136,13 +136,13 @@ describe('PraesidiaClient retry (FINDING-4)', () => {
       undefined,
       fastRetry,
     );
-    await expect(client.post('/tasks', { input: {} })).rejects.toThrow(
-      PraesidiaApiError,
-    );
+    await expect(
+      client.post('/organizations/org_1/tasks', { input: {} }),
+    ).rejects.toThrow(PraesidiaApiError);
     expect(calls).toBe(1);
   });
 
-  it('retries a POST carrying an idempotencyKey, and sends the Idempotency-Key header', async () => {
+  it('retries a POST carrying an idempotencyKey on a route be-core dedups, and sends the Idempotency-Key header', async () => {
     let calls = 0;
     const seenHeaders: Record<string, string>[] = [];
     globalThis.fetch = vi.fn(async (_url, init?: RequestInit) => {
@@ -159,7 +159,7 @@ describe('PraesidiaClient retry (FINDING-4)', () => {
       fastRetry,
     );
     const result = await client.post<{ created: boolean }>(
-      '/tasks',
+      '/organizations/org_1/tasks',
       { input: {} },
       undefined,
       { idempotencyKey: 'idem-123' },
@@ -167,6 +167,58 @@ describe('PraesidiaClient retry (FINDING-4)', () => {
     expect(result).toEqual({ created: true });
     expect(calls).toBe(2);
     expect(seenHeaders[0]['Idempotency-Key']).toBe('idem-123');
+  });
+
+  it('R-SDK-1: refuses an idempotencyKey on a route be-core does not dedup, without calling fetch', async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      return new Response(JSON.stringify({ id: 'x' }), { status: 201 });
+    }) as typeof fetch;
+
+    const client = new PraesidiaClient(
+      'https://api.example.test',
+      'pk_test',
+      undefined,
+      fastRetry,
+    );
+    await expect(
+      client.post(
+        '/organizations/org_1/agents',
+        { name: 'a' },
+        undefined,
+        { idempotencyKey: 'idem-123' },
+      ),
+    ).rejects.toThrow(/does not honour Idempotency-Key/);
+    await expect(
+      client.patch(
+        '/organizations/org_1/tasks',
+        { name: 'a' },
+        undefined,
+        { idempotencyKey: 'idem-123' },
+      ),
+    ).rejects.toThrow(/does not honour Idempotency-Key/);
+    expect(calls).toBe(0);
+  });
+
+  it('R-SDK-1: honours the idempotencyKey allow-list for the A2A inbound routes', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ ok: true }), { status: 201 }),
+    ) as typeof fetch;
+    const client = new PraesidiaClient(
+      'https://api.example.test',
+      'pk_test',
+      undefined,
+      fastRetry,
+    );
+    await expect(
+      client.post('/a2a/tasks', {}, undefined, { idempotencyKey: 'k' }),
+    ).resolves.toEqual({ ok: true });
+    await expect(
+      client.post('/a2a/tasks/task-1/result', {}, undefined, {
+        idempotencyKey: 'k',
+      }),
+    ).resolves.toEqual({ ok: true });
   });
 
   it('gives up after maxAttempts and surfaces the final error response', async () => {
