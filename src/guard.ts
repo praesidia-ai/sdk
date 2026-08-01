@@ -7,6 +7,7 @@ import {
 } from './errors.js';
 import { runLocalRules } from './local-rules.js';
 import type {
+  ActionDenyReason,
   AgentIdentity,
   AgentTaskType,
   BeginTaskOptions,
@@ -38,17 +39,6 @@ const CAPABILITY_TOKEN_HEADER = 'X-Praesidia-Capability-Token';
  * primitive. Never reuse `CAPABILITY_TOKEN_HEADER` for a Permit.
  */
 const PERMIT_HEADER = 'X-Praesidia-Permit';
-
-/**
- * PA01 D8 — `errorCode` values the managed MCP route's normal (HTTP 200)
- * `success:false` body can carry when the dispatch itself proceeded and the
- * TOOL reported its own failure — as opposed to the call never having been
- * authorized/dispatched at all (RBAC/ABAC policy deny, or the Proof Edge's
- * Permit deny/mismatch/replay). Only this one code means "the tool ran and
- * failed"; every other `success:false` body is a pre-dispatch denial that
- * `protectAction` throws on.
- */
-const TOOL_LEVEL_ERROR_CODE = 'TOOL_ERROR';
 
 /**
  * Q3-02 / Q4-02 — extract the chain + capability context off a polled task row
@@ -582,11 +572,19 @@ export class PraesidiaGuard {
    *     confirmed replay (`DUPLICATE_SUPPRESSED`, which denies even under
    *     observe-mode — see D7/D9). Distinct from the tool itself reporting
    *     failure after a real dispatch, which does NOT throw (see
-   *     `result.isError`).
+   *     `result.isError`). PA-0026: the discriminator is presence of
+   *     `actionDenyReason` on the response — NOT `errorCode`. `errorCode`
+   *     alone cannot tell a pre-dispatch denial from a downstream tool
+   *     failure: a genuine tool/transport exception returns `errorCode:
+   *     'BAD_REQUEST' | 'INTERNAL_ERROR'` (no `actionDenyReason`), and a
+   *     successful call whose tool errored (`isError: true`) carries no
+   *     `errorCode` at all. `'TOOL_ERROR'`, despite being documented in an
+   *     earlier version of this method, is never present in this endpoint's
+   *     response — it exists only in `be`'s internal forensic write.
    *   - Otherwise resolves with the dispatch result. `actionId`/`closure`/
-   *     `evidenceGrade` are populated only once `be`'s response carries them
-   *     (`.claude/tickets/PA01-CONTRACT-sdk-action-response.md` — not yet
-   *     landed); they are `undefined`, not a failure, until then.
+   *     `evidenceGrade` are populated whenever `be`'s response carries them
+   *     (absent when the Proof Edge feature is off for the org); absence is
+   *     not a failure signal.
    *
    * Header discipline (D3): the Permit rides `X-Praesidia-Permit`, kept
    * strictly separate from the JIT `X-Praesidia-Capability-Token` verify
@@ -642,19 +640,24 @@ export class PraesidiaGuard {
       actionId?: string;
       closure?: string;
       evidenceGrade?: 'A' | 'B' | 'C' | 'D';
+      actionDenyReason?: ActionDenyReason;
     }>(path, body, Object.keys(headers).length ? headers : undefined);
 
-    // The AGV-020/025 policy gates AND the Proof Edge both deny with an
-    // ordinary HTTP 200 body rather than an HTTP error status — the ONLY
-    // success:false case that means "the tool actually dispatched and
-    // reported its own failure" carries errorCode 'TOOL_ERROR'; every other
-    // success:false is a pre-dispatch denial this method throws on.
-    if (result.success === false && result.errorCode !== TOOL_LEVEL_ERROR_CODE) {
+    // PA-0026 — `actionDenyReason` is present ON AND ONLY ON a genuine
+    // pre-dispatch denial (the Proof Edge's Permit deny/mismatch/replay, or
+    // the AGV-020/025 policy gates that run before the Proof Edge block).
+    // It is absent on every success AND on every downstream tool/transport
+    // error — so, unlike `errorCode`, it never misclassifies a routine tool
+    // failure as a policy denial. Do NOT revert to `errorCode !==
+    // 'TOOL_ERROR'`: that string is never present in this endpoint's
+    // caller-visible response at all.
+    if (result.actionDenyReason !== undefined) {
       throw new ProtectedActionDeniedError(
         result.error ?? 'protected action denied',
         result.errorCode,
         result.actionId,
         result.closure,
+        result.actionDenyReason,
       );
     }
 

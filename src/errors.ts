@@ -1,4 +1,4 @@
-import type { TriggeredGuardrail } from './types.js';
+import type { ActionDenyReason, TriggeredGuardrail } from './types.js';
 
 /**
  * Thrown by PraesidiaGuard.run() and checkInput() when the input content
@@ -62,26 +62,34 @@ export class PraesidiaConfigError extends Error {
  * dispatched and reported its OWN error — that does not throw, it comes back
  * as `ProtectActionResult.isError`).
  *
- * `actionId`/`closure` are populated once `be`'s response carries them (see
- * `.claude/tickets/PA01-CONTRACT-sdk-action-response.md`) — `undefined`
- * until that contract lands.
+ * PA-0026 — `guard.protectAction` throws this if and only if `be`'s response
+ * carries `actionDenyReason` (see {@link ActionDenyReason}); a downstream
+ * tool/transport error (`errorCode: 'BAD_REQUEST' | 'INTERNAL_ERROR'`, no
+ * `actionDenyReason`) never reaches this constructor. `actionId`/`closure`
+ * are populated whenever `be`'s response carries them — `undefined` when the
+ * denial happened before the Proof Edge block ran (`actionDenyReason ===
+ * 'POLICY_DENIED'`).
  */
 export class ProtectedActionDeniedError extends Error {
   readonly errorCode: string | undefined;
   readonly actionId: string | undefined;
   readonly closure: string | undefined;
+  /** PA-0026 — the reliable discriminator this error was thrown on. Always defined when this error is thrown by `protectAction`. */
+  readonly actionDenyReason: ActionDenyReason | undefined;
 
   constructor(
     message: string,
     errorCode?: string,
     actionId?: string,
     closure?: string,
+    actionDenyReason?: ActionDenyReason,
   ) {
     super(message);
     this.name = 'ProtectedActionDeniedError';
     this.errorCode = errorCode;
     this.actionId = actionId;
     this.closure = closure;
+    this.actionDenyReason = actionDenyReason;
     Object.setPrototypeOf(this, ProtectedActionDeniedError.prototype);
   }
 }

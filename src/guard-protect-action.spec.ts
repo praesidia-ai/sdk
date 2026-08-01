@@ -88,7 +88,13 @@ describe('PA01 DX-001 — guard.protectAction', () => {
     });
   });
 
-  it('does NOT throw when the tool itself reports failure (errorCode TOOL_ERROR)', async () => {
+  // PA-0026 — these are the tests that would have caught the original
+  // heuristic bug: it decided "pre-dispatch denial?" via
+  // `errorCode !== 'TOOL_ERROR'`, but `'TOOL_ERROR'` is never present in
+  // this endpoint's caller-visible response at all (it only exists in `be`'s
+  // internal forensic write). Both cases below satisfy that old heuristic's
+  // "throw" branch and would have wrongly raised ProtectedActionDeniedError.
+  it('does NOT throw when a successful call´s tool itself reports failure (isError:true, no errorCode, no actionDenyReason)', async () => {
     const guard = new PraesidiaGuard(config);
     globalThis.fetch = makeFetchMock([
       {
@@ -98,7 +104,9 @@ describe('PA01 DX-001 — guard.protectAction', () => {
           isError: true,
           latencyMs: 5,
           error: 'downstream tool failed',
-          errorCode: 'TOOL_ERROR',
+          // be sends NO errorCode at all for this case — verified by
+          // tracing mcp-client.service.ts's success-with-tool-error return
+          // site (PA01-FIXED-be3.md "Design decision 2").
         },
       },
     ]);
@@ -110,7 +118,7 @@ describe('PA01 DX-001 — guard.protectAction', () => {
     expect(result.isError).toBe(true);
   });
 
-  it('throws ProtectedActionDeniedError on a Proof Edge permit denial (200 body, success:false)', async () => {
+  it('does NOT throw on a genuine downstream tool/transport exception (errorCode BAD_REQUEST, no actionDenyReason)', async () => {
     const guard = new PraesidiaGuard(config);
     globalThis.fetch = makeFetchMock([
       {
@@ -118,47 +126,77 @@ describe('PA01 DX-001 — guard.protectAction', () => {
           success: false,
           content: [],
           isError: true,
-          latencyMs: 0,
-          error: 'Tool "search" denied: no Permit presented (X-Praesidia-Permit missing)',
-          errorCode: 'PERMIT_MISSING',
+          latencyMs: 5,
+          error: 'downstream tool threw',
+          errorCode: 'BAD_REQUEST',
         },
       },
     ]);
 
-    const err: ProtectedActionDeniedError = await guard
-      .protectAction({
-        target: { protocol: 'mcp', mcpServerId: 'srv-1', toolName: 'search' },
-      })
-      .catch((e) => e);
-
-    expect(err).toBeInstanceOf(ProtectedActionDeniedError);
-    expect(err.errorCode).toBe('PERMIT_MISSING');
-  });
-
-  it('throws ProtectedActionDeniedError on a confirmed replay (DUPLICATE_SUPPRESSED-mapped errorCode)', async () => {
-    const guard = new PraesidiaGuard(config);
-    globalThis.fetch = makeFetchMock([
-      {
-        json: {
-          success: false,
-          content: [],
-          isError: true,
-          latencyMs: 0,
-          error: 'Tool "search" denied: Permit already consumed (replay suppressed)',
-          errorCode: 'PERMIT_REPLAYED',
-        },
-      },
-    ]);
-
-    await expect(
-      guard.protectAction({
-        target: { protocol: 'mcp', mcpServerId: 'srv-1', toolName: 'search' },
-      }),
-    ).rejects.toMatchObject({
-      name: 'ProtectedActionDeniedError',
-      errorCode: 'PERMIT_REPLAYED',
+    const result = await guard.protectAction({
+      target: { protocol: 'mcp', mcpServerId: 'srv-1', toolName: 'search' },
     });
+    expect(result.success).toBe(false);
+    expect(result.isError).toBe(true);
   });
+
+  it('does NOT throw on a genuine downstream transport exception (errorCode INTERNAL_ERROR, no actionDenyReason)', async () => {
+    const guard = new PraesidiaGuard(config);
+    globalThis.fetch = makeFetchMock([
+      {
+        json: {
+          success: false,
+          content: [],
+          isError: true,
+          latencyMs: 5,
+          error: 'transport failure',
+          errorCode: 'INTERNAL_ERROR',
+        },
+      },
+    ]);
+
+    const result = await guard.protectAction({
+      target: { protocol: 'mcp', mcpServerId: 'srv-1', toolName: 'search' },
+    });
+    expect(result.success).toBe(false);
+    expect(result.isError).toBe(true);
+  });
+
+  it.each([
+    ['PERMIT_MISSING', 'no Permit presented (X-Praesidia-Permit missing)'],
+    ['PERMIT_INVALID', 'Permit signature invalid'],
+    ['PERMIT_EXPIRED', 'Permit expired'],
+    ['PERMIT_MISMATCH', 'Permit commitment mismatch'],
+    ['PERMIT_REPLAYED', 'Permit already consumed (replay suppressed)'],
+    ['POLICY_DENIED', 'denied by agent tool policy'],
+  ] as const)(
+    'throws ProtectedActionDeniedError with actionDenyReason %s (the reliable discriminator, PA-0026)',
+    async (actionDenyReason, message) => {
+      const guard = new PraesidiaGuard(config);
+      globalThis.fetch = makeFetchMock([
+        {
+          json: {
+            success: false,
+            content: [],
+            isError: true,
+            latencyMs: 0,
+            error: `Tool "search" denied: ${message}`,
+            errorCode: `PERMIT_${actionDenyReason}`,
+            actionDenyReason,
+          },
+        },
+      ]);
+
+      const err: ProtectedActionDeniedError = await guard
+        .protectAction({
+          target: { protocol: 'mcp', mcpServerId: 'srv-1', toolName: 'search' },
+        })
+        .catch((e) => e);
+
+      expect(err).toBeInstanceOf(ProtectedActionDeniedError);
+      expect(err.actionDenyReason).toBe(actionDenyReason);
+    },
+  );
 
   it('propagates PraesidiaApiError unchanged for an HTTP-level denial (RBAC/ABAC gates)', async () => {
     const guard = new PraesidiaGuard(config);

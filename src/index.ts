@@ -142,6 +142,8 @@ export type {
   ProtectActionOptions,
   ProtectActionResult,
   ProtectedActionContent,
+  // PA-0026 — machine-readable pre-dispatch deny reason
+  ActionDenyReason,
 } from './types.js';
 // PA01 D2/D18 — JCS canonicalization value type
 export type { JsonValue } from './jcs-canonical.js';

@@ -925,19 +925,56 @@ export interface ProtectActionOptions {
 /** Passthrough content item — mirrors `be`'s `McpContent` union loosely (`type: 'text' | 'image' | 'resource'`, plus type-specific fields). */
 export type ProtectedActionContent = Record<string, unknown>;
 
+/**
+ * PA-0026 — machine-readable pre-dispatch denial reason, mirroring `be`'s
+ * `ActionDenyReason` (`tool-result.dto.ts`) 1:1. Present ONLY on
+ * `ToolResultDto.actionDenyReason` when the call was denied BEFORE dispatch —
+ * this is the field `protectAction` keys its throw decision on (see
+ * {@link ProtectActionResult}, `guard.ts`'s `protectAction`). A coarse,
+ * frozen grouping over the Proof Edge's ~15 internal `PermitVerifyReason`
+ * values: `expired` and `commitment_mismatch` keep their own named buckets,
+ * everything else (token missing/malformed, wrong audience/issuer/org/
+ * actor/task/chain/target/action-class, signature invalid, key unavailable)
+ * collapses to `PERMIT_INVALID` — none of those finer reasons is
+ * individually actionable by a caller differently than "get a fresh Permit
+ * and retry." `POLICY_DENIED` covers the pre-existing AGV-020/AGV-025
+ * policy gates that run before the Proof Edge block ever executes.
+ */
+export type ActionDenyReason =
+  | 'PERMIT_MISSING'
+  | 'PERMIT_INVALID'
+  | 'PERMIT_EXPIRED'
+  | 'PERMIT_MISMATCH'
+  | 'PERMIT_REPLAYED'
+  | 'POLICY_DENIED';
+
 export interface ProtectActionResult {
   success: boolean;
   content: ProtectedActionContent[];
   isError?: boolean;
   latencyMs: number;
   /**
-   * NOT YET returned by `be`'s `ToolResultDto` — see
-   * `.claude/tickets/PA01-CONTRACT-sdk-action-response.md`. `undefined`
-   * until that contract lands; absence is not itself a failure signal.
+   * The protected-action id (UUIDv7), present whenever the Proof Edge ran
+   * for this call (`Feature.PROOF_ACTIONS` on for the org). Absent when the
+   * feature is off for the org (today's platform default) or the call was
+   * denied before the Proof Edge block ran (AGV-020/AGV-025 policy gates) —
+   * absence is not itself a failure signal.
    */
   actionId?: string;
-  /** D7 closure enum value, once `be` exposes it. `undefined` today. */
+  /**
+   * D7 closure classification, or the D6 open-phase name
+   * (`'AWAITING_OUTCOME'`) when the action has not reached a terminal
+   * closure yet — a successful dispatch never carries a terminal closure
+   * here; `GET /organizations/:orgId/protected-actions/:actionId` is the
+   * durable source of truth once reconciliation resolves it.
+   */
   closure?: string;
-  /** D8 evidence grade ('A'|'B'|'C'|'D'), once `be` exposes it. The managed MCP Proof Edge is grade C at best — never A/B. `undefined` today. */
+  /**
+   * D8 evidence grade hint ('A'|'B'|'C'|'D') — unsigned, synchronous,
+   * non-authoritative. The managed MCP Proof Edge is grade C at best (never
+   * A/B); the durable grade is always verifier-derived from the signed
+   * manifest, never this field. `undefined` when the Proof Edge block did
+   * not run for this call.
+   */
   evidenceGrade?: 'A' | 'B' | 'C' | 'D';
 }

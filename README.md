@@ -153,12 +153,15 @@ try {
     target: { protocol: 'mcp', mcpServerId: 'srv-1', toolName: 'send_email', arguments: { to, subject } },
   });
   // result.success / result.content — the tool's own dispatch outcome.
-  // result.actionId / .closure / .evidenceGrade are undefined until be's response
-  // carries them (PA01-CONTRACT-sdk-action-response.md); absence ≠ failure.
+  // result.actionId / .closure / .evidenceGrade are undefined when the Proof
+  // Edge feature is off for the org; absence ≠ failure.
 } catch (err) {
   if (err instanceof ProtectedActionDeniedError) {
     // Permit missing/expired/invalid/mismatched, or a confirmed replay
-    // (which denies even under observe-mode). err.errorCode / .actionId / .closure.
+    // (which denies even under observe-mode). err.actionDenyReason is the
+    // machine-readable reason ('PERMIT_MISSING' | 'PERMIT_INVALID' |
+    // 'PERMIT_EXPIRED' | 'PERMIT_MISMATCH' | 'PERMIT_REPLAYED' |
+    // 'POLICY_DENIED'); err.errorCode / .actionId / .closure are also set.
   } else if (err instanceof UnsupportedProtectedActionTargetError) {
     // target.protocol was not 'mcp' — the only destination this SDK version
     // can honestly protect. A customer-controlled Proof Edge for arbitrary
@@ -169,8 +172,18 @@ try {
 ```
 
 Only `target.protocol: 'mcp'` is supported today. A tool-level failure (the call dispatched and
-the *tool itself* reported an error) does **not** throw — it comes back as `result.isError`; only
-a *pre-dispatch* denial (RBAC/ABAC gate, or the Proof Edge's Permit deny/mismatch/replay) throws.
+the *tool itself* reported an error, OR the call failed downstream with a transport/tool exception)
+does **not** throw — it comes back as `result.isError` with `result.success: false`; only a
+*pre-dispatch* denial (RBAC/ABAC gate, or the Proof Edge's Permit deny/mismatch/replay) throws.
+
+**PA-0026 — the discriminator is `actionDenyReason`, not `errorCode`.** `protectAction` throws
+`ProtectedActionDeniedError` if and only if `be`'s response carries `actionDenyReason` — set on and
+only on a genuine pre-dispatch denial. A downstream tool/transport exception returns `errorCode:
+'BAD_REQUEST' | 'INTERNAL_ERROR'` (no `actionDenyReason`) and a successful call whose tool errored
+carries no `errorCode` at all; neither throws. (An earlier version of this SDK keyed the decision on
+`errorCode !== 'TOOL_ERROR'`, which is wrong — `'TOOL_ERROR'` is never present in this endpoint's
+caller-visible response.)
+
 The Permit (D3) rides `X-Praesidia-Permit` — a header kept strictly separate from the JIT
 `X-Praesidia-Capability-Token` verify path; PA01 has no HTTP permit-issuance endpoint yet, so
 `opts.permit` is forward-compatible plumbing, not something you can obtain today.
@@ -657,6 +670,21 @@ Authentication: `Authorization: Bearer <apiKey>` (org-scoped API key). The trust
 passport routes are public; `PraesidiaTrust` verifies signatures offline.
 
 ## Changelog
+
+### Unreleased — PA-0026: fix `protectAction`'s deny discriminator (defect in PA01 DX-001)
+
+- **Fixed** `guard.protectAction` misclassifying a downstream tool/transport error as a pre-dispatch
+  policy denial. The shipped heuristic (`errorCode !== 'TOOL_ERROR'`) was broken: `'TOOL_ERROR'` is
+  never present in this endpoint's caller-visible response, so both a real tool exception
+  (`errorCode: 'BAD_REQUEST' | 'INTERNAL_ERROR'`) and a successful call whose tool errored (no
+  `errorCode` at all) satisfied the old "throw" condition. Switched the discriminator to presence of
+  the response's `actionDenyReason` field, which `be` sets on and only on genuine pre-dispatch
+  denials.
+- **Added** `ActionDenyReason` exported type (`'PERMIT_MISSING' | 'PERMIT_INVALID' |
+  'PERMIT_EXPIRED' | 'PERMIT_MISMATCH' | 'PERMIT_REPLAYED' | 'POLICY_DENIED'`) and
+  `ProtectedActionDeniedError.actionDenyReason`.
+- No breaking change to `ProtectActionResult`'s shape; `ProtectedActionDeniedError` gained an
+  additive readonly field.
 
 ### Unreleased — PA01 DX-001: `guard.protectAction` (blocking/throwing Proof Edge wrapper)
 
