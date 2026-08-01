@@ -2,6 +2,8 @@ import { encodePathSegment, PraesidiaClient } from './client.js';
 import {
   GuardrailBlockedError,
   PraesidiaConfigError,
+  ProtectedActionDeniedError,
+  UnsupportedProtectedActionTargetError,
 } from './errors.js';
 import { runLocalRules } from './local-rules.js';
 import type {
@@ -14,6 +16,9 @@ import type {
   GuardConfig,
   GuardedResult,
   PolledTaskRow,
+  ProtectActionOptions,
+  ProtectActionResult,
+  ProtectedActionContent,
   RunOptions,
   TaskHandle,
   TaskRecord,
@@ -26,6 +31,24 @@ const TASK_ID_HEADER = 'X-Praesidia-Task-Id';
 const AGENT_ID_HEADER = 'X-Praesidia-Agent-Id';
 const CHAIN_ID_HEADER = 'X-Praesidia-Chain-Id';
 const CAPABILITY_TOKEN_HEADER = 'X-Praesidia-Capability-Token';
+/**
+ * PA01 D3 — the Permit rides a header DISTINCT from the capability token
+ * above. Overloading `X-Praesidia-Capability-Token` would put two different
+ * verify paths behind one header — a confused-deputy hazard for a security
+ * primitive. Never reuse `CAPABILITY_TOKEN_HEADER` for a Permit.
+ */
+const PERMIT_HEADER = 'X-Praesidia-Permit';
+
+/**
+ * PA01 D8 — `errorCode` values the managed MCP route's normal (HTTP 200)
+ * `success:false` body can carry when the dispatch itself proceeded and the
+ * TOOL reported its own failure — as opposed to the call never having been
+ * authorized/dispatched at all (RBAC/ABAC policy deny, or the Proof Edge's
+ * Permit deny/mismatch/replay). Only this one code means "the tool ran and
+ * failed"; every other `success:false` body is a pre-dispatch denial that
+ * `protectAction` throws on.
+ */
+const TOOL_LEVEL_ERROR_CODE = 'TOOL_ERROR';
 
 /**
  * Q3-02 / Q4-02 — extract the chain + capability context off a polled task row
@@ -464,6 +487,16 @@ export class PraesidiaGuard {
   }
 
   /**
+   * PA01 D8 — evidence grade **D**: an application-reported OBSERVATION,
+   * never enforcement. Best-effort — NEVER throws on network failure, and
+   * fires strictly AFTER the caller's tool call already happened (it cannot
+   * deny or block anything). A developer who expects this call to be
+   * protecting the dispatch is mistaken — for that, use
+   * {@link PraesidiaGuard.protectAction}, which is blocking, throwing, and
+   * scoped to the managed MCP Proof Edge (grade C). This method is
+   * deliberately left unchanged and is NOT repurposed into an enforcement
+   * primitive — the two exist precisely because they are different things.
+   *
    * Track a tool call associated with a task.
    * Best-effort — never throws on network failure.
    *
@@ -517,6 +550,123 @@ export class PraesidiaGuard {
     } catch {
       // tool-call tracking is always best-effort
     }
+  }
+
+  /**
+   * PA01 DX-001 — protect a dispatch on the managed MCP path.
+   *
+   * A **blocking, throwing** wrapper over
+   * `POST /organizations/:orgId/mcp-servers/:id/tools/:toolName/call` — the
+   * one route where `be`'s Proof Edge (`mcp-client.service.ts`) mints,
+   * binds and consumes a Permit and durably records dispatch evidence
+   * BEFORE the tool call returns (D8: evidence grade **C** —
+   * Praesidia-managed observation, never independent target proof).
+   *
+   * Unlike every other method on this class, `protectAction` ignores
+   * `failOpen`/`strict` entirely — there is no config knob that degrades it
+   * into best-effort telemetry. It:
+   *   - **throws {@link UnsupportedProtectedActionTargetError}** immediately,
+   *     before any network call, if `target.protocol` is not `'mcp'` — the
+   *     only destination this SDK version can honestly protect. A
+   *     customer-controlled Proof Edge for arbitrary destinations (EDGE-003)
+   *     is a later release; this method never silently falls back to
+   *     {@link trackToolCall}-style grade-D reporting.
+   *   - **throws {@link PraesidiaConfigError}** if no connected client is
+   *     configured — there is no local/offline fallback, because there is
+   *     nothing to protect without a real network call to the Proof Edge.
+   *   - **throws {@link PraesidiaApiError}** unchanged for any denial `be`
+   *     raises as an HTTP error status (e.g. the pre-Proof-Edge ABAC/
+   *     rate-limit gates).
+   *   - **throws {@link ProtectedActionDeniedError}** for a same-status
+   *     (HTTP 200) denial body — no/expired/invalid/mismatched Permit, or a
+   *     confirmed replay (`DUPLICATE_SUPPRESSED`, which denies even under
+   *     observe-mode — see D7/D9). Distinct from the tool itself reporting
+   *     failure after a real dispatch, which does NOT throw (see
+   *     `result.isError`).
+   *   - Otherwise resolves with the dispatch result. `actionId`/`closure`/
+   *     `evidenceGrade` are populated only once `be`'s response carries them
+   *     (`.claude/tickets/PA01-CONTRACT-sdk-action-response.md` — not yet
+   *     landed); they are `undefined`, not a failure, until then.
+   *
+   * Header discipline (D3): the Permit rides `X-Praesidia-Permit`, kept
+   * strictly separate from the JIT `X-Praesidia-Capability-Token` verify
+   * path (Q4-02) — both may be forwarded on the same call, they answer
+   * different questions.
+   *
+   * Retry discipline: this is a bare POST — never retried by the client
+   * (`retry.ts`). A retried dispatch is a new attempt under the same
+   * `actionId`, which the server decides, never a client-side re-send.
+   */
+  async protectAction(opts: ProtectActionOptions): Promise<ProtectActionResult> {
+    if (opts.target.protocol !== 'mcp') {
+      throw new UnsupportedProtectedActionTargetError(opts.target.protocol);
+    }
+    if (!this.client || !this.orgId) {
+      throw new PraesidiaConfigError(
+        'protectAction requires a connected client (PRAESIDIA_API_KEY and ' +
+          'PRAESIDIA_ORG_ID) — unlike trackToolCall this call is ' +
+          'blocking/throwing and has no local/offline fallback.',
+      );
+    }
+
+    const { mcpServerId, toolName, arguments: args } = opts.target;
+    const agentId = opts.agentId ?? this.agentId;
+    const chainId = opts.chainId ?? this.client.getChainId();
+
+    const headers: Record<string, string> = {};
+    if (opts.permit) headers[PERMIT_HEADER] = opts.permit;
+    if (opts.capabilityToken)
+      headers[CAPABILITY_TOKEN_HEADER] = opts.capabilityToken;
+    if (opts.taskId) headers[TASK_ID_HEADER] = opts.taskId;
+    if (agentId) headers[AGENT_ID_HEADER] = agentId;
+    if (chainId) headers[CHAIN_ID_HEADER] = chainId;
+
+    const body: Record<string, unknown> = { toolName };
+    if (args !== undefined) body.arguments = args;
+    if (opts.timeoutMs !== undefined) body.timeoutMs = opts.timeoutMs;
+
+    const path =
+      `/organizations/${this.orgPathSegment}/mcp-servers/` +
+      `${encodePathSegment(mcpServerId, 'target.mcpServerId')}/tools/` +
+      `${encodePathSegment(toolName, 'target.toolName')}/call`;
+
+    // client.post throws PraesidiaApiError unchanged for any non-2xx (the
+    // pre-Proof-Edge ABAC/rate-limit gates raise HTTP exceptions today).
+    const result = await this.client.post<{
+      success: boolean;
+      content: ProtectedActionContent[];
+      isError?: boolean;
+      latencyMs: number;
+      error?: string;
+      errorCode?: string;
+      actionId?: string;
+      closure?: string;
+      evidenceGrade?: 'A' | 'B' | 'C' | 'D';
+    }>(path, body, Object.keys(headers).length ? headers : undefined);
+
+    // The AGV-020/025 policy gates AND the Proof Edge both deny with an
+    // ordinary HTTP 200 body rather than an HTTP error status — the ONLY
+    // success:false case that means "the tool actually dispatched and
+    // reported its own failure" carries errorCode 'TOOL_ERROR'; every other
+    // success:false is a pre-dispatch denial this method throws on.
+    if (result.success === false && result.errorCode !== TOOL_LEVEL_ERROR_CODE) {
+      throw new ProtectedActionDeniedError(
+        result.error ?? 'protected action denied',
+        result.errorCode,
+        result.actionId,
+        result.closure,
+      );
+    }
+
+    return {
+      success: result.success,
+      content: result.content,
+      isError: result.isError,
+      latencyMs: result.latencyMs,
+      actionId: result.actionId,
+      closure: result.closure,
+      evidenceGrade: result.evidenceGrade,
+    };
   }
 
   /**

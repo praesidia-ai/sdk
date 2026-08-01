@@ -38,7 +38,17 @@ export {
   GuardrailBlockedError,
   PraesidiaApiError,
   PraesidiaConfigError,
+  // PA01 DX-001 — protectAction error taxonomy
+  ProtectedActionDeniedError,
+  UnsupportedProtectedActionTargetError,
 } from './errors.js';
+// PA01 D2/D18 — RFC 8785 JCS canonicalization (byte-compared against the
+// shared golden fixtures in jcs-canonical.spec.ts).
+export {
+  jcsCanonicalize,
+  jcsCommitment,
+  JcsCanonicalizationError,
+} from './jcs-canonical.js';
 export {
   // FINDING-2 — connection status enum + guard used by PraesidiaConnections.
   CONNECTION_STATUSES,
@@ -126,4 +136,12 @@ export type {
   TrustVerificationResult,
   TrustVerificationReason,
   TrustFetchAndVerifyResult,
+  // PA01 DX-001 — protectAction (managed MCP Proof Edge)
+  ProtectActionTarget,
+  McpProtectedActionTarget,
+  ProtectActionOptions,
+  ProtectActionResult,
+  ProtectedActionContent,
 } from './types.js';
+// PA01 D2/D18 — JCS canonicalization value type
+export type { JsonValue } from './jcs-canonical.js';

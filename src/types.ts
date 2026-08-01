@@ -870,3 +870,74 @@ export interface AnalyticsWindowQuery {
 }
 
 export type AnalyticsResult = Record<string, unknown>;
+
+// ── PA01 DX-001 — protectAction (managed MCP Proof Edge) ─────────────────────
+// Endpoint: POST /organizations/:orgId/mcp-servers/:mcpServerId/tools/:toolName/call
+
+/**
+ * PA01 scope correction (`.claude/backlog/PA-0013.md`) — the ONLY supported
+ * `protectAction` destination in this SDK version: the managed MCP path
+ * (`be`'s Proof Edge, `mcp-client.service.ts`). D8: grade C at best
+ * (Praesidia-managed observation, never independent target proof). A
+ * customer-controlled Proof Edge for arbitrary destinations is EDGE-003 —
+ * explicitly out of PA01 scope (D11) — future protocols land here as a
+ * discriminated union member, never as a silent fallback.
+ */
+export interface McpProtectedActionTarget {
+  protocol: 'mcp';
+  /** The managed MCP server connection id (`:id` in the route above). */
+  mcpServerId: string;
+  toolName: string;
+  arguments?: Record<string, unknown>;
+}
+
+/**
+ * Closed union of supported `protectAction` destinations. Only `'mcp'` exists
+ * today — passing any other `protocol` throws
+ * `UnsupportedProtectedActionTargetError` rather than silently degrading to
+ * `trackToolCall`-style best-effort telemetry. That silent-downgrade failure
+ * mode is the precise thing PA-0013 exists to prevent.
+ */
+export type ProtectActionTarget = McpProtectedActionTarget;
+
+export interface ProtectActionOptions {
+  target: ProtectActionTarget;
+  /** Per-call timeout in milliseconds (1000–300000; `be` enforces the range). */
+  timeoutMs?: number;
+  /** Override the agent id (falls back to `config.agentId`). Forwarded as `X-Praesidia-Agent-Id`. */
+  agentId?: string;
+  /** Owning task id. Forwarded as `X-Praesidia-Task-Id` (Q4-02 pattern). */
+  taskId?: string;
+  /** Chain-trace id. Forwarded as `X-Praesidia-Chain-Id`; falls back to the client's propagated chain id. */
+  chainId?: string;
+  /** Opaque JIT capability token (Q4-02). Forwarded as `X-Praesidia-Capability-Token` — a DIFFERENT header/verify path from the Permit below (D3). */
+  capabilityToken?: string;
+  /**
+   * D3 — a previously-issued Permit token, forwarded as `X-Praesidia-Permit`
+   * (never `X-Praesidia-Capability-Token`). PA01 has no HTTP permit-issuance
+   * endpoint yet — `PermitService.mint` is in-process only in `be`
+   * (`.claude/tickets/PA01-CONTRACT-sdk-action-response.md`) — so this field
+   * is forward-compatible plumbing for when one ships. Omit it today.
+   */
+  permit?: string;
+}
+
+/** Passthrough content item — mirrors `be`'s `McpContent` union loosely (`type: 'text' | 'image' | 'resource'`, plus type-specific fields). */
+export type ProtectedActionContent = Record<string, unknown>;
+
+export interface ProtectActionResult {
+  success: boolean;
+  content: ProtectedActionContent[];
+  isError?: boolean;
+  latencyMs: number;
+  /**
+   * NOT YET returned by `be`'s `ToolResultDto` — see
+   * `.claude/tickets/PA01-CONTRACT-sdk-action-response.md`. `undefined`
+   * until that contract lands; absence is not itself a failure signal.
+   */
+  actionId?: string;
+  /** D7 closure enum value, once `be` exposes it. `undefined` today. */
+  closure?: string;
+  /** D8 evidence grade ('A'|'B'|'C'|'D'), once `be` exposes it. The managed MCP Proof Edge is grade C at best — never A/B. `undefined` today. */
+  evidenceGrade?: 'A' | 'B' | 'C' | 'D';
+}

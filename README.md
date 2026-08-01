@@ -114,9 +114,14 @@ or throws in `strict` mode.
 
 ### `guard.trackToolCall(call)` → `Promise<void>`
 
-Record a tool call as a `TOOL_CALL` task (`input: { tool, args, parentTaskId }`). Best-effort —
-never throws, and is **skipped** (logged locally) when no `connectionId` is resolvable
-(`call.connectionId` → config / `PRAESIDIA_CONNECTION_ID`).
+**Evidence grade D (best-effort observation, NOT enforcement).** Record a tool call as a
+`TOOL_CALL` task (`input: { tool, args, parentTaskId }`) — fires *after* the caller's tool call
+already happened, and never throws, even on network failure. It is **skipped** (logged locally)
+when no `connectionId` is resolvable (`call.connectionId` → config / `PRAESIDIA_CONNECTION_ID`).
+
+If you need to actually *block* a dispatch and get a thrown error on denial, this is not that —
+see [`guard.protectAction`](#guardprotectactionopts--promiseprotectactionresult-pa01-dx-001) below.
+The two are deliberately different primitives; `trackToolCall` is not being repurposed.
 
 When the tool call runs on behalf of a claimed task, thread the task-binding
 fields so the backend's use-time capability-token gate can bind the call to the
@@ -131,6 +136,44 @@ await guard.trackToolCall({
   ...toolCallContextFromTask(polledTask), // taskId, agentId, chainId, capabilityToken
 });
 ```
+
+### `guard.protectAction(opts)` → `Promise<ProtectActionResult>` (PA01 DX-001)
+
+**Evidence grade C at best** — a **blocking, throwing** wrapper over the managed MCP path
+(`POST /organizations/:orgId/mcp-servers/:id/tools/:toolName/call`), the one route where `be`'s
+Proof Edge mints/binds/consumes a Permit and durably records dispatch evidence *before* the tool
+call returns. Unlike every other method on `PraesidiaGuard`, `protectAction` ignores
+`failOpen`/`strict` — there is no config knob that silently degrades it into best-effort telemetry.
+
+```typescript
+import { ProtectedActionDeniedError, UnsupportedProtectedActionTargetError } from '@praesidia/sdk';
+
+try {
+  const result = await guard.protectAction({
+    target: { protocol: 'mcp', mcpServerId: 'srv-1', toolName: 'send_email', arguments: { to, subject } },
+  });
+  // result.success / result.content — the tool's own dispatch outcome.
+  // result.actionId / .closure / .evidenceGrade are undefined until be's response
+  // carries them (PA01-CONTRACT-sdk-action-response.md); absence ≠ failure.
+} catch (err) {
+  if (err instanceof ProtectedActionDeniedError) {
+    // Permit missing/expired/invalid/mismatched, or a confirmed replay
+    // (which denies even under observe-mode). err.errorCode / .actionId / .closure.
+  } else if (err instanceof UnsupportedProtectedActionTargetError) {
+    // target.protocol was not 'mcp' — the only destination this SDK version
+    // can honestly protect. A customer-controlled Proof Edge for arbitrary
+    // destinations (EDGE-003) is a later release; this NEVER silently falls
+    // back to trackToolCall-style grade-D reporting.
+  }
+}
+```
+
+Only `target.protocol: 'mcp'` is supported today. A tool-level failure (the call dispatched and
+the *tool itself* reported an error) does **not** throw — it comes back as `result.isError`; only
+a *pre-dispatch* denial (RBAC/ABAC gate, or the Proof Edge's Permit deny/mismatch/replay) throws.
+The Permit (D3) rides `X-Praesidia-Permit` — a header kept strictly separate from the JIT
+`X-Praesidia-Capability-Token` verify path; PA01 has no HTTP permit-issuance endpoint yet, so
+`opts.permit` is forward-compatible plumbing, not something you can obtain today.
 
 ## Chain trace + JIT capability tokens (Q3-02 / Q4-02)
 
@@ -589,12 +632,16 @@ try {
 }
 ```
 
+`ProtectedActionDeniedError` and `UnsupportedProtectedActionTargetError` (PA01 DX-001) are thrown
+only by `guard.protectAction` — see [above](#guardprotectactionopts--promiseprotectactionresult-pa01-dx-001).
+
 ## Praesidia API endpoints used
 
 | Operation | Endpoint | Required scope |
 |---|---|---|
 | `checkInput` / `checkOutput` | `POST /organizations/:orgId/guardrails/validate` | `agents:invoke` or `*` |
 | `logTask` | `POST /organizations/:orgId/tasks` | `agents:invoke` or `*` |
+| `protectAction` (PA01 DX-001) | `POST /organizations/:orgId/mcp-servers/:id/tools/:toolName/call` | `MCP_SERVERS_UPDATE` (`mcp:manage` key scope) |
 | `requestReport` | `POST /organizations/:orgId/compliance/eu-ai-act/reports` | `COMPLIANCE_MANAGE` |
 | `getReportStatus` / `getReportJson` / `getReportPdf` | `GET /organizations/:orgId/compliance/eu-ai-act/reports/:id[/json\|/pdf]` | `COMPLIANCE_VIEW` |
 | `PraesidiaTelemetry.emit*` | `POST /telemetry/otlp/v1/traces` | organization API key |
@@ -610,6 +657,19 @@ Authentication: `Authorization: Bearer <apiKey>` (org-scoped API key). The trust
 passport routes are public; `PraesidiaTrust` verifies signatures offline.
 
 ## Changelog
+
+### Unreleased — PA01 DX-001: `guard.protectAction` (blocking/throwing Proof Edge wrapper)
+
+- **Added** `guard.protectAction(opts)` — a blocking, throwing wrapper over the managed MCP Proof
+  Edge (`POST /organizations/:orgId/mcp-servers/:id/tools/:toolName/call`). Throws
+  `ProtectedActionDeniedError` on a pre-dispatch denial (missing/expired/invalid/mismatched
+  Permit, or a confirmed replay) and `UnsupportedProtectedActionTargetError` for any
+  `target.protocol` other than `'mcp'` — never silently downgrades to `trackToolCall`-style
+  best-effort telemetry.
+- **Added** `jcsCanonicalize`/`jcsCommitment`/`JcsCanonicalizationError` (RFC 8785 JCS) —
+  byte-compared against the shared `be`/`sdk-python`/`audit-verifier` golden fixtures.
+- `guard.trackToolCall`'s docstring now explicitly states it is evidence grade **D** (observation,
+  not enforcement) and points to `protectAction`. Behavior is unchanged.
 
 ### 0.2.1 — R-SDK-1: allow-list the routes `idempotencyKey` may retry
 
