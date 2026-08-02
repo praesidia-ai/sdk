@@ -669,6 +669,35 @@ only by `guard.protectAction` — see [above](#guardprotectactionopts--promisepr
 Authentication: `Authorization: Bearer <apiKey>` (org-scoped API key). The trust
 passport routes are public; `PraesidiaTrust` verifies signatures offline.
 
+## Development
+
+### API contract drift check (CD-0006)
+
+`src/*.ts` hand-writes be-core's REST routes and request-body shapes (route
+bases precomputed per resource class, e.g. `this.agentsBase`, then
+interpolated or passed straight through to `this.client.get/post/put/patch/
+del/getBytes`). Nothing else enforces that they still match be-core, so
+`npm run lint:api-contract` (`scripts/audit-api-contract.mjs` — a generalized
+copy of `mcp`'s CD-0001 scanner, see that file's header for why) diffs every
+such call site against a be-core OpenAPI spec — failing on a route be-core no
+longer has, or a request-body field its DTO doesn't declare (be-core's global
+`forbidNonWhitelisted` `ValidationPipe` would 400 the whole request).
+
+```bash
+# Against this monorepo checkout's committed spec:
+npm run lint:api-contract -- ../ui/swagger.json
+
+# Or export a fresh spec straight from a be-core checkout:
+#   (in be-core) npm run export:openapi
+npm run lint:api-contract -- <path-to-swagger.json>
+```
+
+Wired as its own CI job (`.github/workflows/contract-drift.yml`), sibling-
+checkout of `be-core`, mirroring `mcp`'s equivalent job. The **same script
+instance** also audits the Python SDK's call sites (`--lang py`) via a
+sibling checkout in `sdk-python`'s own `contract-drift.yml` — CD-0007 reuses
+this repo's scanner rather than a third, Python-native re-derivation.
+
 ## Changelog
 
 ### Unreleased — PA-0026: fix `protectAction`'s deny discriminator (defect in PA01 DX-001)
