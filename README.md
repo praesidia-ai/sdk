@@ -657,7 +657,7 @@ only by `guard.protectAction` — see [above](#guardprotectactionopts--promisepr
 | `protectAction` (PA01 DX-001) | `POST /organizations/:orgId/mcp-servers/:id/tools/:toolName/call` | `MCP_SERVERS_UPDATE` (`mcp:manage` key scope) |
 | `requestReport` | `POST /organizations/:orgId/compliance/eu-ai-act/reports` | `COMPLIANCE_MANAGE` |
 | `getReportStatus` / `getReportJson` / `getReportPdf` | `GET /organizations/:orgId/compliance/eu-ai-act/reports/:id[/json\|/pdf]` | `COMPLIANCE_VIEW` |
-| `PraesidiaTelemetry.emit*` | `POST /telemetry/otlp/v1/traces` | organization API key |
+| `PraesidiaTelemetry.emit*` | `POST /telemetry/otlp/v1/traces` | `telemetry:ingest` or `*` |
 | `PraesidiaMemory.*` | `POST/GET/DELETE /organizations/:orgId/memories[/…]` | `MEMORY_CREATE` / `MEMORY_VIEW` / `MEMORY_ERASE` / `MEMORY_DELETE` |
 | `PraesidiaAgents.*` | `GET/POST/PATCH/DELETE /organizations/:orgId/agents[/…]` | agent management permissions |
 | `PraesidiaWorkflows.*` | `GET/POST/PATCH/DELETE /organizations/:orgId/workflows[/…]` | `WORKFLOWS_*` (`APPROVAL_WORKFLOWS` feature) |
