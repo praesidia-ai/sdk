@@ -12,14 +12,14 @@ const MEMORY = {
   memoryKey: null,
   tags: null,
   provenance: {
-    sourceType: 'agent',
+    sourceType: 'AGENT',
     sourceAgentId: null,
     authorUserId: 'u-1',
     sourceReference: null,
     writtenAt: '2026-07-06T00:00:00.000Z',
   },
   guardrail: { poisoningScore: 0.01, piiRedacted: false },
-  retention: { regime: 'none', expiresAt: null },
+  retention: { regime: 'NONE', expiresAt: null },
   erasedAt: null,
   createdAt: '2026-07-06T00:00:00.000Z',
   updatedAt: '2026-07-06T00:00:00.000Z',
@@ -39,6 +39,11 @@ describe('PraesidiaMemory', () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
+  });
+
+  it('rejects an unsafe rotated credential', () => {
+    const memory = new PraesidiaMemory({ apiKey: 'pk_x', orgId: 'org-1' });
+    expect(() => memory.refreshCredential(' bad')).toThrow(PraesidiaConfigError);
   });
 
   it('throws PraesidiaConfigError when apiKey/orgId are missing', () => {
@@ -70,7 +75,13 @@ describe('PraesidiaMemory', () => {
     const result = await memory.create({
       content: 'The customer prefers email.',
       subjectId: 'subject-9',
+      memoryKey: 'namespace-1',
       tags: ['crm'],
+      sourceType: 'IMPORT',
+      sourceAgentId: '00000000-0000-4000-8000-000000000001',
+      sourceReference: 'import-job-1',
+      retentionRegime: 'CUSTOM',
+      retentionDays: 30,
     });
 
     expect(result.id).toBe('mem-1');
@@ -81,11 +92,39 @@ describe('PraesidiaMemory', () => {
     expect(JSON.parse(init.body as string)).toEqual({
       content: 'The customer prefers email.',
       subjectId: 'subject-9',
+      memoryKey: 'namespace-1',
       tags: ['crm'],
+      sourceType: 'IMPORT',
+      sourceAgentId: '00000000-0000-4000-8000-000000000001',
+      sourceReference: 'import-job-1',
+      retentionRegime: 'CUSTOM',
+      retentionDays: 30,
     });
     expect((init.headers as Record<string, string>)['Authorization']).toBe(
       'Bearer pk_test_key',
     );
+  });
+
+  it.each([
+    { content: '' },
+    { content: 'x'.repeat(32_769) },
+    { content: 'ok', sourceType: 'agent' },
+    { content: 'ok', sourceType: 'TOOL' },
+    { content: 'ok', retentionRegime: 'sox' },
+    { content: 'ok', retentionRegime: 'SOX' },
+    { content: 'ok', retentionDays: 30 },
+    { content: 'ok', retentionRegime: 'SOC2', retentionDays: 30 },
+    { content: 'ok', retentionRegime: 'CUSTOM' },
+    { content: 'ok', retentionRegime: 'CUSTOM', retentionDays: 0 },
+  ])('rejects backend-invalid or silently ignored create input: %o', async (input) => {
+    const spy = makeFetchMock([]);
+    globalThis.fetch = spy;
+    const memory = new PraesidiaMemory(config);
+
+    await expect(memory.create(input as never)).rejects.toThrow(
+      PraesidiaConfigError,
+    );
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('list GETs with a built query string', async () => {
@@ -111,6 +150,7 @@ describe('PraesidiaMemory', () => {
     const res = await memory.list({
       limit: 5,
       memoryKey: 'conv-1',
+      sourceType: 'AGENT',
       tag: 'crm',
     });
 
@@ -122,14 +162,30 @@ describe('PraesidiaMemory', () => {
     expect(url).toContain('/organizations/org-uuid-123/memories?');
     expect(url).toContain('limit=5');
     expect(url).toContain('memoryKey=conv-1');
+    expect(url).toContain('sourceType=AGENT');
     expect(url).toContain('tag=crm');
+  });
+
+  it('rejects a backend-invalid list source type before fetch', async () => {
+    const spy = makeFetchMock([]);
+    globalThis.fetch = spy;
+    const memory = new PraesidiaMemory(config);
+
+    await expect(memory.list({ sourceType: 'agent' as never })).rejects.toThrow(
+      PraesidiaConfigError,
+    );
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('search POSTs the SearchMemoryDto to /memories/search', async () => {
     globalThis.fetch = makeFetchMock([{ ok: true, body: [MEMORY] }]);
 
     const memory = new PraesidiaMemory(config);
-    const hits = await memory.search({ query: 'contact preference', topK: 5 });
+    const hits = await memory.search({
+      query: 'contact preference',
+      memoryKey: 'conv-1',
+      topK: 5,
+    });
 
     expect(hits).toHaveLength(1);
     const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
@@ -137,8 +193,24 @@ describe('PraesidiaMemory', () => {
     expect(url).toContain('/organizations/org-uuid-123/memories/search');
     expect(JSON.parse(init.body as string)).toEqual({
       query: 'contact preference',
+      memoryKey: 'conv-1',
       topK: 5,
     });
+  });
+
+  it.each([
+    { query: '' },
+    { query: 'x'.repeat(4_097) },
+    { query: 'valid', topK: 0 },
+    { query: 'valid', topK: 51 },
+    { query: 'valid', topK: 1.5 },
+  ])('rejects backend-invalid search input: %o', async (input) => {
+    const spy = makeFetchMock([]);
+    globalThis.fetch = spy;
+    const memory = new PraesidiaMemory(config);
+
+    await expect(memory.search(input)).rejects.toThrow(PraesidiaConfigError);
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('erase POSTs the subject + reason to /memories/erase', async () => {

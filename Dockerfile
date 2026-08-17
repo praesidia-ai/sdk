@@ -12,15 +12,15 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 # Compile (tsc) and run the full vitest suite as part of the build.
-COPY tsconfig.json tsconfig.spec.json ./
+COPY tsconfig.json tsconfig.spec.json vitest.config.ts ./
 COPY src ./src
 # The Vitest suite also includes the API-contract scanner regression tests in
-# scripts/. Copy that directory before `npm test`; otherwise an image build
+# scripts/. Copy that directory before the coverage run; otherwise an image build
 # silently runs fewer tests than the host/CI suite while claiming to run all of
 # them.
 COPY scripts ./scripts
 COPY README.md LICENSE ./
-RUN npm run build && npm test && npm run typecheck:spec
+RUN npm run build && npm run test:coverage && npm run typecheck:spec
 
 # ---- runtime: minimal, non-root, carries only the built output ----
 FROM node:24.18-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS runtime

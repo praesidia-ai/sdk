@@ -49,10 +49,16 @@ export function verifyEd25519(
     if (typeof signatureB64 !== 'string' || signatureB64.length === 0) {
       return false;
     }
+    if (!/^[A-Za-z0-9+/]{86}==$/.test(signatureB64)) {
+      return false;
+    }
     const sig = Buffer.from(signatureB64, 'base64');
     // Ed25519 signatures are always 64 bytes; reject malformed inputs before
     // handing them to the OpenSSL bindings.
     if (sig.length !== 64) {
+      return false;
+    }
+    if (sig.toString('base64') !== signatureB64) {
       return false;
     }
     const der = Buffer.concat([ED25519_SPKI_PREFIX, Buffer.from(publicKey)]);
@@ -89,9 +95,15 @@ export function ed25519PublicKeyFromJwk(
   if (typeof x !== 'string' || x.length === 0) {
     return null;
   }
+  if (!/^[A-Za-z0-9_-]{43}$/.test(x)) {
+    return null;
+  }
   try {
     const raw = Buffer.from(x, 'base64url');
     if (raw.length !== 32) {
+      return null;
+    }
+    if (raw.toString('base64url') !== x) {
       return null;
     }
     return new Uint8Array(raw);

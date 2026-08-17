@@ -1,4 +1,8 @@
-import { encodePathSegment, PraesidiaClient } from './client.js';
+import {
+  assertPagination,
+  encodePathSegment,
+  PraesidiaClient,
+} from './client.js';
 import { PraesidiaConfigError } from './errors.js';
 import type {
   CreateMemoryInput,
@@ -8,6 +12,10 @@ import type {
   ListMemoriesQuery,
   MemoryRecord,
   SearchMemoryInput,
+} from './types.js';
+import {
+  MEMORY_RETENTION_REGIMES,
+  MEMORY_SOURCE_TYPES,
 } from './types.js';
 
 const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
@@ -76,6 +84,58 @@ export class PraesidiaMemory {
    * {@link erase} can GDPR Art-17 crypto-shred exactly that subject.
    */
   async create(input: CreateMemoryInput): Promise<MemoryRecord> {
+    if (
+      !input ||
+      typeof input.content !== 'string' ||
+      input.content.length === 0 ||
+      input.content.length > 32_768
+    ) {
+      throw new PraesidiaConfigError(
+        'content must be a non-empty string of at most 32768 characters',
+      );
+    }
+    if (
+      input.sourceType !== undefined &&
+      !MEMORY_SOURCE_TYPES.includes(input.sourceType)
+    ) {
+      throw new PraesidiaConfigError(
+        `sourceType must be one of ${MEMORY_SOURCE_TYPES.join(', ')}`,
+      );
+    }
+    if (
+      input.retentionRegime !== undefined &&
+      !MEMORY_RETENTION_REGIMES.includes(input.retentionRegime)
+    ) {
+      throw new PraesidiaConfigError(
+        `retentionRegime must be one of ${MEMORY_RETENTION_REGIMES.join(', ')}`,
+      );
+    }
+    if (
+      input.retentionDays !== undefined &&
+      (!Number.isInteger(input.retentionDays) ||
+        input.retentionDays < 1 ||
+        input.retentionDays > 36_500)
+    ) {
+      throw new PraesidiaConfigError(
+        'retentionDays must be an integer from 1 to 36500',
+      );
+    }
+    if (
+      input.retentionRegime === 'CUSTOM' &&
+      input.retentionDays === undefined
+    ) {
+      throw new PraesidiaConfigError(
+        'retentionDays is required when retentionRegime is CUSTOM',
+      );
+    }
+    if (
+      input.retentionDays !== undefined &&
+      input.retentionRegime !== 'CUSTOM'
+    ) {
+      throw new PraesidiaConfigError(
+        'retentionDays is only valid when retentionRegime is CUSTOM',
+      );
+    }
     return this.client.post<MemoryRecord>(this.memoriesBase, input);
   }
 
@@ -98,6 +158,15 @@ export class PraesidiaMemory {
       hasPrevPage: boolean;
     };
   }> {
+    assertPagination(query);
+    if (
+      query.sourceType !== undefined &&
+      !MEMORY_SOURCE_TYPES.includes(query.sourceType)
+    ) {
+      throw new PraesidiaConfigError(
+        `sourceType must be one of ${MEMORY_SOURCE_TYPES.join(', ')}`,
+      );
+    }
     const qs = buildQueryString(query);
     return this.client.get<{
       data: MemoryRecord[];
@@ -118,6 +187,22 @@ export class PraesidiaMemory {
    * POST .../memories/search (MEMORY_VIEW).
    */
   async search(input: SearchMemoryInput): Promise<MemoryRecord[]> {
+    if (
+      !input ||
+      typeof input.query !== 'string' ||
+      input.query.length === 0 ||
+      input.query.length > 4_096
+    ) {
+      throw new PraesidiaConfigError(
+        'query must be a non-empty string of at most 4096 characters',
+      );
+    }
+    if (
+      input.topK !== undefined &&
+      (!Number.isInteger(input.topK) || input.topK < 1 || input.topK > 50)
+    ) {
+      throw new PraesidiaConfigError('topK must be an integer from 1 to 50');
+    }
     return this.client.post<MemoryRecord[]>(
       `${this.memoriesBase}/search`,
       input,

@@ -1,4 +1,8 @@
-import { encodePathSegment, PraesidiaClient } from './client.js';
+import {
+  assertIsoDateRange,
+  encodePathSegment,
+  PraesidiaClient,
+} from './client.js';
 import { PraesidiaConfigError } from './errors.js';
 import type { AnalyticsResult, AnalyticsWindowQuery, GuardConfig } from './types.js';
 
@@ -69,7 +73,7 @@ export class PraesidiaAnalytics {
 
   /** Cost-over-time data. GET .../analytics/advanced/cost-trends (ADVANCED_ANALYTICS). */
   async costTrends(query: AnalyticsWindowQuery = {}): Promise<AnalyticsResult> {
-    assertDays(query.days);
+    assertWindow(query);
     const qs = buildWindowQuery(query);
     return this.client.get<AnalyticsResult>(`${this.analyticsBase}/advanced/cost-trends${qs}`);
   }
@@ -79,8 +83,9 @@ export class PraesidiaAnalytics {
    * GET .../analytics/advanced/agent-performance (ADVANCED_ANALYTICS).
    */
   async agentPerformance(
-    query: Omit<AnalyticsWindowQuery, 'days'> = {},
+    query: AnalyticsWindowQuery = {},
   ): Promise<AnalyticsResult> {
+    assertWindow(query);
     const qs = buildWindowQuery(query);
     return this.client.get<AnalyticsResult>(
       `${this.analyticsBase}/advanced/agent-performance${qs}`,
@@ -91,7 +96,13 @@ export class PraesidiaAnalytics {
   async topAgents(
     query: AnalyticsWindowQuery & { limit?: number } = {},
   ): Promise<AnalyticsResult> {
-    const params: Array<[string, string]> = [['limit', String(query.limit ?? 10)]];
+    assertWindow(query);
+    const limit = query.limit ?? 10;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new PraesidiaConfigError('limit must be an integer from 1 to 100');
+    }
+    const params: Array<[string, string]> = [['limit', String(limit)]];
+    if (query.days !== undefined) params.push(['days', String(query.days)]);
     if (query.fromDate) params.push(['startDate', query.fromDate]);
     if (query.toDate) params.push(['endDate', query.toDate]);
     const qs = '?' + params.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
@@ -105,6 +116,7 @@ export class PraesidiaAnalytics {
   async export(
     query: Omit<AnalyticsWindowQuery, 'days'> = {},
   ): Promise<Uint8Array> {
+    assertIsoDateRange(query.fromDate, query.toDate);
     const qs = buildWindowQuery(query);
     return this.client.getBytes(`${this.analyticsBase}/export${qs}`);
   }
@@ -126,4 +138,9 @@ function buildWindowQuery(query: AnalyticsWindowQuery): string {
     '?' +
     params.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')
   );
+}
+
+function assertWindow(query: AnalyticsWindowQuery): void {
+  assertDays(query.days);
+  assertIsoDateRange(query.fromDate, query.toDate);
 }

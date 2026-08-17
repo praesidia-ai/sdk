@@ -38,6 +38,8 @@ const SERVICE_NAME_ATTR = 'service.name';
 
 /** SPAN_KIND_CLIENT — a GenAI inference call is a client span. */
 const SPAN_KIND_CLIENT = 3;
+const MAX_AGENT_IDENTITY_LENGTH = 255;
+const MAX_ATTRIBUTE_VALUE_LENGTH = 512;
 
 /**
  * PraesidiaTelemetry — the thin OTLP/HTTP GenAI trace EMITTER (H1-02).
@@ -89,8 +91,11 @@ export class PraesidiaTelemetry {
     }
 
     this.apiKey = apiKey;
-    this.serviceName =
-      config.serviceName ?? process.env['PRAESIDIA_SERVICE_NAME'] ?? undefined;
+    this.serviceName = validatedText(
+      config.serviceName ?? process.env['PRAESIDIA_SERVICE_NAME'] ?? undefined,
+      'serviceName',
+      MAX_AGENT_IDENTITY_LENGTH,
+    );
     this.client = new PraesidiaClient(
       this.baseUrl,
       apiKey,
@@ -114,6 +119,9 @@ export class PraesidiaTelemetry {
   ): Promise<OtlpIngestAck> {
     if (!Array.isArray(resourceSpans)) {
       throw new PraesidiaConfigError('emit() requires a resourceSpans array');
+    }
+    if (resourceSpans.some((resourceSpan) => !isRecord(resourceSpan))) {
+      throw new PraesidiaConfigError('each resourceSpans item must be an object');
     }
     if (resourceSpans.length > OTLP_MAX_RESOURCE_SPANS) {
       throw new PraesidiaConfigError(
@@ -158,6 +166,9 @@ export class PraesidiaTelemetry {
   buildGenAiResourceSpans(
     spans: GenAiSpanInput[],
   ): OtlpResourceSpans[] {
+    if (!Array.isArray(spans) || spans.length === 0) {
+      throw new PraesidiaConfigError('spans must be a non-empty array');
+    }
     const resource = this.serviceName
       ? {
           attributes: [strAttr(SERVICE_NAME_ATTR, this.serviceName)],
@@ -209,38 +220,134 @@ function intAttr(key: string, value: number): OtlpKeyValue {
  * is materialised as an OBSERVED agent. Exported for direct use / testing.
  */
 export function genAiSpan(input: GenAiSpanInput): OtlpSpan {
+  if (!isRecord(input)) {
+    throw new PraesidiaConfigError('span input must be an object');
+  }
+  const agentName = validatedText(
+    input.agentName,
+    'agentName',
+    MAX_AGENT_IDENTITY_LENGTH,
+    true,
+  )!;
+  const agentId = validatedText(
+    input.agentId,
+    'agentId',
+    MAX_AGENT_IDENTITY_LENGTH,
+  );
+  const system = validatedText(
+    input.system,
+    'system',
+    MAX_ATTRIBUTE_VALUE_LENGTH,
+  );
+  const requestModel = validatedText(
+    input.requestModel,
+    'requestModel',
+    MAX_ATTRIBUTE_VALUE_LENGTH,
+  );
+  const responseModel = validatedText(
+    input.responseModel,
+    'responseModel',
+    MAX_ATTRIBUTE_VALUE_LENGTH,
+  );
+  const operationName = validatedText(
+    input.operationName,
+    'operationName',
+    MAX_ATTRIBUTE_VALUE_LENGTH,
+  );
+  const name = validatedText(
+    input.name,
+    'name',
+    MAX_AGENT_IDENTITY_LENGTH,
+  );
+  const inputTokens = validatedNonNegativeInteger(
+    input.inputTokens,
+    'inputTokens',
+  );
+  const outputTokens = validatedNonNegativeInteger(
+    input.outputTokens,
+    'outputTokens',
+  );
+  const durationMs = validatedNonNegativeInteger(
+    input.durationMs ?? 0,
+    'durationMs',
+  )!;
+  if (
+    input.extraAttributes !== undefined &&
+    (!Array.isArray(input.extraAttributes) ||
+      input.extraAttributes.some((attribute) => !isRecord(attribute)))
+  ) {
+    throw new PraesidiaConfigError(
+      'extraAttributes must be an array of OTLP attribute objects',
+    );
+  }
   const attributes: OtlpKeyValue[] = [
-    strAttr(GENAI_ATTR.agentName, input.agentName),
+    strAttr(GENAI_ATTR.agentName, agentName),
   ];
-  if (input.agentId) attributes.push(strAttr(GENAI_ATTR.agentId, input.agentId));
-  if (input.system) attributes.push(strAttr(GENAI_ATTR.system, input.system));
-  if (input.requestModel)
-    attributes.push(strAttr(GENAI_ATTR.requestModel, input.requestModel));
-  if (input.responseModel)
-    attributes.push(strAttr(GENAI_ATTR.responseModel, input.responseModel));
-  if (input.operationName)
-    attributes.push(strAttr(GENAI_ATTR.operationName, input.operationName));
-  if (typeof input.inputTokens === 'number')
-    attributes.push(intAttr(GENAI_ATTR.inputTokens, input.inputTokens));
-  if (typeof input.outputTokens === 'number')
-    attributes.push(intAttr(GENAI_ATTR.outputTokens, input.outputTokens));
+  if (agentId) attributes.push(strAttr(GENAI_ATTR.agentId, agentId));
+  if (system) attributes.push(strAttr(GENAI_ATTR.system, system));
+  if (requestModel)
+    attributes.push(strAttr(GENAI_ATTR.requestModel, requestModel));
+  if (responseModel)
+    attributes.push(strAttr(GENAI_ATTR.responseModel, responseModel));
+  if (operationName)
+    attributes.push(strAttr(GENAI_ATTR.operationName, operationName));
+  if (inputTokens !== undefined)
+    attributes.push(intAttr(GENAI_ATTR.inputTokens, inputTokens));
+  if (outputTokens !== undefined)
+    attributes.push(intAttr(GENAI_ATTR.outputTokens, outputTokens));
   if (input.extraAttributes) attributes.push(...input.extraAttributes);
 
   const start = Date.now();
-  const durationMs = input.durationMs ?? 0;
-  const name =
-    input.name ??
-    `${input.operationName ?? 'chat'} ${input.requestModel ?? ''}`.trim();
+  const spanName =
+    name ?? `${operationName ?? 'chat'} ${requestModel ?? ''}`.trim();
 
   return {
     traceId: randomHex(16),
     spanId: randomHex(8),
-    name,
+    name: spanName,
     kind: SPAN_KIND_CLIENT,
     startTimeUnixNano: msToUnixNano(start),
     endTimeUnixNano: msToUnixNano(start + durationMs),
     attributes,
   };
+}
+
+function validatedText(
+  value: unknown,
+  label: string,
+  maxLength: number,
+  required = false,
+): string | undefined {
+  if (value === undefined && !required) return undefined;
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value !== value.trim() ||
+    value.length > maxLength
+  ) {
+    throw new PraesidiaConfigError(
+      `${label} must be ${required ? 'a non-empty' : 'a'} string without ` +
+        `surrounding whitespace and at most ${maxLength} characters`,
+    );
+  }
+  return value;
+}
+
+function validatedNonNegativeInteger(
+  value: unknown,
+  label: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    throw new PraesidiaConfigError(
+      `${label} must be a non-negative integer`,
+    );
+  }
+  return value as number;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 /** Random lowercase-hex id of `bytes` bytes (16→32-char traceId, 8→16 spanId). */

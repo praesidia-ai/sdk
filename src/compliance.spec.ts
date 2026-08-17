@@ -233,5 +233,19 @@ describe('PraesidiaCompliance', () => {
       expect(status.reportId).toBe('rep-1');
       expect(globalThis.fetch).toHaveBeenCalledTimes(3);
     });
+
+    it.each([
+      { timeoutMs: 0 },
+      { pollIntervalMs: Number.NaN },
+    ])('validates polling options before enqueueing: %o', async (opts) => {
+      const spy = makeFetchMock([]);
+      globalThis.fetch = spy;
+      const compliance = new PraesidiaCompliance(CONFIG);
+
+      await expect(compliance.generateAndWait(opts)).rejects.toThrow(
+        PraesidiaConfigError,
+      );
+      expect(spy).not.toHaveBeenCalled();
+    });
   });
 });

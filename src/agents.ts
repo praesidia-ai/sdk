@@ -1,4 +1,8 @@
-import { encodePathSegment, PraesidiaClient } from './client.js';
+import {
+  assertPagination,
+  encodePathSegment,
+  PraesidiaClient,
+} from './client.js';
 import { PraesidiaConfigError } from './errors.js';
 import type { GuardConfig, ListAgentsQuery, AgentRecord } from './types.js';
 
@@ -54,7 +58,8 @@ export class PraesidiaAgents {
   // ── Public API ──────────────────────────────────────────────────────────────
 
   /** List agents for the organization. GET .../agents (paginated). */
-  async list(query: ListAgentsQuery = {}): Promise<AgentRecord[] | unknown> {
+  async list(query: ListAgentsQuery = {}): Promise<AgentRecord[]> {
+    assertPagination(query);
     const qs = buildQueryString(query);
     const result = await this.client.get<
       AgentRecord[] | { data?: AgentRecord[]; agents?: AgentRecord[] }

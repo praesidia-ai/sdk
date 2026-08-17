@@ -1,4 +1,8 @@
-import { encodePathSegment, PraesidiaClient } from './client.js';
+import {
+  assertPagination,
+  encodePathSegment,
+  PraesidiaClient,
+} from './client.js';
 import { PraesidiaConfigError } from './errors.js';
 import type {
   ConnectionRecord,
@@ -56,6 +60,12 @@ export class PraesidiaConnections {
 
   /** List connections for the organization. GET .../connections (paginated + filterable). */
   async list(query: ListConnectionsQuery = {}): Promise<ConnectionRecord[]> {
+    assertPagination(query);
+    if (query.status !== undefined && !CONNECTION_STATUSES.includes(query.status)) {
+      throw new PraesidiaConfigError(
+        `status must be one of ${CONNECTION_STATUSES.join(', ')}`,
+      );
+    }
     const qs = buildQueryString(query);
     const result = await this.client.get<
       | ConnectionRecord[]

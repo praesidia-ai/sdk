@@ -1,13 +1,19 @@
-import { encodePathSegment, PraesidiaClient } from './client.js';
+import {
+  assertPagination,
+  encodePathSegment,
+  PraesidiaClient,
+} from './client.js';
 import { PraesidiaConfigError } from './errors.js';
 import type {
   GuardConfig,
   ListWorkflowRunsQuery,
   ListWorkflowsQuery,
   TriggerWorkflowOptions,
+  WorkflowStatus,
   WorkflowRecord,
   WorkflowRunRecord,
 } from './types.js';
+import { WORKFLOW_STATUSES } from './types.js';
 
 const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
 
@@ -57,6 +63,8 @@ export class PraesidiaWorkflows {
 
   /** List workflows for the organization. GET .../workflows (paginated). */
   async list(query: ListWorkflowsQuery = {}): Promise<WorkflowRecord[]> {
+    assertPagination(query);
+    assertWorkflowStatus(query.status);
     const qs = buildPageQuery(query);
     const result = await this.client.get<
       WorkflowRecord[] | { data?: WorkflowRecord[]; workflows?: WorkflowRecord[] }
@@ -129,6 +137,7 @@ export class PraesidiaWorkflows {
     workflowId: string,
     query: ListWorkflowRunsQuery = {},
   ): Promise<WorkflowRunRecord[]> {
+    assertPagination(query);
     const qs = buildPageQuery(query);
     const result = await this.client.get<
       WorkflowRunRecord[] | { data?: WorkflowRunRecord[]; runs?: WorkflowRunRecord[] }
@@ -157,13 +166,23 @@ export class PraesidiaWorkflows {
 function buildPageQuery(query: {
   page?: number;
   limit?: number;
+  status?: WorkflowStatus;
 }): string {
   const params: Array<[string, string]> = [];
   if (query.page !== undefined) params.push(['page', String(query.page)]);
   if (query.limit !== undefined) params.push(['limit', String(query.limit)]);
+  if (query.status !== undefined) params.push(['status', query.status]);
   if (params.length === 0) return '';
   return (
     '?' +
     params.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')
   );
+}
+
+function assertWorkflowStatus(status: WorkflowStatus | undefined): void {
+  if (status !== undefined && !WORKFLOW_STATUSES.includes(status)) {
+    throw new PraesidiaConfigError(
+      `status must be one of ${WORKFLOW_STATUSES.join(', ')}`,
+    );
+  }
 }

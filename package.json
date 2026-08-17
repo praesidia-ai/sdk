@@ -19,6 +19,7 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "typecheck:spec": "tsc --noEmit -p tsconfig.spec.json",
     "lint:api-contract": "node scripts/audit-api-contract.mjs"
@@ -28,8 +29,9 @@
   },
   "dependencies": {},
   "devDependencies": {
-    "typescript": "^5.7.0",
     "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^3.2.7",
+    "typescript": "^5.7.0",
     "vitest": "^3.2.7"
   },
   "keywords": [

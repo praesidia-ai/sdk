@@ -359,9 +359,10 @@ await telemetry.emitGenAiSpan({
 await telemetry.emit(resourceSpans);
 ```
 
-Client-side bounds mirror the server (fail-fast before the network): ≤100
-resourceSpans, ≤2 MB body, 120 req/min. `genAiSpan(input)` is exported if you
-want to build a span without sending it.
+Client-side payload bounds mirror the server (fail-fast before the network):
+≤100 resourceSpans and ≤2 MB per request. The backend separately enforces its
+120 requests/minute rate limit, so batch spans where practical. `genAiSpan(input)`
+is exported if you want to build a span without sending it.
 
 ## Agent memory (H2-06e)
 
@@ -498,7 +499,7 @@ for await (const event of audit.stream({ fromDate: '2026-01-01' })) {
   console.log(event.action, event.createdAt);
 }
 
-const csv = await audit.export({ format: 'csv' });
+const csv = await audit.export({ format: 'csv', action: 'agent.created' });
 ```
 
 > **No `resourceType` filter, by design.** The backend `FilterAuditDto`
@@ -507,11 +508,11 @@ const csv = await audit.export({ format: 'csv' });
 > `resourceType` is derived from the `action` prefix at read time, not a
 > stored column. Filter by `action` instead (e.g. `action: 'agent.created'`).
 >
-> **`stream()` stops on an empty page, not a short one.** The backend
-> hard-clamps `limit` to 100 server-side, so a caller asking for `limit: 500`
-> still gets at most 100 rows per page — treating that first (full-but-clamped)
-> page as the last would silently drop everything past row 100. This mirrors
-> the Python SDK's `BUGHUNT-SDK-01` fix.
+> **`stream()` stops on an empty page, not a short one.** The SDK clamps a
+> requested stream batch above the backend's validated maximum to 100 before
+> sending it. Treating that first full-but-clamped page as the last would
+> silently drop everything past row 100. This mirrors the Python SDK's
+> `BUGHUNT-SDK-01` fix.
 
 | Method | Returns | Endpoint |
 |---|---|---|

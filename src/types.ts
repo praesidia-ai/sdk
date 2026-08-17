@@ -466,16 +466,19 @@ export interface TaskHandle {
 // ── Agent memory (H2-06e) ────────────────────────────────────────────────────
 // Endpoint base: /organizations/:orgId/memories
 
-/** H2-06 — provenance: what kind of principal wrote a memory. */
-export type MemorySourceType = 'agent' | 'user' | 'system' | 'tool' | 'import';
+/** Exact backend `MemorySourceType` enum values. */
+export const MEMORY_SOURCE_TYPES = ['AGENT', 'USER', 'SYSTEM', 'IMPORT'] as const;
+export type MemorySourceType = (typeof MEMORY_SOURCE_TYPES)[number];
 
-/** H2-06 — compliance retention regime governing a memory. */
-export type MemoryRetentionRegime =
-  | 'none'
-  | 'gdpr'
-  | 'hipaa'
-  | 'sox'
-  | 'custom';
+/** Exact backend `MemoryRetentionRegime` enum values. */
+export const MEMORY_RETENTION_REGIMES = [
+  'NONE',
+  'GDPR',
+  'HIPAA',
+  'SOC2',
+  'CUSTOM',
+] as const;
+export type MemoryRetentionRegime = (typeof MEMORY_RETENTION_REGIMES)[number];
 
 /** H2-06e — write a memory (CreateMemoryDto). */
 export interface CreateMemoryInput {
@@ -495,7 +498,7 @@ export interface CreateMemoryInput {
   sourceReference?: string;
   /** Compliance retention regime governing this memory. */
   retentionRegime?: MemoryRetentionRegime;
-  /** Custom retention window in days (only honoured when regime=custom). */
+  /** Custom retention window in days (only valid when regime=`CUSTOM`). */
   retentionDays?: number;
 }
 
@@ -748,6 +751,7 @@ export type TrustVerificationReason =
   | 'missing-proof'
   | 'malformed-public-key'
   | 'signature-mismatch'
+  | 'malformed-passport'
   | 'invalid-expiration'
   | 'expired';
 
@@ -793,7 +797,12 @@ export type AgentRecord = Record<string, unknown>;
 export interface ListWorkflowsQuery {
   page?: number;
   limit?: number;
+  /** Optional backend-supported workflow status filter. */
+  status?: WorkflowStatus;
 }
+
+export const WORKFLOW_STATUSES = ['DRAFT', 'ACTIVE', 'INACTIVE'] as const;
+export type WorkflowStatus = (typeof WORKFLOW_STATUSES)[number];
 
 /** Query params accepted by `PraesidiaWorkflows.listRuns`. */
 export interface ListWorkflowRunsQuery {
@@ -819,7 +828,7 @@ export interface ListConnectionsQuery {
   clientAgentId?: string;
   serverAgentId?: string;
   mcpServerId?: string;
-  status?: string;
+  status?: ConnectionStatus;
   search?: string;
 }
 
@@ -840,18 +849,20 @@ export type ConnectionStatus = (typeof CONNECTION_STATUSES)[number];
 
 /** Query params accepted by `PraesidiaAudit.list` / `.stream`. */
 export interface ListAuditLogsQuery {
+  /** Free-text search accepted by the backend audit query. */
+  search?: string;
   /** ISO 8601 start date/time. */
   fromDate?: string;
   /** ISO 8601 end date/time. */
   toDate?: string;
   /** 1-based page number (default 1). */
   page?: number;
-  /** Max results per page (default 50, server-clamped to 100). */
+  /** Max results per page (default 50; list requests are validated at 100). */
   limit?: number;
   /**
    * Filter by action type (e.g. `"agent.created"`). BUGHUNT-SDK-03 (Python
    * parity) — there is deliberately NO `resourceType` filter: the backend
-   * `FilterAuditDto` whitelists only `search`/`action`/`startDate`/`endDate`
+   * `FilterAuditDto` whitelists `search`/`action`/`startDate`/`endDate`
    * under `forbidNonWhitelisted`, so a `resourceType` param 400s the whole
    * request. `resourceType` is derived from the `action` prefix at read
    * time, not a stored column — filter by `action` instead.

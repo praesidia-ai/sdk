@@ -33,7 +33,12 @@ export {
   canonicalJson,
   ed25519PublicKeyFromJwk,
 } from './crypto.js';
-export { OTLP_MAX_RESOURCE_SPANS, OTLP_MAX_BODY_BYTES } from './types.js';
+export {
+  MEMORY_RETENTION_REGIMES,
+  MEMORY_SOURCE_TYPES,
+  OTLP_MAX_RESOURCE_SPANS,
+  OTLP_MAX_BODY_BYTES,
+} from './types.js';
 export {
   GuardrailBlockedError,
   PraesidiaApiError,
@@ -52,6 +57,7 @@ export {
 export {
   // FINDING-2 — connection status enum + guard used by PraesidiaConnections.
   CONNECTION_STATUSES,
+  WORKFLOW_STATUSES,
 } from './types.js';
 export type {
   GuardConfig,
@@ -72,6 +78,7 @@ export type {
   ListWorkflowsQuery,
   ListWorkflowRunsQuery,
   WorkflowRecord,
+  WorkflowStatus,
   WorkflowRunRecord,
   TriggerWorkflowOptions,
   ListConnectionsQuery,

@@ -73,6 +73,65 @@ export function encodePathSegment(value: string, label: string): string {
   return encodeURIComponent(value);
 }
 
+/** Validate the shared backend `PaginationDto` contract before a request. */
+export function assertPagination(query: {
+  page?: unknown;
+  limit?: unknown;
+}): void {
+  if (
+    query.page !== undefined &&
+    (!Number.isInteger(query.page) || (query.page as number) < 1)
+  ) {
+    throw new PraesidiaConfigError('page must be an integer greater than or equal to 1');
+  }
+  if (
+    query.limit !== undefined &&
+    (!Number.isInteger(query.limit) ||
+      (query.limit as number) < 1 ||
+      (query.limit as number) > 100)
+  ) {
+    throw new PraesidiaConfigError('limit must be an integer from 1 to 100');
+  }
+}
+
+/** Validate an ISO-8601 date accepted by the backend's `@IsDateString()`. */
+export function assertIsoDate(value: string | undefined, label: string): void {
+  if (value === undefined) return;
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.exec(
+    value,
+  );
+  if (!match || !Number.isFinite(Date.parse(value))) {
+    throw new PraesidiaConfigError(`${label} must be a valid ISO-8601 date`);
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const calendarDate = new Date(Date.UTC(year, month - 1, day));
+  if (
+    calendarDate.getUTCFullYear() !== year ||
+    calendarDate.getUTCMonth() !== month - 1 ||
+    calendarDate.getUTCDate() !== day
+  ) {
+    throw new PraesidiaConfigError(`${label} must be a valid ISO-8601 date`);
+  }
+}
+
+/** Validate an optional ISO date window and reject an inverted range. */
+export function assertIsoDateRange(
+  fromDate: string | undefined,
+  toDate: string | undefined,
+): void {
+  assertIsoDate(fromDate, 'fromDate');
+  assertIsoDate(toDate, 'toDate');
+  if (
+    fromDate !== undefined &&
+    toDate !== undefined &&
+    Date.parse(fromDate) > Date.parse(toDate)
+  ) {
+    throw new PraesidiaConfigError('fromDate must be earlier than or equal to toDate');
+  }
+}
+
 export class PraesidiaClient {
   /**
    * Q3-02 — the inbound chain-trace id this client propagates on every
@@ -121,6 +180,19 @@ export class PraesidiaClient {
     ) {
       throw new PraesidiaConfigError(
         'apiKey must be non-empty and contain no surrounding whitespace or control characters',
+      );
+    }
+  }
+
+  private assertIdempotencyKey(idempotencyKey: string): void {
+    if (
+      typeof idempotencyKey !== 'string' ||
+      idempotencyKey.length === 0 ||
+      idempotencyKey !== idempotencyKey.trim() ||
+      /[\u0000-\u001f\u007f]/.test(idempotencyKey)
+    ) {
+      throw new PraesidiaConfigError(
+        'idempotencyKey must be non-empty and contain no surrounding whitespace or control characters',
       );
     }
   }
@@ -234,11 +306,14 @@ export class PraesidiaClient {
     opts?: { idempotencyKey?: string },
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
-    if (opts?.idempotencyKey) assertIdempotencyKeySupported('POST', path);
-    const headers = opts?.idempotencyKey
+    if (opts?.idempotencyKey !== undefined) {
+      this.assertIdempotencyKey(opts.idempotencyKey);
+      assertIdempotencyKeySupported('POST', path);
+    }
+    const headers = opts?.idempotencyKey !== undefined
       ? { ...extraHeaders, 'Idempotency-Key': opts.idempotencyKey }
       : extraHeaders;
-    const retryable = Boolean(opts?.idempotencyKey);
+    const retryable = opts?.idempotencyKey !== undefined;
     const response = retryable
       ? await this.fetchWithRetry(
           () => ({
@@ -277,11 +352,14 @@ export class PraesidiaClient {
     opts?: { idempotencyKey?: string },
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
-    if (opts?.idempotencyKey) assertIdempotencyKeySupported('PATCH', path);
-    const headers = opts?.idempotencyKey
+    if (opts?.idempotencyKey !== undefined) {
+      this.assertIdempotencyKey(opts.idempotencyKey);
+      assertIdempotencyKeySupported('PATCH', path);
+    }
+    const headers = opts?.idempotencyKey !== undefined
       ? { ...extraHeaders, 'Idempotency-Key': opts.idempotencyKey }
       : extraHeaders;
-    const retryable = Boolean(opts?.idempotencyKey);
+    const retryable = opts?.idempotencyKey !== undefined;
     const initFactory = (): RequestInit & { method: string } => ({
       method: 'PATCH',
       headers: this.buildHeaders(headers),

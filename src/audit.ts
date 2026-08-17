@@ -1,4 +1,9 @@
-import { encodePathSegment, PraesidiaClient } from './client.js';
+import {
+  assertIsoDateRange,
+  assertPagination,
+  encodePathSegment,
+  PraesidiaClient,
+} from './client.js';
 import { PraesidiaConfigError } from './errors.js';
 import type { AuditLogEntry, GuardConfig, ListAuditLogsQuery } from './types.js';
 
@@ -54,10 +59,11 @@ export class PraesidiaAudit {
   /**
    * Return a page of audit log entries. GET .../audit-logs.
    *
-   * `limit` is server-clamped to `PAGINATION_MAX_LIMIT` (100) — see
-   * {@link stream} for a full-range export that accounts for the clamp.
+   * `limit` is validated against the backend maximum of 100.
    */
   async list(query: ListAuditLogsQuery = {}): Promise<AuditLogEntry[]> {
+    assertPagination(query);
+    assertIsoDateRange(query.fromDate, query.toDate);
     const qs = buildQueryString(query);
     const result = await this.client.get<
       AuditLogEntry[] | { data?: AuditLogEntry[]; logs?: AuditLogEntry[] }
@@ -71,17 +77,21 @@ export class PraesidiaAudit {
    * `/audit-logs` until the server returns an EMPTY page.
    *
    * Mirrors the Python SDK's `AuditResource.stream` fix (BUGHUNT-SDK-01): the
-   * terminal condition is an empty page, NOT a short one. The backend hard
-   * clamps page size to `PAGINATION_MAX_LIMIT` (100), so a caller asking for
-   * `limit > 100` still gets at most 100 rows per page — stopping on
-   * "shorter than requested `limit`" would treat that first (full-but-clamped)
-   * page as the last one and silently drop every event past the first 100.
-   * Stopping only on an empty page needs no knowledge of the server's cap.
+   * terminal condition is an empty page, NOT a short one. For compatibility,
+   * a requested batch above the backend maximum is clamped client-side to 100.
+   * Stopping on an empty page prevents a full-but-clamped first page from
+   * silently dropping every event past the first 100.
    */
   async *stream(
     query: Omit<ListAuditLogsQuery, 'page'> = {},
   ): AsyncGenerator<AuditLogEntry, void, undefined> {
-    const limit = query.limit ?? 100;
+    const requestedLimit = query.limit ?? 100;
+    if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
+      throw new PraesidiaConfigError('limit must be an integer greater than or equal to 1');
+    }
+    // The public iterator accepts a larger requested batch for compatibility,
+    // but never sends a value the backend PaginationDto rejects (@Max(100)).
+    const limit = Math.min(requestedLimit, 100);
     let page = 1;
     for (;;) {
       const events = await this.list({ ...query, page, limit });
@@ -96,11 +106,20 @@ export class PraesidiaAudit {
    * Returns raw bytes — write to disk or parse per `format`.
    */
   async export(
-    query: Pick<ListAuditLogsQuery, 'fromDate' | 'toDate'> & {
+    query: Pick<
+      ListAuditLogsQuery,
+      'fromDate' | 'toDate' | 'search' | 'action'
+    > & {
       format?: 'json' | 'csv';
     } = {},
   ): Promise<Uint8Array> {
+    if (query.format !== undefined && !['json', 'csv'].includes(query.format)) {
+      throw new PraesidiaConfigError('format must be json or csv');
+    }
+    assertIsoDateRange(query.fromDate, query.toDate);
     const params: Array<[string, string]> = [['format', query.format ?? 'json']];
+    if (query.search) params.push(['search', query.search]);
+    if (query.action) params.push(['action', query.action]);
     if (query.fromDate) params.push(['startDate', query.fromDate]);
     if (query.toDate) params.push(['endDate', query.toDate]);
     const qs =
@@ -119,6 +138,7 @@ function buildQueryString(query: ListAuditLogsQuery): string {
   const params: Array<[string, string]> = [];
   if (query.page !== undefined) params.push(['page', String(query.page)]);
   if (query.limit !== undefined) params.push(['limit', String(query.limit)]);
+  if (query.search) params.push(['search', query.search]);
   if (query.fromDate) params.push(['startDate', query.fromDate]);
   if (query.toDate) params.push(['endDate', query.toDate]);
   if (query.action) params.push(['action', query.action]);

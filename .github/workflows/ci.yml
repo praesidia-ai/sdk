@@ -37,14 +37,22 @@ jobs:
       - name: Build (tsc)
         run: npm run build
 
-      - name: Test (vitest)
-        run: npm test
+      - name: Test with coverage thresholds (vitest)
+        run: npm run test:coverage
 
       - name: Type-check tests
         run: npm run typecheck:spec
 
       - name: Verify publish artifact
         run: npm pack --dry-run
+
+      - name: Select declared minimum runtime
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '18'
+
+      - name: Smoke compiled package on Node 18
+        run: node -e "import('./dist/index.js').then(m => console.log('Node 18 OK —', Object.keys(m).length, 'exports'))"
 
   image:
     name: Reproducible image smoke

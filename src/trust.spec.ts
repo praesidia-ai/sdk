@@ -107,6 +107,12 @@ describe('crypto helpers (offline verify)', () => {
     expect(ed25519PublicKeyFromJwk(null)).toBeNull();
   });
 
+  it('ed25519PublicKeyFromJwk rejects non-canonical base64url coordinates', () => {
+    const { publicKey } = generateKeyPairSync('ed25519');
+    const jwk = publicKey.export({ format: 'jwk' }) as Record<string, unknown>;
+    expect(ed25519PublicKeyFromJwk({ ...jwk, x: `${String(jwk['x'])}!` })).toBeNull();
+  });
+
   it('canonicalJson sorts object keys (byte-stable)', () => {
     const bytes = canonicalJson({ b: 1, a: 2, '@c': 3 });
     expect(Buffer.from(bytes).toString('utf8')).toBe('{"@c":3,"a":2,"b":1}');
@@ -120,6 +126,7 @@ describe('crypto helpers (offline verify)', () => {
     const sig = nodeSign(null, msg, privateKey).toString('base64');
     expect(verifyEd25519(msg, sig, raw)).toBe(true);
     expect(verifyEd25519(Buffer.from('hell0', 'utf8'), sig, raw)).toBe(false);
+    expect(verifyEd25519(msg, `${sig}!`, raw)).toBe(false);
   });
 });
 
@@ -194,6 +201,41 @@ describe('PraesidiaTrust', () => {
     const result = trust.verifyPassport(passport, { kty: 'RSA' });
     expect(result.verified).toBe(false);
     expect(result.reason).toBe('malformed-public-key');
+  });
+
+  it('verifyPassport reports a missing proof without throwing', () => {
+    const { passport, publicKeyJwk } = makeKeypairAndPassport();
+    delete (passport as Partial<TrustPassport>).proof;
+    expect(new PraesidiaTrust().verifyPassport(passport, publicKeyJwk)).toEqual({
+      verified: false,
+      signatureValid: false,
+      expired: false,
+      reason: 'missing-proof',
+    });
+  });
+
+  it('verifyPassport rejects a non-canonical base64 proof', () => {
+    const { passport, publicKeyJwk } = makeKeypairAndPassport();
+    passport.proof.proofValue += '!';
+    const result = new PraesidiaTrust().verifyPassport(passport, publicKeyJwk);
+    expect(result.verified).toBe(false);
+    expect(result.reason).toBe('signature-mismatch');
+  });
+
+  it('verifyPassport never throws for a malformed cyclic passport', () => {
+    const { passport, publicKeyJwk } = makeKeypairAndPassport();
+    const cyclic: Record<string, unknown> = {};
+    cyclic['self'] = cyclic;
+    (passport as unknown as Record<string, unknown>)['cyclic'] = cyclic;
+
+    expect(
+      new PraesidiaTrust().verifyPassport(passport, publicKeyJwk),
+    ).toEqual({
+      verified: false,
+      signatureValid: false,
+      expired: false,
+      reason: 'malformed-passport',
+    });
   });
 
   // ── fetchAndVerify ──────────────────────────────────────────────────────────

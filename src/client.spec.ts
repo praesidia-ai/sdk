@@ -201,6 +201,26 @@ describe('PraesidiaClient retry (FINDING-4)', () => {
     expect(calls).toBe(0);
   });
 
+  it.each(['', ' key', 'key\r\ninjected: true'])(
+    'rejects an unsafe idempotency key before fetch: %j',
+    async (idempotencyKey) => {
+      const spy = vi.fn();
+      globalThis.fetch = spy as typeof fetch;
+      const client = new PraesidiaClient(
+        'https://api.example.test',
+        'pk_test',
+        undefined,
+        fastRetry,
+      );
+      await expect(
+        client.post('/organizations/org_1/tasks', {}, undefined, {
+          idempotencyKey,
+        }),
+      ).rejects.toThrow(/idempotencyKey/);
+      expect(spy).not.toHaveBeenCalled();
+    },
+  );
+
   it('R-SDK-1: honours the idempotencyKey allow-list for the A2A inbound routes', async () => {
     globalThis.fetch = vi.fn(async () =>
       new Response(JSON.stringify({ ok: true }), { status: 201 }),

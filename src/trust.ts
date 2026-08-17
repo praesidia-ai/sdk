@@ -111,8 +111,18 @@ export class PraesidiaTrust {
     }
 
     // Sign-the-doc / attach-the-proof: strip `proof`, canonicalize the rest.
-    const { proof: _proof, ...unsigned } = passport;
-    const message = canonicalJson(unsigned);
+    let message: Uint8Array;
+    try {
+      const { proof: _proof, ...unsigned } = passport;
+      message = canonicalJson(unsigned);
+    } catch {
+      return {
+        verified: false,
+        signatureValid: false,
+        expired: false,
+        reason: 'malformed-passport',
+      };
+    }
     const signatureValid = verifyEd25519(
       message,
       proof.proofValue,

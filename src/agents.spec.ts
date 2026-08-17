@@ -27,11 +27,19 @@ describe('PraesidiaAgents', () => {
     });
 
     it('lists agents against the org-scoped endpoint', async () => {
-      globalThis.fetch = makeFetchMock([{ json: [{ id: 'agent-1' }] }]);
+      globalThis.fetch = makeFetchMock([
+        { json: [{ id: 'agent-1' }] },
+        { json: { agents: [{ id: 'agent-2' }] } },
+        { json: { data: [{ id: 'agent-3' }] } },
+      ]);
       const agents = new PraesidiaAgents({ apiKey: 'pk_x', orgId: 'org-1' });
-      expect(await agents.list()).toEqual([{ id: 'agent-1' }]);
+      expect(await agents.list({ page: 2, limit: 25 })).toEqual([{ id: 'agent-1' }]);
+      expect(await agents.list()).toEqual([{ id: 'agent-2' }]);
+      expect(await agents.list()).toEqual([{ id: 'agent-3' }]);
       const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
       expect(url).toContain('/organizations/org-1/agents');
+      expect(url).toContain('page=2');
+      expect(url).toContain('limit=25');
     });
 
     it('gets a single agent by id', async () => {
@@ -79,6 +87,29 @@ describe('PraesidiaAgents', () => {
       ];
       expect(init.method).toBe('DELETE');
       expect(url).toContain('/agents/agent-1');
+    });
+
+    it('rejects invalid pagination before fetch', async () => {
+      const spy = makeFetchMock([]);
+      globalThis.fetch = spy;
+      const agents = new PraesidiaAgents({ apiKey: 'pk_x', orgId: 'org-1' });
+      await expect(agents.list({ page: 0 })).rejects.toThrow(PraesidiaConfigError);
+      await expect(agents.list({ limit: 101 })).rejects.toThrow(PraesidiaConfigError);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('refreshCredential swaps the Bearer token', async () => {
+      globalThis.fetch = makeFetchMock([{ json: [] }]);
+      const agents = new PraesidiaAgents({ apiKey: 'pk_old', orgId: 'org-1' });
+      agents.refreshCredential('pk_new');
+      await agents.list();
+      const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+        string,
+        RequestInit,
+      ];
+      expect((init.headers as Record<string, string>)['Authorization']).toBe(
+        'Bearer pk_new',
+      );
     });
   });
 });

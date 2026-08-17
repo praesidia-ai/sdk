@@ -161,6 +161,12 @@ export class PraesidiaCompliance {
   async generateAndWait(
     opts: ReportPollOptions = {},
   ): Promise<AuditorReportStatus> {
+    assertTimerValue(
+      opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS,
+      'pollIntervalMs',
+      true,
+    );
+    assertTimerValue(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, 'timeoutMs', false);
     const { reportId } = await this.requestReport();
     return this.waitForReport(reportId, opts);
   }
