@@ -709,9 +709,9 @@ export interface TrustPassportCredentialSubject {
 }
 
 /**
- * H3-02b — the Ed25519 detached proof. `proofValue` is a STANDARD base64
- * Ed25519 signature over the canonical JSON of the passport WITHOUT its `proof`
- * member.
+ * H3-02b — the detached tenant-key proof. `proofValue` is STANDARD base64 of
+ * either a 64-byte Ed25519 signature or a canonical DER ECDSA-P256 signature
+ * over the canonical JSON of the passport WITHOUT its `proof` member.
  */
 export interface TrustPassportProof {
   type: string;
@@ -737,7 +737,7 @@ export interface TrustPassport {
 /** H3-02f — the verification bundle returned by the `/verify` endpoint. */
 export interface TrustPassportVerifyBundle {
   passport: TrustPassport;
-  /** Public key JWK (OKP Ed25519) for offline signature verification. */
+  /** Public key JWK (OKP/Ed25519 or EC/P-256) for offline verification. */
   publicKeyJwk: Record<string, unknown>;
   /** URL to the agent DID document for key resolution. */
   didDocumentUrl: string;
@@ -757,9 +757,9 @@ export type TrustVerificationReason =
 
 /** H3-02f — the outcome of `PraesidiaTrust.verifyPassport`. */
 export interface TrustVerificationResult {
-  /** True iff the Ed25519 signature verified AND the passport is not expired. */
+  /** True iff the tenant-key signature verified AND the passport is fresh. */
   verified: boolean;
-  /** True iff the Ed25519 signature is cryptographically valid (ignores expiry). */
+  /** True iff the tenant-key signature is valid (ignores expiry). */
   signatureValid: boolean;
   /** True iff `expirationDate` is in the past. */
   expired: boolean;

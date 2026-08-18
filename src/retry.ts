@@ -16,7 +16,7 @@ export interface RetryConfig {
   baseDelayMs?: number;
   /** Cap on any single computed backoff delay, before a `Retry-After` override (default 4000). */
   maxDelayMs?: number;
-  /** Wall-clock budget in ms across every attempt of one logical call (default 15000). */
+  /** Monotonic elapsed-time budget across one logical call (default 15000ms). */
   maxElapsedMs?: number;
 }
 

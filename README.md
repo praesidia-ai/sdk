@@ -594,11 +594,17 @@ Every resource class (`PraesidiaGuard`, `PraesidiaAgents`, `PraesidiaCompliance`
 ## Trust passport — verify a peer agent's reputation offline (H3-02f)
 
 `PraesidiaTrust` fetches an agent's signed trust passport from the **public**
-trust routes and verifies the detached Ed25519 proof **locally** — the "verify a
-peer's reputation without trusting Praesidia" client. Offline verification uses
-the hand-written primitives in `crypto.ts` (`verifyEd25519`, `canonicalJson`,
-`ed25519PublicKeyFromJwk`) — the same offline-verify pattern as
+trust routes and verifies its detached Ed25519 or KMS-backed P-256/ES256 proof
+**locally**, without an online verification call. Offline verification uses the
+hand-written primitives in `crypto.ts`
+(`verifyEd25519`, `verifyEs256`, `canonicalJson`, and the matching JWK decoders)
+— the same offline-verify pattern as
 `@praesidia/audit-verifier`. No API key is needed.
+
+The supplied JWK is the verification trust anchor. Resolve it from a trusted
+DID document or verification bundle; a signature can prove integrity relative
+to that key, but cannot by itself prove that an arbitrary key belongs to the
+passport's claimed issuer.
 
 ```typescript
 import { PraesidiaTrust } from '@praesidia/sdk';
@@ -619,7 +625,8 @@ const result = trust.verifyPassport(bundle.passport, bundle.publicKeyJwk);
 
 `verifyPassport` reconstructs the canonical JSON of the passport with its `proof`
 member removed (RFC-8785-style), base64-decodes `proof.proofValue`, and verifies
-the EdDSA signature over those exact bytes; it also checks `expirationDate`. It
+the substrate-selected signature over those exact bytes; it also checks
+`expirationDate`. It
 never throws — a malformed passport / key yields `{ verified: false, reason }`.
 
 ## Fail-open / fail-closed

@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks';
 import { PraesidiaApiError, PraesidiaConfigError } from './errors.js';
 import {
   assertIdempotencyKeySupported,
@@ -262,7 +263,7 @@ export class PraesidiaClient {
       return fetch(url, initFactory());
     }
     const { maxAttempts, baseDelayMs, maxDelayMs, maxElapsedMs } = this.retryConfig;
-    const start = Date.now();
+    const start = performance.now();
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       let response: Response;
@@ -271,7 +272,7 @@ export class PraesidiaClient {
       } catch (err) {
         // Network-level failure (DNS/connection reset/etc — fetch rejects,
         // it does not resolve). Retry it exactly like a 5xx, same budget.
-        const elapsed = Date.now() - start;
+        const elapsed = performance.now() - start;
         if (attempt >= maxAttempts || elapsed >= maxElapsedMs) throw err;
         const delay = computeBackoffMs(attempt, baseDelayMs, maxDelayMs);
         if (elapsed + delay >= maxElapsedMs) throw err;
@@ -282,12 +283,16 @@ export class PraesidiaClient {
       if (
         attempt < maxAttempts &&
         isRetryableStatus(response.status) &&
-        Date.now() - start < maxElapsedMs
+        performance.now() - start < maxElapsedMs
       ) {
-        const elapsed = Date.now() - start;
+        const elapsed = performance.now() - start;
         const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
         const delay = retryAfterMs ?? computeBackoffMs(attempt, baseDelayMs, maxDelayMs);
         if (elapsed + delay >= maxElapsedMs) return response;
+        // This response will never be returned to the caller. Explicitly
+        // cancel its body so Undici can release the socket/buffer before a
+        // long-lived client starts the next attempt.
+        await response.body?.cancel().catch(() => undefined);
         await sleep(delay);
         continue;
       }
@@ -425,6 +430,9 @@ export class PraesidiaClient {
       const text = await response.text().catch(() => '');
       throw new PraesidiaApiError(response.status, path, text);
     }
+    // DELETE callers do not receive a response body. Release any unexpected
+    // body immediately so a non-conforming upstream cannot pin the connection.
+    await response.body?.cancel().catch(() => undefined);
   }
 
   /**

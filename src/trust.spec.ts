@@ -9,7 +9,9 @@ import { PraesidiaApiError } from './errors.js';
 import {
   canonicalJson,
   ed25519PublicKeyFromJwk,
+  p256PublicKeyFromJwk,
   verifyEd25519,
+  verifyEs256,
 } from './crypto.js';
 import type { TrustPassport } from './types.js';
 import { makeFetchMock } from './__tests__/fetch-mock.js';
@@ -86,6 +88,71 @@ function makeKeypairAndPassport(expirationDate?: string) {
   return { passport, publicKeyJwk, privateKey };
 }
 
+const P256_N = BigInt(
+  '0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551',
+);
+
+function parseEcdsaDer(signature: Buffer): { r: bigint; s: bigint } {
+  const rLength = signature[3]!;
+  const rStart = 4;
+  const rEnd = rStart + rLength;
+  const sLength = signature[rEnd + 1]!;
+  const sStart = rEnd + 2;
+  return {
+    r: BigInt(`0x${signature.subarray(rStart, rEnd).toString('hex')}`),
+    s: BigInt(
+      `0x${signature.subarray(sStart, sStart + sLength).toString('hex')}`,
+    ),
+  };
+}
+
+function encodeDerInteger(value: bigint): Buffer {
+  let hex = value.toString(16);
+  if (hex.length % 2 !== 0) hex = `0${hex}`;
+  let magnitude = Buffer.from(hex, 'hex');
+  if ((magnitude[0]! & 0x80) !== 0) {
+    magnitude = Buffer.concat([Buffer.from([0]), magnitude]);
+  }
+  return Buffer.concat([Buffer.from([0x02, magnitude.length]), magnitude]);
+}
+
+function encodeEcdsaDer(r: bigint, s: bigint): Buffer {
+  const body = Buffer.concat([encodeDerInteger(r), encodeDerInteger(s)]);
+  return Buffer.concat([Buffer.from([0x30, body.length]), body]);
+}
+
+function canonicalP256Signature(message: Uint8Array, privateKey: KeyObject) {
+  const signature = nodeSign('sha256', Buffer.from(message), privateKey);
+  const { r, s } = parseEcdsaDer(signature);
+  return s <= P256_N / 2n ? signature : encodeEcdsaDer(r, P256_N - s);
+}
+
+function makeP256KeypairAndPassport() {
+  const { publicKey, privateKey } = generateKeyPairSync('ec', {
+    namedCurve: 'P-256',
+  });
+  const publicKeyJwk = {
+    ...(publicKey.export({ format: 'jwk' }) as Record<string, unknown>),
+    use: 'sig',
+    alg: 'ES256',
+  };
+  const unsigned = buildUnsignedPassport();
+  const message = canonicalJson(unsigned);
+  const signature = canonicalP256Signature(message, privateKey);
+  const passport: TrustPassport = {
+    ...unsigned,
+    proof: {
+      type: 'EcdsaSecp256r1Signature2019',
+      created: '2026-07-06T00:00:00.000Z',
+      proofPurpose: 'assertionMethod',
+      verificationMethod: 'did:web:praesidia.ai:orgs:org-1#key-1',
+      keyVersion: 1,
+      proofValue: signature.toString('base64'),
+    },
+  };
+  return { passport, publicKeyJwk, privateKey, message, signature };
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -111,6 +178,36 @@ describe('crypto helpers (offline verify)', () => {
     const { publicKey } = generateKeyPairSync('ed25519');
     const jwk = publicKey.export({ format: 'jwk' }) as Record<string, unknown>;
     expect(ed25519PublicKeyFromJwk({ ...jwk, x: `${String(jwk['x'])}!` })).toBeNull();
+    expect(ed25519PublicKeyFromJwk({ ...jwk, alg: 'ES256' })).toBeNull();
+    expect(ed25519PublicKeyFromJwk({ ...jwk, d: 'private' })).toBeNull();
+  });
+
+  it('validates a P-256 JWK and verifies a canonical KMS-style ES256 signature', () => {
+    const { publicKeyJwk, message, signature } = makeP256KeypairAndPassport();
+    const spki = p256PublicKeyFromJwk(publicKeyJwk);
+    expect(spki).not.toBeNull();
+    expect(verifyEs256(message, signature.toString('base64'), spki!)).toBe(
+      true,
+    );
+    expect(
+      verifyEs256(Buffer.from('tampered'), signature.toString('base64'), spki!),
+    ).toBe(false);
+  });
+
+  it('rejects malformed or algorithm-confused P-256 JWKs', () => {
+    const { publicKeyJwk } = makeP256KeypairAndPassport();
+    expect(p256PublicKeyFromJwk({ ...publicKeyJwk, alg: 'EdDSA' })).toBeNull();
+    expect(p256PublicKeyFromJwk({ ...publicKeyJwk, use: 'enc' })).toBeNull();
+    expect(p256PublicKeyFromJwk({ ...publicKeyJwk, d: 'private' })).toBeNull();
+    expect(p256PublicKeyFromJwk({ ...publicKeyJwk, x: 'bad' })).toBeNull();
+  });
+
+  it('rejects a mathematically valid but malleable high-s ES256 signature', () => {
+    const { publicKeyJwk, message, signature } = makeP256KeypairAndPassport();
+    const { r, s } = parseEcdsaDer(signature);
+    const highS = encodeEcdsaDer(r, P256_N - s);
+    const spki = p256PublicKeyFromJwk(publicKeyJwk)!;
+    expect(verifyEs256(message, highS.toString('base64'), spki)).toBe(false);
   });
 
   it('canonicalJson sorts object keys (byte-stable)', () => {
@@ -139,6 +236,7 @@ describe('PraesidiaTrust', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -164,6 +262,24 @@ describe('PraesidiaTrust', () => {
     expect(result.reason).toBe('signature-mismatch');
   });
 
+  it('verifies a genuine KMS-backed P-256/ES256 passport', () => {
+    const { passport, publicKeyJwk } = makeP256KeypairAndPassport();
+    expect(new PraesidiaTrust().verifyPassport(passport, publicKeyJwk)).toEqual({
+      verified: true,
+      signatureValid: true,
+      expired: false,
+      reason: 'ok',
+    });
+  });
+
+  it('fails closed when the proof type and public-key algorithm disagree', () => {
+    const { passport, publicKeyJwk } = makeP256KeypairAndPassport();
+    passport.proof.type = 'Ed25519Signature2020';
+    const result = new PraesidiaTrust().verifyPassport(passport, publicKeyJwk);
+    expect(result.verified).toBe(false);
+    expect(result.reason).toBe('signature-mismatch');
+  });
+
   it('verifyPassport fails closed against the WRONG public key', () => {
     const { passport } = makeKeypairAndPassport();
     const { publicKey: otherPub } = generateKeyPairSync('ed25519');
@@ -177,7 +293,7 @@ describe('PraesidiaTrust', () => {
 
   it('verifyPassport reports expired for a valid signature past expiry', () => {
     const { passport, publicKeyJwk } = makeKeypairAndPassport(
-      '2000-01-01T00:00:00.000Z',
+      '2026-07-07T00:00:00.000Z',
     );
     const trust = new PraesidiaTrust();
     const result = trust.verifyPassport(passport, publicKeyJwk);
@@ -187,12 +303,50 @@ describe('PraesidiaTrust', () => {
     expect(result.reason).toBe('expired');
   });
 
+  it('treats a passport expiring at the current instant as expired', () => {
+    vi.useFakeTimers();
+    const now = new Date('2030-01-01T00:00:00.000Z');
+    vi.setSystemTime(now);
+    const { passport, publicKeyJwk } = makeKeypairAndPassport(now.toISOString());
+    const result = new PraesidiaTrust().verifyPassport(passport, publicKeyJwk);
+    expect(result.signatureValid).toBe(true);
+    expect(result.expired).toBe(true);
+    expect(result.reason).toBe('expired');
+  });
+
   it('verifyPassport fails closed for a signed but malformed expiration date', () => {
     const { passport, publicKeyJwk } = makeKeypairAndPassport('not-a-date');
     const result = new PraesidiaTrust().verifyPassport(passport, publicKeyJwk);
     expect(result.signatureValid).toBe(true);
     expect(result.verified).toBe(false);
     expect(result.reason).toBe('invalid-expiration');
+  });
+
+  it('rejects a non-canonical or pre-issuance expiration timestamp', () => {
+    for (const expirationDate of [
+      '2999-07-07T02:00:00+02:00',
+      '2000-01-01T00:00:00.000Z',
+    ]) {
+      const { passport, publicKeyJwk } = makeKeypairAndPassport(expirationDate);
+      const result = new PraesidiaTrust().verifyPassport(
+        passport,
+        publicKeyJwk,
+      );
+      expect(result.signatureValid).toBe(true);
+      expect(result.reason).toBe('invalid-expiration');
+    }
+  });
+
+  it('rejects malformed signed credential-subject summaries', () => {
+    const { passport, publicKeyJwk } = makeKeypairAndPassport();
+    passport.credentialSubject.attestations.activeCount = -1;
+    expect(
+      new PraesidiaTrust().verifyPassport(passport, publicKeyJwk),
+    ).toMatchObject({
+      verified: false,
+      signatureValid: false,
+      reason: 'malformed-passport',
+    });
   });
 
   it('verifyPassport returns malformed-public-key for a bad JWK', () => {
@@ -214,6 +368,26 @@ describe('PraesidiaTrust', () => {
     });
   });
 
+  it.each([
+    ['proofPurpose', 'authentication'],
+    ['created', '2026-07-06T00:00:01.000Z'],
+    ['keyVersion', 0],
+    ['verificationMethod', 'did:web:attacker.example#key-1'],
+  ] as const)(
+    'rejects tampered detached-proof metadata: %s',
+    (field, value) => {
+      const { passport, publicKeyJwk } = makeKeypairAndPassport();
+      (passport.proof as unknown as Record<string, unknown>)[field] = value;
+      expect(
+        new PraesidiaTrust().verifyPassport(passport, publicKeyJwk),
+      ).toMatchObject({
+        verified: false,
+        signatureValid: false,
+        reason: 'malformed-passport',
+      });
+    },
+  );
+
   it('verifyPassport rejects a non-canonical base64 proof', () => {
     const { passport, publicKeyJwk } = makeKeypairAndPassport();
     passport.proof.proofValue += '!';
@@ -231,6 +405,20 @@ describe('PraesidiaTrust', () => {
     expect(
       new PraesidiaTrust().verifyPassport(passport, publicKeyJwk),
     ).toEqual({
+      verified: false,
+      signatureValid: false,
+      expired: false,
+      reason: 'malformed-passport',
+    });
+  });
+
+  it('verifyPassport never throws when hostile object accessors throw', () => {
+    const passport = Object.defineProperty({}, 'proof', {
+      get() {
+        throw new Error('hostile getter');
+      },
+    }) as TrustPassport;
+    expect(new PraesidiaTrust().verifyPassport(passport, {})).toEqual({
       verified: false,
       signatureValid: false,
       expired: false,

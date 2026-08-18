@@ -81,6 +81,33 @@ describe('PraesidiaClient retry (FINDING-4)', () => {
     expect(calls).toBe(2);
   });
 
+  it('cancels a discarded retryable response body before the next attempt', async () => {
+    let calls = 0;
+    let cancelled = false;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        const body = new ReadableStream({
+          cancel() {
+            cancelled = true;
+          },
+        });
+        return new Response(body, { status: 503 });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as typeof fetch;
+
+    const client = new PraesidiaClient(
+      'https://api.example.test',
+      'pk_test',
+      undefined,
+      fastRetry,
+    );
+    await expect(client.get('/health')).resolves.toEqual({ ok: true });
+    expect(cancelled).toBe(true);
+    expect(calls).toBe(2);
+  });
+
   it('honours Retry-After on a 429 before retrying', async () => {
     let calls = 0;
     globalThis.fetch = vi.fn(async () => {
@@ -121,6 +148,29 @@ describe('PraesidiaClient retry (FINDING-4)', () => {
     );
     await client.del('/resource/1');
     expect(calls).toBe(2);
+  });
+
+  it('releases an unexpected successful DELETE response body', async () => {
+    let cancelled = false;
+    globalThis.fetch = vi.fn(async () =>
+      new Response(
+        new ReadableStream({
+          cancel() {
+            cancelled = true;
+          },
+        }),
+        { status: 200 },
+      ),
+    ) as typeof fetch;
+
+    const client = new PraesidiaClient(
+      'https://api.example.test',
+      'pk_test',
+      undefined,
+      fastRetry,
+    );
+    await client.del('/resource/1');
+    expect(cancelled).toBe(true);
   });
 
   it('NEVER retries a bare POST (would risk a double-create/double-charge)', async () => {

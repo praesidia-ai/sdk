@@ -30,8 +30,10 @@ export { PraesidiaClient, CHAIN_ID_HEADER } from './client.js';
 export type { RetryConfig } from './retry.js';
 export {
   verifyEd25519,
+  verifyEs256,
   canonicalJson,
   ed25519PublicKeyFromJwk,
+  p256PublicKeyFromJwk,
 } from './crypto.js';
 export {
   MEMORY_RETENTION_REGIMES,

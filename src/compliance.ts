@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks';
 import { encodePathSegment, PraesidiaClient } from './client.js';
 import { PraesidiaConfigError } from './errors.js';
 import type {
@@ -129,7 +130,7 @@ export class PraesidiaCompliance {
     const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     assertTimerValue(pollIntervalMs, 'pollIntervalMs', true);
     assertTimerValue(timeoutMs, 'timeoutMs', false);
-    const deadline = Date.now() + timeoutMs;
+    const deadline = performance.now() + timeoutMs;
 
     for (;;) {
       const status = await this.getReportStatus(reportId);
@@ -142,7 +143,7 @@ export class PraesidiaCompliance {
       if (status.ready) {
         return status;
       }
-      if (Date.now() + pollIntervalMs > deadline) {
+      if (performance.now() + pollIntervalMs > deadline) {
         throw new Error(
           `Timed out after ${timeoutMs}ms waiting for Praesidia report ${reportId} ` +
             `(last status: ${status.status})`,
