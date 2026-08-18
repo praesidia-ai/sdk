@@ -1,12 +1,9 @@
 name: Publish
 
-# Tag/dispatch-gated npm publish. PUBLISHING IS INTENTIONALLY DISABLED.
-# The job is guarded by `if: false` so nothing is ever published until a human
-# flips it on. To enable: remove the `if: false` guard and add an NPM_TOKEN
-# repository secret.
+# A release is published only from an immutable version tag whose value matches
+# package.json. Configure the NPM_TOKEN repository secret before cutting a tag.
 
 on:
-  workflow_dispatch:
   push:
     tags: ['v*']
 
@@ -15,10 +12,12 @@ permissions:
 
 jobs:
   publish:
-    if: false # DISABLED — remove to enable npm publish
     name: npm publish (@praesidia/sdk)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -31,10 +30,24 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      - name: Verify release tag matches package version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$RELEASE_TAG" != "v$PACKAGE_VERSION" ]; then
+            echo "Release tag $RELEASE_TAG does not match package version v$PACKAGE_VERSION" >&2
+            exit 1
+          fi
+
       - run: npm run build
       - run: npx vitest run
 
+      - name: Verify publish artifact
+        run: npm pack --dry-run
+
       - name: Publish to npm
-        run: npm publish --access public
+        run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
