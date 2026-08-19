@@ -9,6 +9,14 @@ name: 🔗 API Contract Drift
 # same MONO-003 sibling-checkout pattern, same fresh-`export:openapi` source
 # of truth — via `scripts/audit-api-contract.mjs` (see that file's header
 # for why it is a generalized COPY of mcp's scanner, not an import).
+#
+# AUD-0063 — this job is also the ONLY place in CI where a fresh be-core spec
+# is available, so it additionally runs the analytics resource coverage gate
+# (src/analytics.coverage.spec.ts) against this job's real
+# `swagger.generated.json`. `ci.yml` runs `npm test` but checks out sdk
+# alone, so that test only SKIPS there — this job is what makes it capable
+# of actually failing a PR when be-core adds an analytics route the SDK
+# doesn't cover. Mirrors mcp's identical AUD-0062 step verbatim.
 
 on:
   push:
@@ -100,3 +108,23 @@ jobs:
       - name: Audit sdk's hand-written API calls against the fresh be-core spec
         working-directory: sdk
         run: npm run lint:api-contract -- ../swagger.generated.json
+
+      # AUD-0063 — this repo's own `npm test` (ci.yml) never sees a be-core
+      # checkout, so run the live analytics-route coverage check here
+      # instead, where `../../swagger.generated.json` (this job's fresh
+      # export, resolved from src/) genuinely exists.
+      #
+      # Deliberately NOT `vitest run -t "<title>"`: `-t` exits 0 when the
+      # pattern matches zero tests (a renamed test title would silently stop
+      # gating), so this runs the file BY PATH instead — `vitest run <path>`
+      # exits 1 if that path ever matches nothing (file renamed/deleted).
+      # AUD_0063_REQUIRE_SWAGGER=true additionally turns "no spec found"
+      # from a skip into a hard failure in THIS job specifically (see the
+      # spec file's own doc comment) — this job's only reason to run it is
+      # having a fresh be-core export, so it must never go green having
+      # never read one. Mirrors mcp's AUD-0062 step verbatim.
+      - name: AUD-0063 — analytics resource coverage vs be-core
+        working-directory: sdk
+        env:
+          AUD_0063_REQUIRE_SWAGGER: 'true'
+        run: npx vitest run src/analytics.coverage.spec.ts
