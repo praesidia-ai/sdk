@@ -91,6 +91,20 @@ export type {
   // FINDING-1 — analytics parity types
   AnalyticsWindowQuery,
   AnalyticsResult,
+  // AUD-0063 — analytics coverage parity types
+  AnalyticsCaptureState,
+  AgentAnalyticsResult,
+  AnalyticsEventType,
+  AnalyticsEvent,
+  AnalyticsEventsQuery,
+  RecordAnalyticsEventInput,
+  AnalyticsAnomaly,
+  CostByTeamEntry,
+  ModelComparisonEntry,
+  AnalyticsTimeRange,
+  SecurityMetricsResult,
+  UsageHeatmapResult,
+  ComplianceMetricsResult,
   // Agent identity + task lifecycle (H1-02a)
   AgentIdentity,
   BeginTaskOptions,

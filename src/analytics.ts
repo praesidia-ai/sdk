@@ -1,10 +1,26 @@
 import {
   assertIsoDateRange,
+  assertPagination,
   encodePathSegment,
   PraesidiaClient,
 } from './client.js';
 import { PraesidiaConfigError } from './errors.js';
-import type { AnalyticsResult, AnalyticsWindowQuery, GuardConfig } from './types.js';
+import type {
+  AgentAnalyticsResult,
+  AnalyticsAnomaly,
+  AnalyticsCaptureState,
+  AnalyticsEvent,
+  AnalyticsEventsQuery,
+  AnalyticsResult,
+  AnalyticsWindowQuery,
+  ComplianceMetricsResult,
+  CostByTeamEntry,
+  GuardConfig,
+  ModelComparisonEntry,
+  RecordAnalyticsEventInput,
+  SecurityMetricsResult,
+  UsageHeatmapResult,
+} from './types.js';
 
 const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
 
@@ -121,6 +137,134 @@ export class PraesidiaAnalytics {
     return this.client.getBytes(`${this.analyticsBase}/export${qs}`);
   }
 
+  // ── AUD-0063 — closes the 9/10-route gap vs be's AnalyticsController ───────
+
+  /** Per-org analytics-capture configuration. GET .../analytics/capture-state. Idempotent GET — retried per policy. */
+  async captureState(): Promise<AnalyticsCaptureState> {
+    return this.client.get<AnalyticsCaptureState>(`${this.analyticsBase}/capture-state`);
+  }
+
+  /** Per-agent analytics breakdown. GET .../analytics/agents/:agentId. Idempotent GET — retried per policy. */
+  async agentAnalytics(
+    agentId: string,
+    query: Pick<AnalyticsWindowQuery, 'days'> = {},
+  ): Promise<AgentAnalyticsResult> {
+    assertDays(query.days);
+    const qs = query.days !== undefined ? `?days=${query.days}` : '';
+    return this.client.get<AgentAnalyticsResult>(
+      `${this.analyticsBase}/agents/${encodePathSegment(agentId, 'agentId')}${qs}`,
+    );
+  }
+
+  /**
+   * Paginated raw analytics events. GET .../analytics/events. Idempotent GET —
+   * retried per policy. Unwraps the `{ data, meta }` envelope, matching
+   * `PraesidiaAgents.list` / `PraesidiaAudit.list`.
+   */
+  async events(query: AnalyticsEventsQuery = {}): Promise<AnalyticsEvent[]> {
+    assertPagination(query);
+    assertIsoDateRange(query.fromDate, query.toDate);
+    const result = await this.client.get<
+      AnalyticsEvent[] | { data?: AnalyticsEvent[] }
+    >(`${this.analyticsBase}/events${buildEventsQuery(query)}`);
+    return Array.isArray(result) ? result : (result.data ?? []);
+  }
+
+  /**
+   * PRA-QA-261 — identical semantics to `events()`; be-core exposes this
+   * alias because some browser privacy-extension tracker lists block XHR
+   * paths ending in `/analytics/events`. Delegates server-side to the same
+   * validated, permission-gated handler. GET .../analytics/activity-log.
+   * Idempotent GET — retried per policy.
+   */
+  async activityLog(query: AnalyticsEventsQuery = {}): Promise<AnalyticsEvent[]> {
+    assertPagination(query);
+    assertIsoDateRange(query.fromDate, query.toDate);
+    const result = await this.client.get<
+      AnalyticsEvent[] | { data?: AnalyticsEvent[] }
+    >(`${this.analyticsBase}/activity-log${buildEventsQuery(query)}`);
+    return Array.isArray(result) ? result : (result.data ?? []);
+  }
+
+  /**
+   * Record an analytics event. POST .../analytics/events.
+   *
+   * Retry classification (R-SDK-1): this path is NOT in be-core's
+   * `Idempotency-Key`-honoured allowlist (only `POST .../tasks` and the A2A
+   * task routes are), so this is a bare, never-retried POST — a transient
+   * 5xx surfaces to the caller instead of risking a double-recorded event.
+   * AUDIT-021 also gates this on `ANALYTICS_CREATE`, distinct from the
+   * read-only `ANALYTICS_VIEW` every other method on this class needs, and
+   * has no mintable API-key scope in be-core's taxonomy (see
+   * `analytics.controller.ts`'s AUDIT-SDK-04 docblock) — authenticate with a
+   * JWT bearer, not a `pk_` API key, for this call.
+   */
+  async recordEvent(input: RecordAnalyticsEventInput): Promise<AnalyticsEvent> {
+    return this.client.post<AnalyticsEvent>(`${this.analyticsBase}/events`, input);
+  }
+
+  /** Security metrics (failed auth, rate limits, risk score). GET .../analytics/advanced/security (ADVANCED_ANALYTICS). */
+  async securityMetrics(query: AnalyticsWindowQuery = {}): Promise<SecurityMetricsResult> {
+    assertWindow(query);
+    return this.client.get<SecurityMetricsResult>(
+      `${this.analyticsBase}/advanced/security${buildWindowQuery(query)}`,
+    );
+  }
+
+  /** Activity heatmap by hour/day-of-week. GET .../analytics/advanced/usage-heatmap (ADVANCED_ANALYTICS). */
+  async usageHeatmap(query: AnalyticsWindowQuery = {}): Promise<UsageHeatmapResult> {
+    assertWindow(query);
+    return this.client.get<UsageHeatmapResult>(
+      `${this.analyticsBase}/advanced/usage-heatmap${buildWindowQuery(query)}`,
+    );
+  }
+
+  /** Policy/guardrail/access-review compliance metrics. GET .../analytics/advanced/compliance (ADVANCED_ANALYTICS). */
+  async complianceMetrics(query: AnalyticsWindowQuery = {}): Promise<ComplianceMetricsResult> {
+    assertWindow(query);
+    return this.client.get<ComplianceMetricsResult>(
+      `${this.analyticsBase}/advanced/compliance${buildWindowQuery(query)}`,
+    );
+  }
+
+  /**
+   * Connections whose error rate/latency is >2 std-dev above the org mean.
+   * GET .../analytics/advanced/anomalies (ADVANCED_ANALYTICS). Default window
+   * is 7 days (matches be's `DefaultValuePipe(7)` — narrower than every
+   * other `days` default on this class, which default to 30).
+   */
+  async anomalies(
+    query: Pick<AnalyticsWindowQuery, 'days'> = {},
+  ): Promise<AnalyticsAnomaly[]> {
+    assertDays(query.days);
+    const days = query.days ?? 7;
+    return this.client.get<AnalyticsAnomaly[]>(
+      `${this.analyticsBase}/advanced/anomalies?days=${days}`,
+    );
+  }
+
+  /** Cost allocation by team. GET .../analytics/advanced/cost-by-team (ADVANCED_ANALYTICS). */
+  async costByTeam(
+    query: Pick<AnalyticsWindowQuery, 'days'> = {},
+  ): Promise<CostByTeamEntry[]> {
+    assertDays(query.days);
+    const days = query.days ?? 30;
+    return this.client.get<CostByTeamEntry[]>(
+      `${this.analyticsBase}/advanced/cost-by-team?days=${days}`,
+    );
+  }
+
+  /** Per-model cost/latency/success-rate comparison. GET .../analytics/advanced/model-comparison (ADVANCED_ANALYTICS). */
+  async modelComparison(
+    query: Pick<AnalyticsWindowQuery, 'days'> = {},
+  ): Promise<ModelComparisonEntry[]> {
+    assertDays(query.days);
+    const days = query.days ?? 30;
+    return this.client.get<ModelComparisonEntry[]>(
+      `${this.analyticsBase}/advanced/model-comparison?days=${days}`,
+    );
+  }
+
   /** Adopt a rotated credential in-process (zero-downtime swap). */
   refreshCredential(apiKey: string): void {
     this.client.setApiKey(apiKey);
@@ -143,4 +287,20 @@ function buildWindowQuery(query: AnalyticsWindowQuery): string {
 function assertWindow(query: AnalyticsWindowQuery): void {
   assertDays(query.days);
   assertIsoDateRange(query.fromDate, query.toDate);
+}
+
+/** Build the query string for `events()`/`activityLog()`, omitting undefined values. */
+function buildEventsQuery(query: AnalyticsEventsQuery): string {
+  const params: Array<[string, string]> = [];
+  if (query.agentId) params.push(['agentId', query.agentId]);
+  if (query.eventType) params.push(['eventType', query.eventType]);
+  if (query.fromDate) params.push(['startDate', query.fromDate]);
+  if (query.toDate) params.push(['endDate', query.toDate]);
+  if (query.page !== undefined) params.push(['page', String(query.page)]);
+  if (query.limit !== undefined) params.push(['limit', String(query.limit)]);
+  if (params.length === 0) return '';
+  return (
+    '?' +
+    params.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')
+  );
 }

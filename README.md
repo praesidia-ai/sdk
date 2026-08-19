@@ -542,6 +542,26 @@ const csv = await analytics.export();
 | `agentPerformance(query?)` | `Promise<AnalyticsResult>` | `GET .../analytics/advanced/agent-performance` (ADVANCED_ANALYTICS) |
 | `topAgents(query?)` | `Promise<AnalyticsResult>` | `GET .../analytics/advanced/top-agents` (ADVANCED_ANALYTICS) |
 | `export(query?)` | `Promise<Uint8Array>` | `GET .../analytics/export` (ANALYTICS_EXPORT + ADVANCED_ANALYTICS) |
+| `captureState()` | `Promise<AnalyticsCaptureState>` | `GET .../analytics/capture-state` |
+| `agentAnalytics(agentId, query?)` | `Promise<AgentAnalyticsResult>` | `GET .../analytics/agents/:agentId` |
+| `events(query?)` | `Promise<AnalyticsEvent[]>` | `GET .../analytics/events` (paginated) |
+| `activityLog(query?)` | `Promise<AnalyticsEvent[]>` | `GET .../analytics/activity-log` (PRA-QA-261 alias of `events`) |
+| `recordEvent(input)` | `Promise<AnalyticsEvent>` | `POST .../analytics/events` (`ANALYTICS_CREATE`, JWT-only — see below) |
+| `securityMetrics(query?)` | `Promise<SecurityMetricsResult>` | `GET .../analytics/advanced/security` (ADVANCED_ANALYTICS) |
+| `usageHeatmap(query?)` | `Promise<UsageHeatmapResult>` | `GET .../analytics/advanced/usage-heatmap` (ADVANCED_ANALYTICS) |
+| `complianceMetrics(query?)` | `Promise<ComplianceMetricsResult>` | `GET .../analytics/advanced/compliance` (ADVANCED_ANALYTICS) |
+| `anomalies(query?)` | `Promise<AnalyticsAnomaly[]>` | `GET .../analytics/advanced/anomalies` (ADVANCED_ANALYTICS, default 7-day window) |
+| `costByTeam(query?)` | `Promise<CostByTeamEntry[]>` | `GET .../analytics/advanced/cost-by-team` (ADVANCED_ANALYTICS) |
+| `modelComparison(query?)` | `Promise<ModelComparisonEntry[]>` | `GET .../analytics/advanced/model-comparison` (ADVANCED_ANALYTICS) |
+
+> **AUD-0063 — full route parity.** `PraesidiaAnalytics` used to cover 5 of
+> be-core's 15 `/organizations/:orgId/analytics*` paths; the 11 methods above
+> close that gap (both SDKs — see the Python README). `recordEvent` is the
+> only write on this resource: it needs `ANALYTICS_CREATE` (not the
+> `ANALYTICS_VIEW` every read method here needs) and has no mintable API-key
+> scope, so it must authenticate with a JWT bearer. It is also a bare,
+> never-retried POST — this route is not in be-core's `Idempotency-Key`
+> allowlist (see Retry below).
 
 ## Retry (FINDING-4) — bounded, idempotency-safe by default
 
@@ -707,6 +727,29 @@ sibling checkout in `sdk-python`'s own `contract-drift.yml` — CD-0007 reuses
 this repo's scanner rather than a third, Python-native re-derivation.
 
 ## Changelog
+
+### Unreleased — AUD-0063: close the analytics resource coverage gap
+
+- **Added** 11 `PraesidiaAnalytics` methods closing be-core's remaining
+  `/organizations/:orgId/analytics*` routes: `captureState`,
+  `agentAnalytics`, `events`, `activityLog`, `recordEvent`,
+  `securityMetrics`, `usageHeatmap`, `complianceMetrics`, `anomalies`,
+  `costByTeam`, `modelComparison`, plus their response/query types
+  (`AnalyticsCaptureState`, `AgentAnalyticsResult`, `AnalyticsEvent`,
+  `AnalyticsEventsQuery`, `RecordAnalyticsEventInput`, `AnalyticsAnomaly`,
+  `CostByTeamEntry`, `ModelComparisonEntry`, `SecurityMetricsResult`,
+  `UsageHeatmapResult`, `ComplianceMetricsResult`). `PraesidiaAnalytics`
+  previously covered 5 of be-core's 15 analytics paths; it now covers all of
+  them. Purely additive — no existing method signature changed.
+- **Added** a swagger.json-derived coverage test
+  (`src/analytics.coverage.spec.ts`, mirrored in the Python SDK) that fails
+  on any `/organizations/:orgId/analytics*` operation this resource does not
+  implement, so a future be-added route is caught here instead of silently
+  missing the SDK.
+- `recordEvent` is a bare, never-retried POST (not in be-core's
+  `Idempotency-Key` allowlist) and requires `ANALYTICS_CREATE` — no mintable
+  API-key scope exists for it, so it needs a JWT bearer. Every other new
+  method is an idempotent GET, retried per the existing policy.
 
 ### Unreleased — PA-0026: fix `protectAction`'s deny discriminator (defect in PA01 DX-001)
 

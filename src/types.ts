@@ -882,6 +882,206 @@ export interface AnalyticsWindowQuery {
 
 export type AnalyticsResult = Record<string, unknown>;
 
+// ── AUD-0063 — analytics coverage parity types ────────────────────────────────
+// be/src/analytics/analytics.controller.ts. The 5 routes above (usage/costTrends/
+// agentPerformance/topAgents/export) predate this ticket and keep the existing
+// `AnalyticsResult` escape hatch untouched; every route added for AUD-0063 gets a
+// real response type instead.
+
+/** GET .../analytics/capture-state response. */
+export interface AnalyticsCaptureState {
+  enabled: boolean;
+  piiCapture: boolean;
+  sampleRate: number;
+  retentionDays: number;
+}
+
+/** GET .../analytics/agents/:agentId response. */
+export interface AgentAnalyticsResult {
+  totalRequests: number;
+  successfulRequests: number;
+  failedRequests: number;
+  averageResponseTime: number;
+  errorRate: number;
+  responseTimePercentiles: { p50: number; p95: number; p99: number };
+  throughput: number;
+  requestsByDay: { date: string; count: number }[];
+  requestsByEndpoint: { endpoint: string; count: number }[];
+  recentErrors: { errorCode: string; message: string; count: number }[];
+}
+
+/** `AnalyticsEvent.eventType` — mirrors be's `AnalyticsEventType` enum. */
+export type AnalyticsEventType =
+  | 'REQUEST'
+  | 'RESPONSE'
+  | 'ERROR'
+  | 'TOKEN_ISSUED'
+  | 'GUARDRAIL_TRIGGERED';
+
+/** A row as returned by GET .../analytics/events, .../activity-log, and POST .../analytics/events. */
+export interface AnalyticsEvent {
+  id: string;
+  organizationId: string | null;
+  agentId?: string;
+  eventType: AnalyticsEventType;
+  endpoint?: string;
+  method?: string;
+  statusCode?: number;
+  responseTimeMs?: number;
+  requestSizeBytes?: number;
+  responseSizeBytes?: number;
+  errorCode?: string;
+  errorMessage?: string;
+  sourceIp?: string;
+  userAgent?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
+/** Query params accepted by `PraesidiaAnalytics.events` / `.activityLog`. */
+export interface AnalyticsEventsQuery {
+  agentId?: string;
+  eventType?: AnalyticsEventType;
+  fromDate?: string;
+  toDate?: string;
+  page?: number;
+  limit?: number;
+}
+
+/** Body accepted by `PraesidiaAnalytics.recordEvent` — POST .../analytics/events. */
+export interface RecordAnalyticsEventInput {
+  eventType: AnalyticsEventType;
+  agentId?: string;
+  endpoint?: string;
+  method?: string;
+  statusCode?: number;
+  responseTimeMs?: number;
+  errorCode?: string;
+  errorMessage?: string;
+  /** Bounded server-side to 4096 bytes serialized / 5 levels deep (AUDIT-021). */
+  metadata?: Record<string, unknown>;
+}
+
+/** GET .../analytics/advanced/anomalies response entry. */
+export interface AnalyticsAnomaly {
+  type: string;
+  entityId: string;
+  entityName: string;
+  metric: string;
+  value: number;
+  threshold: number;
+  detectedAt: string;
+}
+
+/** GET .../analytics/advanced/cost-by-team response entry. */
+export interface CostByTeamEntry {
+  teamId: string | null;
+  teamName: string;
+  totalCostUsd: number;
+  taskCount: number;
+}
+
+/** GET .../analytics/advanced/model-comparison response entry. */
+export interface ModelComparisonEntry {
+  model: string;
+  taskCount: number;
+  successRate: number;
+  avgCostUsd: number;
+  avgInputTokens: number;
+  avgOutputTokens: number;
+  totalCostUsd: number;
+}
+
+/** Shared `timeRange` echo on the richer advanced-analytics responses below. */
+export interface AnalyticsTimeRange {
+  startDate: string;
+  endDate: string;
+  days: number;
+}
+
+/** GET .../analytics/advanced/security response. */
+export interface SecurityMetricsResult {
+  failedAuthAttempts: number;
+  failedAuthByDay: { date: string; count: number }[];
+  suspiciousActivities: {
+    type: string;
+    description: string;
+    count: number;
+    severity: 'low' | 'medium' | 'high' | 'critical';
+    lastOccurred: string;
+  }[];
+  rateLimitedRequests: number;
+  tokenRevocations: number;
+  permissionDenials: number;
+  securityEvents: {
+    type:
+      | 'failed_auth'
+      | 'suspicious_activity'
+      | 'rate_limited'
+      | 'permission_denied'
+      | 'token_revoked';
+    count: number;
+    trend: 'up' | 'down' | 'stable';
+    trendPercentage: number;
+  }[];
+  topBlockedIps: { ip: string; count: number; reason: string }[];
+  riskScore: number;
+  timeRange: AnalyticsTimeRange;
+}
+
+/** GET .../analytics/advanced/usage-heatmap response. */
+export interface UsageHeatmapResult {
+  heatmap: { hour: number; dayOfWeek: number; value: number; normalized: number }[];
+  peakHour: number;
+  peakDay: number;
+  quietHour: number;
+  quietDay: number;
+  totalActivity: number;
+  averageHourlyActivity: number;
+  timeRange: AnalyticsTimeRange;
+}
+
+/** GET .../analytics/advanced/compliance response. */
+export interface ComplianceMetricsResult {
+  overallScore: number;
+  policyViolations: {
+    policyId: string;
+    policyName: string;
+    violationType: string;
+    count: number;
+    severity: 'low' | 'medium' | 'high' | 'critical';
+    lastOccurred: string;
+    affectedAgents: string[];
+  }[];
+  totalViolations: number;
+  violationsByDay: { date: string; count: number }[];
+  guardrailTriggers: {
+    guardrailId: string;
+    guardrailName: string;
+    triggerCount: number;
+    blockCount: number;
+    allowedCount: number;
+  }[];
+  accessReviews: {
+    total: number;
+    pending: number;
+    approved: number;
+    revoked: number;
+    overdue: number;
+  };
+  dataRetention: {
+    retentionDays: number;
+    oldestRecord: string;
+    recordsToExpire: number;
+  };
+  auditLogStats: {
+    totalEvents: number;
+    eventsByType: { type: string; count: number }[];
+    recentCriticalEvents: { type: string; description: string; timestamp: string }[];
+  };
+  timeRange: AnalyticsTimeRange;
+}
+
 // ── PA01 DX-001 — protectAction (managed MCP Proof Edge) ─────────────────────
 // Endpoint: POST /organizations/:orgId/mcp-servers/:mcpServerId/tools/:toolName/call
 
