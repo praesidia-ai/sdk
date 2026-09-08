@@ -73,7 +73,6 @@ const MAX_ATTRIBUTE_VALUE_LENGTH = 512;
  *   });
  */
 export class PraesidiaTelemetry {
-  private readonly apiKey: string;
   private readonly baseUrl: string;
   private readonly client: PraesidiaClient;
   /** Optional service.name stamped on the OTLP Resource of built payloads. */
@@ -90,7 +89,10 @@ export class PraesidiaTelemetry {
       );
     }
 
-    this.apiKey = apiKey;
+    // SCAN2-013/CT-10 — no `this.apiKey = apiKey` here: this field was
+    // write-only (assigned, never read again) and existed purely as a
+    // runtime-enumerable leak surface. `this.client` already holds the key
+    // behind `PraesidiaClient`'s true private `#apiKey` field.
     this.serviceName = validatedText(
       config.serviceName ?? process.env['PRAESIDIA_SERVICE_NAME'] ?? undefined,
       'serviceName',

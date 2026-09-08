@@ -176,9 +176,20 @@ export class PraesidiaClient {
   private readonly requestTimeoutMs: number;
   private readonly retryConfig: Required<RetryConfig> | false;
 
+  /**
+   * SCAN2-013/CT-10 — a TRUE private class field (`#`), not the `private`
+   * modifier. `private` is compile-time-only; at runtime it is a normal
+   * own-enumerable property, so `console.log(client)`/`JSON.stringify(client)`/
+   * a snapshot test/an error-tracking SDK's object-graph serialization would
+   * all print the raw key in cleartext. A `#` field is invisible to every one
+   * of those (`Object.keys`, `JSON.stringify`, `util.inspect`) by JS
+   * language semantics, not by convention.
+   */
+  #apiKey: string;
+
   constructor(
     baseUrl: string,
-    private apiKey: string,
+    apiKey: string,
     requestTimeoutMs?: number,
     retryConfig?: RetryConfig | false,
   ) {
@@ -186,6 +197,7 @@ export class PraesidiaClient {
     this.requestTimeoutMs = resolveRequestTimeoutMs(requestTimeoutMs);
     this.retryConfig = resolveRetryConfig(retryConfig);
     this.assertApiKey(apiKey);
+    this.#apiKey = apiKey;
   }
 
   /**
@@ -199,7 +211,7 @@ export class PraesidiaClient {
    */
   setApiKey(apiKey: string): void {
     this.assertApiKey(apiKey);
-    this.apiKey = apiKey;
+    this.#apiKey = apiKey;
   }
 
   private assertApiKey(apiKey: string): void {
@@ -262,7 +274,7 @@ export class PraesidiaClient {
       // api-key.strategy.ts uses passport-http-bearer which reads the
       // Authorization: Bearer header. This is the canonical header for
       // org-scoped API keys in be-core.
-      Authorization: `Bearer ${this.apiKey}`,
+      Authorization: `Bearer ${this.#apiKey}`,
     };
     // Q3-02 — forward the inbound chain-trace id on every call so the chain
     // stays joined across SDK-driven hops.
@@ -477,7 +489,7 @@ export class PraesidiaClient {
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {
       Accept: 'application/octet-stream',
-      Authorization: `Bearer ${this.apiKey}`,
+      Authorization: `Bearer ${this.#apiKey}`,
     };
     if (this.chainId) {
       headers[CHAIN_ID_HEADER] = this.chainId;

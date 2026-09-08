@@ -124,7 +124,8 @@ function buildTaskInput(task: {
  *   - strict=true    → network errors throw PraesidiaApiError.
  */
 export class PraesidiaGuard {
-  private readonly apiKey: string | undefined;
+  /** SCAN2-013/CT-10 — true private field; see `PraesidiaClient.#apiKey`'s doc comment. */
+  #apiKey: string | undefined;
   private readonly orgId: string | undefined;
   private readonly orgPathSegment: string | undefined;
   private readonly agentId: string | undefined;
@@ -135,7 +136,7 @@ export class PraesidiaGuard {
   private readonly client: PraesidiaClient | undefined;
 
   constructor(config: GuardConfig = {}) {
-    this.apiKey = config.apiKey ?? process.env['PRAESIDIA_API_KEY'];
+    this.#apiKey = config.apiKey ?? process.env['PRAESIDIA_API_KEY'];
     this.orgId = config.orgId ?? process.env['PRAESIDIA_ORG_ID'];
     this.orgPathSegment = this.orgId
       ? encodePathSegment(this.orgId, 'orgId')
@@ -149,10 +150,10 @@ export class PraesidiaGuard {
     this.strict = config.strict ?? false;
     this.failOpen = config.failOpen ?? false;
 
-    if (this.apiKey && this.orgId) {
+    if (this.#apiKey && this.orgId) {
       this.client = new PraesidiaClient(
         this.baseUrl,
-        this.apiKey,
+        this.#apiKey,
         config.requestTimeoutMs,
         config.retry,
       );
