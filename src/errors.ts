@@ -24,18 +24,71 @@ export class GuardrailBlockedError extends Error {
 }
 
 /**
+ * be's structured JSON error envelope
+ * (`be/src/common/filters/http-exception.filter.ts`). Every field except
+ * `statusCode`/`message` is optional — older/other exceptions may omit
+ * `details`/`retryAfter`/`code`, and a non-JSON or unparseable error body
+ * means this type is never constructed at all (see `PraesidiaApiError.body`).
+ * Deliberately an index signature, not a closed interface: SCAN2-007's
+ * forward-compatibility requirement is that a field be adds later survives
+ * untouched on `.body` even though this SDK version has no named property
+ * for it yet.
+ */
+export interface PraesidiaErrorEnvelope {
+  statusCode?: number;
+  timestamp?: string;
+  path?: string;
+  method?: string;
+  requestId?: string;
+  message?: string;
+  details?: unknown;
+  retryAfter?: number;
+  code?: string;
+  [key: string]: unknown;
+}
+
+/**
  * Thrown when the Praesidia API returns an unexpected HTTP error and
  * strict mode is enabled (or the call is not fail-open).
+ *
+ * SCAN2-007 — `message` keeps its original, pre-existing format (the whole
+ * response body appended to a synthesized prefix) for backwards
+ * compatibility: any caller that already reads `.message` keeps working
+ * unchanged. `code`/`requestId`/`details`/`retryAfter`/`retryable` are new,
+ * purely additive, typed properties read from be's structured error envelope
+ * when the body parses as JSON; each is `undefined` when the body doesn't
+ * carry that field (or isn't JSON at all — a caller must not assume they are
+ * present). `body` is the full raw parsed envelope (or `undefined` if the
+ * response wasn't valid JSON), so a field be adds later is never silently
+ * dropped even by an SDK version that predates it.
  */
 export class PraesidiaApiError extends Error {
   readonly status: number;
   readonly path: string;
+  readonly code: string | undefined;
+  readonly requestId: string | undefined;
+  readonly details: unknown;
+  readonly retryAfter: number | undefined;
+  readonly retryable: boolean;
+  readonly body: PraesidiaErrorEnvelope | undefined;
 
-  constructor(status: number, path: string, message: string) {
+  constructor(
+    status: number,
+    path: string,
+    message: string,
+    envelope?: PraesidiaErrorEnvelope,
+    retryable = false,
+  ) {
     super(`Praesidia API error [${status}] ${path}: ${message}`);
     this.name = 'PraesidiaApiError';
     this.status = status;
     this.path = path;
+    this.code = envelope?.code;
+    this.requestId = envelope?.requestId;
+    this.details = envelope?.details;
+    this.retryAfter = envelope?.retryAfter;
+    this.retryable = retryable;
+    this.body = envelope;
     Object.setPrototypeOf(this, PraesidiaApiError.prototype);
   }
 }

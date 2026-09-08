@@ -676,6 +676,31 @@ try {
 `ProtectedActionDeniedError` and `UnsupportedProtectedActionTargetError` (PA01 DX-001) are thrown
 only by `guard.protectAction` — see [above](#guardprotectactionopts--promiseprotectactionresult-pa01-dx-001).
 
+### `PraesidiaApiError` — be's structured error envelope (SCAN2-007)
+
+Any non-2xx response from the Praesidia API throws `PraesidiaApiError`. Its `.message` string is
+unchanged from prior SDK versions (safe for existing callers), and it also exposes be's structured
+error envelope as typed properties so you don't have to string-match `.message`:
+
+```typescript
+try {
+  await sdk.agents.list();
+} catch (err) {
+  if (err instanceof PraesidiaApiError) {
+    console.log(err.status);     // HTTP status, e.g. 429
+    console.log(err.code);       // be's machine error code, e.g. "RATE_LIMITED" (may be undefined)
+    console.log(err.requestId);  // for support correlation (may be undefined)
+    console.log(err.details);    // validation/field errors, shape varies by route (may be undefined)
+    console.log(err.retryAfter); // seconds to wait on a 429/503, if be sent one (may be undefined)
+    console.log(err.retryable);  // true for 429/5xx — whether retrying is worth it at all
+    console.log(err.body);       // the full raw parsed envelope, or undefined if the body wasn't JSON
+  }
+}
+```
+
+`code`/`requestId`/`details`/`retryAfter`/`body` are `undefined` whenever be's response wasn't a
+JSON object (e.g. an intermediary proxy's plain-text error) — never assume they are present.
+
 ## Praesidia API endpoints used
 
 | Operation | Endpoint | Required scope |

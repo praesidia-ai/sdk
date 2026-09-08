@@ -1,5 +1,9 @@
 import { performance } from 'node:perf_hooks';
-import { PraesidiaApiError, PraesidiaConfigError } from './errors.js';
+import {
+  PraesidiaApiError,
+  PraesidiaConfigError,
+  type PraesidiaErrorEnvelope,
+} from './errors.js';
 import {
   assertIdempotencyKeySupported,
   computeBackoffMs,
@@ -20,6 +24,32 @@ import {
 /** Canonical Praesidia chain-trace header (Q3-02). */
 export const CHAIN_ID_HEADER = 'X-Praesidia-Chain-Id';
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * SCAN2-007 — best-effort parse of be's structured JSON error envelope
+ * (`be/src/common/filters/http-exception.filter.ts`). Returns `undefined`
+ * for a non-JSON, empty, or non-object body (a plain-text upstream/proxy
+ * error, for example) rather than throwing — an unparseable error body must
+ * never mask the real HTTP error with a JSON parse error.
+ */
+export function parseErrorEnvelope(text: string): PraesidiaErrorEnvelope | undefined {
+  if (!text) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as PraesidiaErrorEnvelope;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Build a `PraesidiaApiError` from a non-2xx response's raw text body. */
+function buildApiError(status: number, path: string, text: string): PraesidiaApiError {
+  const envelope = parseErrorEnvelope(text);
+  return new PraesidiaApiError(status, path, text, envelope, isRetryableStatus(status));
+}
 
 export function resolveRequestTimeoutMs(value?: number): number {
   const envValue = process.env['PRAESIDIA_REQUEST_TIMEOUT_MS'];
@@ -338,7 +368,7 @@ export class PraesidiaClient {
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      throw new PraesidiaApiError(response.status, path, text);
+      throw buildApiError(response.status, path, text);
     }
 
     return response.json() as Promise<T>;
@@ -377,7 +407,7 @@ export class PraesidiaClient {
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      throw new PraesidiaApiError(response.status, path, text);
+      throw buildApiError(response.status, path, text);
     }
 
     return response.json() as Promise<T>;
@@ -400,7 +430,7 @@ export class PraesidiaClient {
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      throw new PraesidiaApiError(response.status, path, text);
+      throw buildApiError(response.status, path, text);
     }
 
     return response.json() as Promise<T>;
@@ -428,7 +458,7 @@ export class PraesidiaClient {
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      throw new PraesidiaApiError(response.status, path, text);
+      throw buildApiError(response.status, path, text);
     }
     // DELETE callers do not receive a response body. Release any unexpected
     // body immediately so a non-conforming upstream cannot pin the connection.
@@ -463,7 +493,7 @@ export class PraesidiaClient {
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      throw new PraesidiaApiError(response.status, path, text);
+      throw buildApiError(response.status, path, text);
     }
 
     const buffer = await response.arrayBuffer();
