@@ -139,6 +139,96 @@ export class FixtureAgents {
   });
 });
 
+// SCAN2-012/CT-08 — `sdk/src/protected-http.ts:33,42` pass a same-file
+// helper CALL (`this.bindInstallation(request)`), not an object literal, as
+// the POST body argument. `extractBraceLiteral` sees the identifier `this`,
+// not `{`, so `bodyKeys` was `null` and `diffCallSites`'s
+// `if (site.bodyKeys && operation.hasBodySchema)` silently skipped field
+// checking entirely — the gate printed "passed" having verified NOTHING
+// about this call site's body.
+describe("TS scanner resolves same-file body-wrapper helpers (SCAN2-012)", () => {
+  let dir: string;
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function writeFixture(source: string): string {
+    dir = mkdtempSync(join(tmpdir(), "sdk-contract-wrapper-test-"));
+    writeFileSync(join(dir, "protected-http.ts"), source);
+    return dir;
+  }
+
+  // Mirrors protected-http.ts's real shape: `bindInstallation` spreads an
+  // opaque parameter (`...request`, unresolvable) AND adds one literal key
+  // (`checkpoint`) plus — the deliberate mismatch for this repro — a second
+  // literal key (`debugFlag`) the DTO does not declare.
+  const FIXTURE_WITH_UNDECLARED_FIELD = `
+export class FixtureProtectedHttp {
+  constructor(orgId) {
+    this.base = \`/organizations/\${orgId}/protected-http\`;
+  }
+  prepare(request) {
+    return this.client.post(\`\${this.base}/prepare\`, this.bindInstallation(request));
+  }
+  private bindInstallation(request) {
+    return { ...request, checkpoint: { ...request.checkpoint, installationId: this.runtimeInstallationId }, debugFlag: true };
+  }
+}
+`;
+
+  const SPEC = {
+    paths: {
+      "/organizations/{orgId}/protected-http/prepare": {
+        post: {
+          requestBody: {
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/PrepareProtectedHttpDto" },
+              },
+            },
+          },
+        },
+      },
+    },
+    components: {
+      schemas: {
+        PrepareProtectedHttpDto: {
+          type: "object",
+          properties: { checkpoint: {} },
+        },
+      },
+    },
+  };
+
+  it("resolves the wrapper call to its return literal and catches an undeclared field the DTO doesn't have", () => {
+    const sourceRoot = writeFixture(FIXTURE_WITH_UNDECLARED_FIELD);
+    const callSites = extractCallSites(sourceRoot, "ts");
+    const postSite = callSites.find((s) => s.method === "post");
+    expect(postSite?.bodyKeys).toEqual(["checkpoint", "debugFlag"]);
+    const failures = diffCallSites(callSites, buildOperationIndex(SPEC), sourceRoot);
+    expect(failures.some((f) => f.includes('sends body field "debugFlag"'))).toBe(true);
+  });
+
+  it("fails loudly (does not silently pass) when the body argument cannot be resolved to any literal at all", () => {
+    const source = `
+export class FixtureUnresolvable {
+  constructor(orgId) {
+    this.base = \`/organizations/\${orgId}/protected-http\`;
+  }
+  prepare(request) {
+    return this.client.post(\`\${this.base}/prepare\`, this.externallyImportedHelper(request));
+  }
+}
+`;
+    const sourceRoot = writeFixture(source);
+    const callSites = extractCallSites(sourceRoot, "ts");
+    const postSite = callSites.find((s) => s.method === "post");
+    expect(postSite?.bodyKeys).toBe("UNRESOLVED");
+    const failures = diffCallSites(callSites, buildOperationIndex(SPEC), sourceRoot);
+    expect(failures.some((f) => f.includes("could not be statically resolved"))).toBe(true);
+  });
+});
+
 describe("Python scanner end-to-end (fixture source tree)", () => {
   let dir: string;
   afterEach(() => {

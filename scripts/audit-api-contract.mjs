@@ -170,6 +170,103 @@ function extractBraceLiteral(source, fromIndex) {
   return null;
 }
 
+/**
+ * SCAN2-012/CT-08 — sentinel for "this is a non-GET call site with a body
+ * argument that is neither an object/dict literal nor a same-file helper
+ * call whose return literal we could resolve". `diffCallSites` treats this
+ * as a FAILURE, not a skip: narrowness (we can't resolve every expression
+ * shape) is tolerable, silently reporting "no drift" on an unanalysed body
+ * is not.
+ */
+const UNRESOLVED_BODY = "UNRESOLVED";
+
+/** Find the index of the `}` matching the `{` at `openIndex` (brace-depth-aware). */
+function findMatchingBrace(source, openIndex) {
+  let depth = 0;
+  for (let i = openIndex; i < source.length; i++) {
+    if (source[i] === "{") depth++;
+    else if (source[i] === "}") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * SCAN2-012/CT-08 — follow a same-file, single-argument helper call
+ * (`this.bindInstallation(request)`) to its method body and resolve the
+ * FIRST `return { ... }` object literal found inside it. A helper with only
+ * a bare passthrough return (`return request;`, no literal) or that isn't
+ * defined in this file returns `null` (caller falls back to
+ * `UNRESOLVED_BODY`). Doesn't attempt to resolve what a spread
+ * (`...request`) inside that literal contributes — same limitation
+ * `objectLiteralKeysTs` already has for every other call site in this
+ * codebase, not a new one introduced here.
+ */
+function resolveTsHelperReturnLiteral(source, methodName) {
+  const defRe = new RegExp(`\\b${methodName}\\s*(?:<[^>]*>)?\\s*\\([^)]*\\)\\s*(?::[^{]*)?\\{`);
+  const defMatch = defRe.exec(source);
+  if (!defMatch) return null;
+  const bodyStart = defMatch.index + defMatch[0].length - 1;
+  const bodyEnd = findMatchingBrace(source, bodyStart);
+  if (bodyEnd === -1) return null;
+  const body = source.slice(bodyStart, bodyEnd + 1);
+  const returnRe = /\breturn\s*/g;
+  let m;
+  while ((m = returnRe.exec(body))) {
+    const literal = extractBraceLiteral(body, m.index + m[0].length);
+    if (literal) return literal;
+    // "return <identifier>;" (build-then-return, e.g. guard.ts's
+    // buildTaskBody) — follow to a same-body `const <identifier> = { ... }`.
+    const idMatch = /^([A-Za-z_$][\w$]*)\s*;/.exec(body.slice(m.index + m[0].length));
+    if (idMatch) {
+      const constRe = new RegExp(`\\bconst\\s+${idMatch[1]}\\s*(?::[^=]*)?=\\s*`);
+      const constMatch = constRe.exec(body);
+      if (constMatch) {
+        const constLiteral = extractBraceLiteral(body, constMatch.index + constMatch[0].length);
+        if (constLiteral) return constLiteral;
+      }
+    }
+  }
+  return null;
+}
+
+/** Python equivalent of {@link resolveTsHelperReturnLiteral} (indentation-delimited blocks, not braces). */
+function resolvePyHelperReturnLiteral(source, methodName) {
+  const lines = source.split("\n");
+  const defRe = new RegExp(`^(\\s*)def\\s+${methodName}\\s*\\(`);
+  let defIdx = -1;
+  let defIndent = 0;
+  for (let idx = 0; idx < lines.length; idx++) {
+    const m = defRe.exec(lines[idx]);
+    if (m) {
+      defIdx = idx;
+      defIndent = m[1].length;
+      break;
+    }
+  }
+  if (defIdx === -1) return null;
+  const bodyLines = [];
+  for (let idx = defIdx + 1; idx < lines.length; idx++) {
+    const line = lines[idx];
+    if (line.trim() === "") {
+      bodyLines.push(line);
+      continue;
+    }
+    if (line.match(/^\s*/)[0].length <= defIndent) break;
+    bodyLines.push(line);
+  }
+  const body = bodyLines.join("\n");
+  const returnRe = /\breturn\s*/g;
+  let m;
+  while ((m = returnRe.exec(body))) {
+    const literal = extractBraceLiteral(body, m.index + m[0].length);
+    if (literal) return literal;
+  }
+  return null;
+}
+
 /** Top-level keys of a JS/TS `{ a, b: c, d: e ?? {} }` object-literal text. */
 function objectLiteralKeysTs(literal) {
   const inner = literal.slice(1, -1);
@@ -213,6 +310,59 @@ function objectLiteralKeysPy(literal) {
   const keys = [];
   for (const m of inner.matchAll(/(?:^|,)\s*["']([^"']+)["']\s*:/g)) keys.push(m[1]);
   return keys;
+}
+
+/**
+ * SCAN2-012/CT-08 — resolve a non-`get` call's body argument starting at
+ * `fromIndex` (just past the path argument). Three outcomes:
+ *  - no argument follows at all -> `null` (no body sent — a legitimate state)
+ *  - an object literal (`{ ... }`) -> its keys
+ *  - a same-file helper call (`this.methodName(...)`) whose return literal
+ *    resolves -> that literal's keys (SCAN2-012 fix)
+ *  - anything else (helper not found, no literal return, or a truly
+ *    unresolvable expression) -> `UNRESOLVED_BODY` (fail loudly, not skip)
+ */
+function resolveTsBodyKeys(source, fromIndex) {
+  let i = fromIndex;
+  while (i < source.length && /[\s,]/.test(source[i])) i++;
+  if (source[i] === ")") return null; // no body argument at all
+  if (source[i] === "{") {
+    const literal = extractBraceLiteral(source, i);
+    return literal ? objectLiteralKeysTs(literal) : UNRESOLVED_BODY;
+  }
+  const callMatch = /^this\.(\w+)\s*\(/.exec(source.slice(i));
+  if (callMatch) {
+    // A same-file helper CALL is something the SDK author controls and can
+    // be checked — resolve it, and fail loudly (not skip) if it turns out
+    // not to resolve. A BARE identifier (falls through below, e.g. a
+    // `data: Record<string, unknown>` parameter passed straight through)
+    // is deliberately opaque caller-supplied data with no fixed shape to
+    // check against — that is intentional passthrough, not this ticket's
+    // defect, and stays a skip (`null`) exactly as before.
+    const literal = resolveTsHelperReturnLiteral(source, callMatch[1]);
+    return literal ? objectLiteralKeysTs(literal) : UNRESOLVED_BODY;
+  }
+  return null;
+}
+
+/** Python equivalent of {@link resolveTsBodyKeys}, for a `json=<expr>` keyword argument's `<expr>`. */
+function resolvePyBodyKeys(argsText, fromIndex, source) {
+  let i = fromIndex;
+  while (/\s/.test(argsText[i])) i++;
+  if (argsText[i] === "{") {
+    const literal = extractBraceLiteral(argsText, i);
+    return literal ? objectLiteralKeysPy(literal) : UNRESOLVED_BODY;
+  }
+  const callMatch = /^self\.(\w+)\s*\(/.exec(argsText.slice(i));
+  if (callMatch) {
+    // Same distinction as resolveTsBodyKeys: a same-file helper CALL
+    // (`self.bind_installation(request)`) is checkable and fails loudly if
+    // it doesn't resolve; a bare identifier (`json=data`, deliberately
+    // opaque caller-supplied data) stays a skip, matching prior behaviour.
+    const literal = resolvePyHelperReturnLiteral(source, callMatch[1]);
+    return literal ? objectLiteralKeysPy(literal) : UNRESOLVED_BODY;
+  }
+  return null;
 }
 
 // ─── TS extraction ────────────────────────────────────────────────────────────
@@ -336,14 +486,13 @@ function extractCallSitesTs(sourceRoot) {
       rawText = substituteTsBases(rawText, symbols);
       if (!rawText.startsWith("/") && !rawText.startsWith("${apiUrl}")) continue;
 
-      const bodyLiteral = method === "get" ? null : extractBraceLiteral(source, argEnd);
       const line = source.slice(0, match.index).split("\n").length;
       sites.push({
         file,
         line,
         method,
         rawPath: rawText,
-        bodyKeys: bodyLiteral ? objectLiteralKeysTs(bodyLiteral) : null,
+        bodyKeys: method === "get" ? null : resolveTsBodyKeys(source, argEnd),
       });
     }
   }
@@ -482,9 +631,11 @@ function extractCallSitesPy(sourceRoot) {
       let bodyKeys = null;
       if (method !== "get") {
         const jsonKw = /\bjson\s*=\s*/.exec(argsText);
+        // No `json=` keyword arg at all is a legitimate "no body sent" state
+        // (matches GET's `null`); `json=<expr>` present but unresolvable is
+        // SCAN2-012/CT-08's fail-loudly case (resolveTsBodyKeys's sibling).
         if (jsonKw) {
-          const dictLiteral = extractBraceLiteral(argsText, jsonKw.index + jsonKw[0].length);
-          if (dictLiteral) bodyKeys = objectLiteralKeysPy(dictLiteral);
+          bodyKeys = resolvePyBodyKeys(argsText, jsonKw.index + jsonKw[0].length, source);
         }
       }
 
@@ -513,6 +664,20 @@ export function diffCallSites(callSites, operationIndex, repoRoot) {
 
     if (!operation) {
       failures.push(`${location} ${key} — no matching route in swagger.json`);
+      continue;
+    }
+    // SCAN2-012/CT-08 — a non-GET call whose body argument could not be
+    // statically resolved to ANY literal (not even via a same-file helper)
+    // must fail loudly, not silently pass as if it had no body to check.
+    // Narrowness (some expression shapes are genuinely out of reach for a
+    // regex-based scanner) is tolerable; reporting "no drift" while having
+    // verified nothing is not.
+    if (site.bodyKeys === UNRESOLVED_BODY) {
+      failures.push(
+        `${location} ${key} — body argument could not be statically resolved to an object ` +
+          `literal (directly or via a same-file helper's return) — this call site was NOT ` +
+          `verified against the DTO; resolve manually or teach the extractor its shape`
+      );
       continue;
     }
     if (site.bodyKeys && operation.hasBodySchema) {
@@ -589,6 +754,10 @@ function main() {
   const callSites = extractCallSites(sourceRoot, lang);
   const displayRoot = sourceDir || cliSpecPath !== undefined ? process.cwd() : repoRoot;
   const failures = diffCallSites(callSites, operationIndex, displayRoot);
+  // SCAN2-012/CT-08 — surface this count explicitly, not just folded into a
+  // failure line: it's the "how many call sites could this scanner not
+  // actually see" number the gate previously hid inside a false "passed".
+  const unresolvedCount = callSites.filter((s) => s.bodyKeys === UNRESOLVED_BODY).length;
 
   const label = lang === "py" ? "sdk-python" : "sdk";
   if (failures.length > 0) {
@@ -599,12 +768,18 @@ function main() {
         "(or, if be-core genuinely dropped/renamed something this SDK needs, that is a be-core-side " +
         "regression — file it there)."
     );
+    if (unresolvedCount > 0) {
+      console.error(
+        `\n${unresolvedCount} call site(s) above could not be statically resolved to a body ` +
+          "literal at all — the extractor needs to learn that shape."
+      );
+    }
     process.exit(1);
   }
 
   console.log(
     `${label} API contract audit passed — ${callSites.length} call sites checked against ` +
-      `${Object.keys(spec.paths).length} spec paths, no drift.`
+      `${Object.keys(spec.paths).length} spec paths, no drift (${unresolvedCount} unresolved).`
   );
 }
 
