@@ -397,6 +397,37 @@ await memory.delete(m.id);
 | `get(id)` | `Promise<MemoryRecord>` | `GET .../memories/:id` |
 | `delete(id)` | `Promise<void>` | `DELETE .../memories/:id` |
 
+## Pagination (SCAN2-011)
+
+`PraesidiaAgents.list`, `PraesidiaConnections.list`, `PraesidiaWorkflows.list`, and
+`PraesidiaWorkflows.listRuns` return only the first page as a bare array — their exact prior
+signature, kept for backwards compatibility. There is no way to tell from that array alone whether
+more rows exist beyond the page. Two additive methods exist alongside each for callers who need to
+know:
+
+- **`<method>Page(...)`** — same request, but returns be's full pagination envelope:
+  `{ data, total, meta: { page, limit, total, totalPages, hasNextPage, hasPrevPage } }`.
+- **`<method>All(...)`** — an `AsyncGenerator` that auto-paginates through every page and yields
+  every row, so "give me all of them" is correct by default:
+
+```typescript
+import { PraesidiaAgents } from '@praesidia/sdk';
+
+const agents = new PraesidiaAgents();
+
+// First page only, exactly as before:
+const firstPage = await agents.list();
+
+// Full envelope, so you can tell if there's more:
+const { data, total, meta } = await agents.listPage();
+if (meta.hasNextPage) { /* ... */ }
+
+// Every agent, across every page:
+for await (const agent of agents.listAll()) {
+  console.log(agent.id);
+}
+```
+
 ## Agent CRUD (FINDING-2 parity with the Python SDK)
 
 `PraesidiaAgents` also manages the agent's own lifecycle, not just credential
@@ -422,7 +453,9 @@ mirrors the SDK's existing organization and is unchanged.
 
 | Method | Returns | Endpoint |
 |---|---|---|
-| `list(query?)` | `Promise<AgentRecord[]>` | `GET .../agents` |
+| `list(query?)` | `Promise<AgentRecord[]>` | `GET .../agents` (first page only — see [Pagination](#pagination-scan2-011)) |
+| `listPage(query?)` | `Promise<PaginatedEnvelope<AgentRecord>>` | `GET .../agents`, full envelope (`total`/`meta`) |
+| `listAll(query?)` | `AsyncGenerator<AgentRecord>` | `GET .../agents`, auto-paginated |
 | `get(id)` | `Promise<AgentRecord>` | `GET .../agents/:id` |
 | `create(data)` | `Promise<AgentRecord>` | `POST .../agents` |
 | `update(id, data)` | `Promise<AgentRecord>` | `PATCH .../agents/:id` |
@@ -448,13 +481,17 @@ const runDetail = await workflows.getRun(wf.id as string, run.id as string);
 
 | Method | Returns | Endpoint |
 |---|---|---|
-| `list(query?)` | `Promise<WorkflowRecord[]>` | `GET .../workflows` |
+| `list(query?)` | `Promise<WorkflowRecord[]>` | `GET .../workflows` (first page only — see [Pagination](#pagination-scan2-011)) |
+| `listPage(query?)` | `Promise<PaginatedEnvelope<WorkflowRecord>>` | `GET .../workflows`, full envelope |
+| `listAll(query?)` | `AsyncGenerator<WorkflowRecord>` | `GET .../workflows`, auto-paginated |
 | `get(id)` | `Promise<WorkflowRecord>` | `GET .../workflows/:id` |
 | `create(data)` | `Promise<WorkflowRecord>` | `POST .../workflows` |
 | `update(id, data)` | `Promise<WorkflowRecord>` | `PATCH .../workflows/:id` |
 | `delete(id)` | `Promise<void>` | `DELETE .../workflows/:id` |
 | `trigger(id, opts?)` | `Promise<WorkflowRunRecord>` | `POST .../workflows/:id/runs` |
-| `listRuns(id, query?)` | `Promise<WorkflowRunRecord[]>` | `GET .../workflows/:id/runs` |
+| `listRuns(id, query?)` | `Promise<WorkflowRunRecord[]>` | `GET .../workflows/:id/runs` (first page only) |
+| `listRunsPage(id, query?)` | `Promise<PaginatedEnvelope<WorkflowRunRecord>>` | `GET .../workflows/:id/runs`, full envelope |
+| `listRunsAll(id, query?)` | `AsyncGenerator<WorkflowRunRecord>` | `GET .../workflows/:id/runs`, auto-paginated |
 | `getRun(id, runId)` | `Promise<WorkflowRunRecord>` | `GET .../workflows/:id/runs/:runId` |
 
 ## Connections (FINDING-2 parity with the Python SDK)
@@ -473,7 +510,9 @@ const health = await connections.health(conn.id as string);
 
 | Method | Returns | Endpoint |
 |---|---|---|
-| `list(query?)` | `Promise<ConnectionRecord[]>` | `GET .../connections` |
+| `list(query?)` | `Promise<ConnectionRecord[]>` | `GET .../connections` (first page only — see [Pagination](#pagination-scan2-011)) |
+| `listPage(query?)` | `Promise<PaginatedEnvelope<ConnectionRecord>>` | `GET .../connections`, full envelope |
+| `listAll(query?)` | `AsyncGenerator<ConnectionRecord>` | `GET .../connections`, auto-paginated |
 | `get(id)` | `Promise<ConnectionRecord>` | `GET .../connections/:id` |
 | `createAgent(data)` | `Promise<ConnectionRecord>` | `POST .../connections/agent` |
 | `createMcp(data)` | `Promise<ConnectionRecord>` | `POST .../connections/mcp` |

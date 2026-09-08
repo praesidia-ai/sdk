@@ -24,6 +24,8 @@ export { PraesidiaTrust } from './trust.js';
 export { PraesidiaWorkflows } from './workflows.js';
 export { PraesidiaConnections } from './connections.js';
 export { PraesidiaAudit } from './audit.js';
+// SCAN2-011 — shared pagination envelope/helpers for the list families above.
+export type { PaginationMeta, PaginatedEnvelope } from './pagination.js';
 export { PraesidiaAnalytics } from './analytics.js';
 export { PraesidiaClient, CHAIN_ID_HEADER } from './client.js';
 // FINDING-4 — retry policy config type.

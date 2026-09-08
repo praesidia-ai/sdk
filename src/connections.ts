@@ -4,6 +4,11 @@ import {
   PraesidiaClient,
 } from './client.js';
 import { PraesidiaConfigError } from './errors.js';
+import {
+  normalizePagedEnvelope,
+  paginateAll,
+  type PaginatedEnvelope,
+} from './pagination.js';
 import type {
   ConnectionRecord,
   ConnectionStatus,
@@ -58,8 +63,22 @@ export class PraesidiaConnections {
 
   // ── Public API ──────────────────────────────────────────────────────────────
 
-  /** List connections for the organization. GET .../connections (paginated + filterable). */
+  /**
+   * List connections for the organization. GET .../connections (paginated +
+   * filterable).
+   *
+   * SCAN2-011 — returns only the requested page as a bare array, exactly as
+   * before (backwards compatible); use {@link listPage} for the full envelope
+   * or {@link listAll} to auto-paginate through every connection.
+   */
   async list(query: ListConnectionsQuery = {}): Promise<ConnectionRecord[]> {
+    return (await this.listPage(query)).data;
+  }
+
+  /** Like {@link list}, but returns be's full pagination envelope (SCAN2-011). */
+  async listPage(
+    query: ListConnectionsQuery = {},
+  ): Promise<PaginatedEnvelope<ConnectionRecord>> {
     assertPagination(query);
     if (query.status !== undefined && !CONNECTION_STATUSES.includes(query.status)) {
       throw new PraesidiaConfigError(
@@ -67,12 +86,17 @@ export class PraesidiaConnections {
       );
     }
     const qs = buildQueryString(query);
-    const result = await this.client.get<
-      | ConnectionRecord[]
-      | { data?: ConnectionRecord[]; connections?: ConnectionRecord[] }
-    >(`${this.connectionsBase}${qs}`);
-    if (Array.isArray(result)) return result;
-    return result.data ?? result.connections ?? [];
+    const result = await this.client.get<ConnectionRecord[] | Record<string, unknown>>(
+      `${this.connectionsBase}${qs}`,
+    );
+    return normalizePagedEnvelope<ConnectionRecord>(result, 'connections');
+  }
+
+  /** Auto-paginate through every connection, across every page (SCAN2-011). */
+  async *listAll(
+    query: Omit<ListConnectionsQuery, 'page'> = {},
+  ): AsyncGenerator<ConnectionRecord, void, undefined> {
+    yield* paginateAll((page) => this.listPage({ ...query, page }));
   }
 
   /** Fetch a single connection by id. GET .../connections/:id. */

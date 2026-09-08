@@ -4,6 +4,11 @@ import {
   PraesidiaClient,
 } from './client.js';
 import { PraesidiaConfigError } from './errors.js';
+import {
+  normalizePagedEnvelope,
+  paginateAll,
+  type PaginatedEnvelope,
+} from './pagination.js';
 import type { GuardConfig, ListAgentsQuery, AgentRecord } from './types.js';
 
 const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
@@ -57,15 +62,40 @@ export class PraesidiaAgents {
 
   // ── Public API ──────────────────────────────────────────────────────────────
 
-  /** List agents for the organization. GET .../agents (paginated). */
+  /**
+   * List agents for the organization. GET .../agents (paginated).
+   *
+   * SCAN2-011 — returns only the requested page as a bare array, exactly as
+   * before (backwards compatible) — there is no way to tell from this return
+   * value alone whether more rows exist beyond this page. Use {@link listPage}
+   * for the full envelope (`total`/`meta.hasNextPage`) or {@link listAll} to
+   * auto-paginate through every agent.
+   */
   async list(query: ListAgentsQuery = {}): Promise<AgentRecord[]> {
+    return (await this.listPage(query)).data;
+  }
+
+  /** Like {@link list}, but returns be's full pagination envelope (SCAN2-011). */
+  async listPage(
+    query: ListAgentsQuery = {},
+  ): Promise<PaginatedEnvelope<AgentRecord>> {
     assertPagination(query);
     const qs = buildQueryString(query);
-    const result = await this.client.get<
-      AgentRecord[] | { data?: AgentRecord[]; agents?: AgentRecord[] }
-    >(`${this.agentsBase}${qs}`);
-    if (Array.isArray(result)) return result;
-    return result.data ?? result.agents ?? [];
+    const result = await this.client.get<AgentRecord[] | Record<string, unknown>>(
+      `${this.agentsBase}${qs}`,
+    );
+    return normalizePagedEnvelope<AgentRecord>(result, 'agents');
+  }
+
+  /**
+   * Auto-paginate through every agent, across every page (SCAN2-011) —
+   * "give me all of them" is correct by default rather than correct only if
+   * the caller remembers to page.
+   */
+  async *listAll(
+    query: Omit<ListAgentsQuery, 'page'> = {},
+  ): AsyncGenerator<AgentRecord, void, undefined> {
+    yield* paginateAll((page) => this.listPage({ ...query, page }));
   }
 
   /** Fetch a single agent by id. GET .../agents/:id. */

@@ -4,6 +4,11 @@ import {
   PraesidiaClient,
 } from './client.js';
 import { PraesidiaConfigError } from './errors.js';
+import {
+  normalizePagedEnvelope,
+  paginateAll,
+  type PaginatedEnvelope,
+} from './pagination.js';
 import type {
   GuardConfig,
   ListWorkflowRunsQuery,
@@ -61,16 +66,35 @@ export class PraesidiaWorkflows {
 
   // ── Public API ──────────────────────────────────────────────────────────────
 
-  /** List workflows for the organization. GET .../workflows (paginated). */
+  /**
+   * List workflows for the organization. GET .../workflows (paginated).
+   *
+   * SCAN2-011 — returns only the requested page as a bare array, exactly as
+   * before (backwards compatible); use {@link listPage} for the full envelope
+   * or {@link listAll} to auto-paginate through every workflow.
+   */
   async list(query: ListWorkflowsQuery = {}): Promise<WorkflowRecord[]> {
+    return (await this.listPage(query)).data;
+  }
+
+  /** Like {@link list}, but returns be's full pagination envelope (SCAN2-011). */
+  async listPage(
+    query: ListWorkflowsQuery = {},
+  ): Promise<PaginatedEnvelope<WorkflowRecord>> {
     assertPagination(query);
     assertWorkflowStatus(query.status);
     const qs = buildPageQuery(query);
-    const result = await this.client.get<
-      WorkflowRecord[] | { data?: WorkflowRecord[]; workflows?: WorkflowRecord[] }
-    >(`${this.workflowsBase}${qs}`);
-    if (Array.isArray(result)) return result;
-    return result.data ?? result.workflows ?? [];
+    const result = await this.client.get<WorkflowRecord[] | Record<string, unknown>>(
+      `${this.workflowsBase}${qs}`,
+    );
+    return normalizePagedEnvelope<WorkflowRecord>(result, 'workflows');
+  }
+
+  /** Auto-paginate through every workflow, across every page (SCAN2-011). */
+  async *listAll(
+    query: Omit<ListWorkflowsQuery, 'page'> = {},
+  ): AsyncGenerator<WorkflowRecord, void, undefined> {
+    yield* paginateAll((page) => this.listPage({ ...query, page }));
   }
 
   /** Fetch a single workflow by id. GET .../workflows/:id. */
@@ -132,20 +156,41 @@ export class PraesidiaWorkflows {
     );
   }
 
-  /** List execution runs for a workflow. GET .../workflows/:id/runs (paginated). */
+  /**
+   * List execution runs for a workflow. GET .../workflows/:id/runs (paginated).
+   *
+   * SCAN2-011 — returns only the requested page as a bare array, exactly as
+   * before (backwards compatible); use {@link listRunsPage} for the full
+   * envelope or {@link listRunsAll} to auto-paginate through every run.
+   */
   async listRuns(
     workflowId: string,
     query: ListWorkflowRunsQuery = {},
   ): Promise<WorkflowRunRecord[]> {
+    return (await this.listRunsPage(workflowId, query)).data;
+  }
+
+  /** Like {@link listRuns}, but returns be's full pagination envelope (SCAN2-011). */
+  async listRunsPage(
+    workflowId: string,
+    query: ListWorkflowRunsQuery = {},
+  ): Promise<PaginatedEnvelope<WorkflowRunRecord>> {
     assertPagination(query);
     const qs = buildPageQuery(query);
-    const result = await this.client.get<
-      WorkflowRunRecord[] | { data?: WorkflowRunRecord[]; runs?: WorkflowRunRecord[] }
-    >(
+    const result = await this.client.get<WorkflowRunRecord[] | Record<string, unknown>>(
       `${this.workflowsBase}/${encodePathSegment(workflowId, 'workflowId')}/runs${qs}`,
     );
-    if (Array.isArray(result)) return result;
-    return result.data ?? result.runs ?? [];
+    return normalizePagedEnvelope<WorkflowRunRecord>(result, 'runs');
+  }
+
+  /** Auto-paginate through every run of a workflow, across every page (SCAN2-011). */
+  async *listRunsAll(
+    workflowId: string,
+    query: Omit<ListWorkflowRunsQuery, 'page'> = {},
+  ): AsyncGenerator<WorkflowRunRecord, void, undefined> {
+    yield* paginateAll((page) =>
+      this.listRunsPage(workflowId, { ...query, page }),
+    );
   }
 
   /** Fetch a specific workflow run. GET .../workflows/:id/runs/:runId. */
