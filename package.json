@@ -1,7 +1,7 @@
 {
   "name": "@praesidia/sdk",
-  "version": "0.2.1",
-  "description": "Open-source agent governance SDK for Praesidia — guardrail checks, audit logging, analytics",
+  "version": "0.3.1",
+  "description": "Open-source agent governance SDK for Praesidia \u2014 guardrail checks, audit logging, analytics",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,11 +14,17 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "docs/interop-research.md",
+    "docs/protected-http.md",
+    "LICENSE",
+    "docs/federated-identity.md",
+    "examples/protected-http-target.mjs",
+    "docs/runtime-tools.md"
   ],
   "scripts": {
     "build": "tsc",
-    "test": "vitest run",
+    "test": "vitest run && npm run test:plugins",
+    "test:plugins": "bash scripts/test-plugins.sh",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "typecheck:spec": "tsc --noEmit -p tsconfig.spec.json",

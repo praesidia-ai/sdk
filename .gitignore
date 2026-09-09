@@ -4,8 +4,16 @@
 # dependencies
 /node_modules
 
+# plugins/* are separate sub-packages with their own dependency install (see
+# scripts/test-plugins.sh); /node_modules above only anchors to the repo root
+# and does not match these nested installs — spell it out explicitly so a
+# future `git add plugins/...` can't sweep hundreds of installed packages
+# into history.
+plugins/*/node_modules/
+
 # NOTE: package-lock.json IS committed in this standalone repo (reproducible
-# installs for CI + Docker `npm ci`). Do not add it here.
+# installs for CI + Docker `npm ci`), including inside plugins/*/ — do not
+# add it here or to the rule above.
 
 # test / coverage
 /coverage

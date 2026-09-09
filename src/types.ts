@@ -18,6 +18,8 @@ export interface GuardConfig {
   apiKey?: string;
   orgId?: string;
   agentId?: string;
+  /** Bind managed HTTP checkpoints to an organization runtime installation. */
+  runtimeInstallationId?: string;
   baseUrl?: string;
   /** Per-request HTTP deadline in milliseconds (default 30000, max 300000). */
   requestTimeoutMs?: number;
@@ -454,12 +456,15 @@ export interface CompleteTaskOptions {
  * or `fail` (never two), so the lifecycle maps 1:1 to a single task.
  */
 export interface TaskHandle {
-  /** Mark the task complete and record it. Resolves with the server taskId. */
+  /**
+   * Mark the task complete and record it. The first complete/fail call wins;
+   * later calls return the same memoized promise without another write.
+   */
   complete(
     output?: string,
     opts?: CompleteTaskOptions,
   ): Promise<string | undefined>;
-  /** Mark the task failed and record it. Resolves with the server taskId. */
+  /** Mark the task failed; subject to the same first-finalization rule. */
   fail(error: unknown, opts?: CompleteTaskOptions): Promise<string | undefined>;
 }
 
@@ -482,6 +487,8 @@ export type MemoryRetentionRegime = (typeof MEMORY_RETENTION_REGIMES)[number];
 
 /** H2-06e — write a memory (CreateMemoryDto). */
 export interface CreateMemoryInput {
+  /** Required for imported content; binds current source ACL and document version. */
+  accessSourceId?: string;
   /** Content to store (scanned for PII + poisoning, encrypted per-org). */
   content: string;
   /** Opaque data-subject id — enables per-subject GDPR Art-17 crypto-shred. */
@@ -531,6 +538,8 @@ export interface EraseMemoryInput {
 
 /** H2-06c — provenance lineage attached to a retrieved memory. */
 export interface MemoryProvenance {
+  accessSourceId?: string | null;
+  sourceContentVersion?: string | null;
   sourceType: MemorySourceType;
   sourceAgentId: string | null;
   authorUserId: string | null;
@@ -603,6 +612,7 @@ export interface OtlpSpan {
   traceId: string;
   spanId: string;
   parentSpanId?: string;
+  flags?: number;
   name: string;
   /** SPAN_KIND_* — 3 (CLIENT) for a GenAI inference call. */
   kind?: number;
@@ -615,6 +625,7 @@ export interface OtlpSpan {
 
 /** OTLP InstrumentationScope + its spans. */
 export interface OtlpScopeSpans {
+  schemaUrl?: string;
   scope?: { name?: string; version?: string };
   spans: OtlpSpan[];
 }
@@ -652,7 +663,7 @@ export interface GenAiSpanInput {
   agentName: string;
   /** gen_ai.agent.id — stable agent id (optional). */
   agentId?: string;
-  /** gen_ai.system — provider (e.g. 'openai', 'anthropic'). */
+  /** Legacy provider alias; emits both gen_ai.provider.name and gen_ai.system (e.g. 'openai', 'anthropic'). */
   system?: string;
   /** gen_ai.request.model — requested model. */
   requestModel?: string;
@@ -668,7 +679,16 @@ export interface GenAiSpanInput {
   name?: string;
   /** Duration in milliseconds (defaults to 0 → start == end). */
   durationMs?: number;
-  /** Extra raw OTLP attributes to append. */
+  /** W3C traceparent. Invalid headers are ignored and start a new trace. */
+  traceparent?: string;
+  /** Correlation only; these identifiers do not grant authority. */
+  taskId?: string;
+  actionId?: string;
+  /** Content attributes are dropped unless explicitly enabled with a redactor. */
+  captureContent?: boolean;
+  /** Called on every sensitive content string before export; errors fail closed. */
+  redactContent?: (value: string) => string;
+  /** Extra OTLP attributes. Reserved identity keys cannot be overridden. */
   extraAttributes?: OtlpKeyValue[];
 }
 
@@ -1188,4 +1208,24 @@ export interface ProtectActionResult {
    * not run for this call.
    */
   evidenceGrade?: 'A' | 'B' | 'C' | 'D';
+}
+
+/** Current, connector-owned authorization state for one imported document. */
+export interface MemorySourceAuthorizationInput {
+  sourceReference: string;
+  contentVersion: string;
+  allowedUserIds: string[];
+  authorityUrl: string;
+  authorityPublicKey: string;
+  validUntil: string;
+  state: 'active' | 'revoked' | 'deleted';
+  expectedRevision: number;
+}
+export interface MemorySourceAuthorization extends Omit<MemorySourceAuthorizationInput, 'expectedRevision' | 'authorityUrl' | 'authorityPublicKey'> {
+  id: string;
+  organizationId: string;
+  ownerUserId: string;
+  revision: number;
+  authorityUrl: string | null;
+  authorityPublicKey: string | null;
 }

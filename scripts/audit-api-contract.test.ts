@@ -22,10 +22,15 @@ describe("normalizePath", () => {
     expect(normalizePath("/organizations/{orgId}/agents")).toBe("/organizations/{param}/agents");
   });
 
-  it("strips a trailing bare-identifier query-string tail not preceded by a path separator", () => {
+  it("strips a trailing query-string interpolation not preceded by a path separator", () => {
     expect(normalizePath("/organizations/{param}/agents${qs}")).toBe(
       "/organizations/{param}/agents"
     );
+    expect(
+      normalizePath(
+        "/organizations/{param}/analytics/events${buildEventsQuery(query)}"
+      )
+    ).toBe("/organizations/{param}/analytics/events");
     // A real trailing route param (preceded by `/`) is NOT stripped, only collapsed.
     expect(normalizePath("/agents/${agentId}")).toBe("/agents/{param}");
   });

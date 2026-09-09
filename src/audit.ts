@@ -5,6 +5,7 @@ import {
   PraesidiaClient,
 } from './client.js';
 import { PraesidiaConfigError } from './errors.js';
+import { assertBundleDateRange } from './evidence-query.js';
 import type { AuditLogEntry, GuardConfig, ListAuditLogsQuery } from './types.js';
 
 const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
@@ -32,6 +33,7 @@ const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
 export class PraesidiaAudit {
   private readonly client: PraesidiaClient;
   private readonly auditBase: string;
+  private readonly bundlePath: string;
 
   constructor(config: GuardConfig = {}) {
     const apiKey = config.apiKey ?? process.env['PRAESIDIA_API_KEY'];
@@ -52,6 +54,7 @@ export class PraesidiaAudit {
       config.retry,
     );
     this.auditBase = `/organizations/${encodePathSegment(orgId, 'orgId')}/audit-logs`;
+    this.bundlePath = `/organizations/${encodePathSegment(orgId, 'orgId')}/audit/bundle`;
   }
 
   // ── Public API ──────────────────────────────────────────────────────────────
@@ -125,6 +128,17 @@ export class PraesidiaAudit {
     const qs =
       '?' + params.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
     return this.client.getBytes(`${this.auditBase}/export${qs}`);
+  }
+
+  /**
+   * Download a signed ZIP for offline verification; not the JSON/CSV log export.
+   * Requires audit:read and owner/compliance-officer access with COMPLIANCE_VIEW.
+   * Returns at most 128 MiB through the bounded transport. Does not verify it.
+   */
+  exportBundle(query: { from: string; to: string }): Promise<Uint8Array> {
+    assertBundleDateRange(query.from, query.to);
+    const qs = new URLSearchParams({ from: query.from, to: query.to });
+    return this.client.getBytes(`${this.bundlePath}?${qs}`);
   }
 
   /** Adopt a rotated credential in-process (zero-downtime swap). */

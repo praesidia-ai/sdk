@@ -1,0 +1,59 @@
+name: Native runtime compatibility
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['src/**', 'plugins/**', 'scripts/verify-runtime-adapters.mjs', 'package*.json', '.github/workflows/runtime-compatibility.yml']
+  push:
+    branches: [main, prod]
+    paths: ['src/**', 'plugins/**', 'scripts/verify-runtime-adapters.mjs', 'package*.json', '.github/workflows/runtime-compatibility.yml']
+permissions:
+  contents: read
+jobs:
+  installed-native-tools:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24.19.0'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Pack candidate packages and install exact native runtimes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/praesidia-runtime"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/praesidia-runtime"
+          (cd plugins/openclaw && npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/praesidia-runtime")
+          (cd plugins/openai-agents && npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/praesidia-runtime")
+          cd "$RUNNER_TEMP/praesidia-runtime"
+          npm init -y
+          npm install --ignore-scripts --no-audit --no-fund openclaw@2026.9.2 @openai/agents@0.17.0 ./praesidia-sdk-0.3.1.tgz ./praesidia-openclaw-0.1.1.tgz ./praesidia-openai-agents-0.1.0.tgz
+      - name: Exercise actual hook runner and native FunctionTool
+        run: node scripts/verify-runtime-adapters.mjs --runtime-dir "$RUNNER_TEMP/praesidia-runtime" --output "$RUNNER_TEMP/praesidia-runtime/result.json"
+      - name: Inspect the installed OpenClaw plugin through its CLI
+        env:
+          OPENCLAW_STATE_DIR: ${{ runner.temp }}/praesidia-runtime/openclaw-state
+          OPENCLAW_CONFIG_PATH: ${{ runner.temp }}/praesidia-runtime/openclaw-config.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import { writeFileSync } from 'node:fs';
+          import { resolve } from 'node:path';
+          writeFileSync(process.env.OPENCLAW_CONFIG_PATH, JSON.stringify({plugins:{allow:['praesidia'],load:{paths:[resolve(process.env.RUNNER_TEMP,'praesidia-runtime/node_modules/@praesidia/openclaw')]},entries:{praesidia:{enabled:true,config:{orgId:'10000000-0000-4000-8000-000000000001',targetId:'fixture-target'}}}}}));
+          JS
+          node "$RUNNER_TEMP/praesidia-runtime/node_modules/openclaw/openclaw.mjs" plugins inspect praesidia --runtime --json > "$RUNNER_TEMP/praesidia-runtime/loader.json"
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const result=JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/praesidia-runtime/loader.json`,'utf8'));
+          assert.equal(result.plugin.status,'loaded');
+          assert.deepEqual(result.plugin.toolNames,['praesidia_protected_action']);
+          assert.deepEqual(result.typedHooks,[{name:'before_tool_call'}]);
+          assert.deepEqual(result.diagnostics,[]);
+          JS

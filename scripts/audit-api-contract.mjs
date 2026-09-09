@@ -80,9 +80,9 @@ const HTTP_METHODS = new Set(["get", "post", "put", "patch", "delete"]);
  * through the symbol table below) so the two can be compared structurally.
  *
  * Generalization vs mcp's version (documented per the header): a trailing
- * BARE-identifier interpolation with no path separator before it —
- * `${qs}` (TS, this SDK's `buildQueryString`/`buildPageQuery`/
- * `buildWindowQuery` helpers) — is always a query-string tail appended
+ * interpolation with no path separator before it — `${qs}` or
+ * `${buildWindowQuery(query)}` (TS, this SDK's `buildQueryString`/
+ * `buildPageQuery`/`buildWindowQuery` helpers) — is always a query-string tail appended
  * without a literal `?`, never a route param (every real route param in
  * this codebase follows a literal `/`). This generalizes mcp's
  * single-cased `${query...}` strip. Python needs no equivalent: this SDK's
@@ -94,7 +94,7 @@ export function normalizePath(value) {
     value
       .replace(/^\$\{apiUrl\}/, "")
       .replace(/\$\{query\b[\s\S]*$/, "")
-      .replace(/(?<!\/)\$\{\w+\}$/, "")
+      .replace(/(?<!\/)\$\{[^}]+\}$/, "")
       .split("?")[0]
       .replace(/\$\{[^}]+\}/g, "{param}")
       .replace(/\{[^}]+\}/g, "{param}")

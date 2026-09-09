@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PraesidiaGuard } from './guard.js';
-import { GuardrailBlockedError } from './errors.js';
+import { GuardrailBlockedError, PraesidiaApiError } from './errors.js';
 import { makeFetchMock } from './__tests__/fetch-mock.js';
 
 const config = {
@@ -146,6 +146,49 @@ describe('H1-02a — task lifecycle handle', () => {
     const body = JSON.parse(init.body as string);
     expect(body.input.status).toBe('failed');
     expect(body.input.output).toBe('model timeout');
+  });
+
+  it('memoizes the first concurrent terminal decision and writes exactly one row', async () => {
+    globalThis.fetch = makeFetchMock([{ ok: true, status: 201, body: TASK }]);
+
+    const guard = new PraesidiaGuard(config);
+    const task = guard.beginTask({ input: 'do a thing' });
+    const completed = task.complete('finished');
+    const failed = task.fail(new Error('late failure'));
+
+    expect(failed).toBe(completed);
+    await expect(Promise.all([completed, failed])).resolves.toEqual([
+      'task-abc-123',
+      'task-abc-123',
+    ]);
+    expect(globalThis.fetch).toHaveBeenCalledOnce();
+    const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+      .calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.input.status).toBe('completed');
+    expect(body.input.output).toBe('finished');
+  });
+
+  it('memoizes a rejected finalization so an ambiguous write is never retried', async () => {
+    globalThis.fetch = makeFetchMock([
+      {
+        ok: false,
+        status: 503,
+        body: { message: 'Audit persistence unavailable' },
+      },
+    ]);
+
+    const guard = new PraesidiaGuard({ ...config, strict: true });
+    const task = guard.beginTask({ input: 'do a thing' });
+    const first = task.complete('finished');
+    const retry = task.fail(new Error('retry as failed'));
+
+    expect(retry).toBe(first);
+    await Promise.all([
+      expect(first).rejects.toThrow(PraesidiaApiError),
+      expect(retry).rejects.toThrow(PraesidiaApiError),
+    ]);
+    expect(globalThis.fetch).toHaveBeenCalledOnce();
   });
 
   it('forwards chainId on the lifecycle task body', async () => {

@@ -1,0 +1,17 @@
+{
+  "agents": [
+    {
+      "agent_id": "a56da252a6f8cfd47",
+      "agent_type": "sdk-dev",
+      "started_at": "2026-09-08T21:26:16.599Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-09-08T21:28:46.184Z",
+      "duration_ms": 149585
+    }
+  ],
+  "total_spawned": 1,
+  "total_completed": 9,
+  "total_failed": 0,
+  "last_updated": "2026-09-08T21:28:46.285Z"
+}

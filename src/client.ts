@@ -1,9 +1,9 @@
-import { performance } from 'node:perf_hooks';
+import { performance } from "node:perf_hooks";
 import {
   PraesidiaApiError,
   PraesidiaConfigError,
   type PraesidiaErrorEnvelope,
-} from './errors.js';
+} from "./errors.js";
 import {
   assertIdempotencyKeySupported,
   computeBackoffMs,
@@ -12,7 +12,7 @@ import {
   resolveRetryConfig,
   sleep,
   type RetryConfig,
-} from './retry.js';
+} from "./retry.js";
 
 /**
  * Thin HTTP client for the Praesidia REST API.
@@ -22,8 +22,114 @@ import {
  * is what be-core's `api-key.strategy.ts` (passport-http-bearer) reads.
  */
 /** Canonical Praesidia chain-trace header (Q3-02). */
-export const CHAIN_ID_HEADER = 'X-Praesidia-Chain-Id';
+export const CHAIN_ID_HEADER = "X-Praesidia-Chain-Id";
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+export const MAX_JSON_RESPONSE_BYTES = 16 * 1024 * 1024;
+export const MAX_ERROR_RESPONSE_BYTES = 64 * 1024;
+export const MAX_BINARY_RESPONSE_BYTES = 128 * 1024 * 1024;
+
+/**
+ * Consume a fetch body without allowing a misbehaving upstream to make the SDK
+ * buffer an unbounded response. The streamed count is authoritative because a
+ * compressed response's Content-Length can describe the smaller wire body.
+ */
+export async function readBoundedResponseBytes(
+  response: Response,
+  maxBytes: number,
+  path: string,
+  label = "response body",
+): Promise<Uint8Array> {
+  const declaredLength = response.headers.get("content-length");
+  if (
+    declaredLength !== null &&
+    /^\d+$/.test(declaredLength) &&
+    BigInt(declaredLength) > BigInt(maxBytes)
+  ) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new PraesidiaApiError(
+      response.status,
+      path,
+      `${label} exceeds ${maxBytes}-byte limit`,
+    );
+  }
+
+  if (response.body === null) return new Uint8Array();
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new PraesidiaApiError(
+          response.status,
+          path,
+          `${label} exceeds ${maxBytes}-byte limit`,
+        );
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const result = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
+}
+
+async function readBoundedResponseText(
+  response: Response,
+  maxBytes: number,
+  path: string,
+  label: string,
+): Promise<string> {
+  const bytes = await readBoundedResponseBytes(
+    response,
+    maxBytes,
+    path,
+    label,
+  );
+  return new TextDecoder().decode(bytes);
+}
+
+export async function readBoundedJsonResponse<T>(
+  response: Response,
+  path: string,
+): Promise<T> {
+  const text = await readBoundedResponseText(
+    response,
+    MAX_JSON_RESPONSE_BYTES,
+    path,
+    "JSON response body",
+  );
+  return JSON.parse(text) as T;
+}
+
+export async function readBoundedErrorResponse(
+  response: Response,
+  path: string,
+): Promise<string> {
+  try {
+    return await readBoundedResponseText(
+      response,
+      MAX_ERROR_RESPONSE_BYTES,
+      path,
+      "error response body",
+    );
+  } catch (error) {
+    if (error instanceof PraesidiaApiError) throw error;
+    return "";
+  }
+}
 
 /**
  * SCAN2-007 — best-effort parse of be's structured JSON error envelope
@@ -36,7 +142,7 @@ export function parseErrorEnvelope(text: string): PraesidiaErrorEnvelope | undef
   if (!text) return undefined;
   try {
     const parsed: unknown = JSON.parse(text);
-    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
       return parsed as PraesidiaErrorEnvelope;
     }
     return undefined;
@@ -45,18 +151,20 @@ export function parseErrorEnvelope(text: string): PraesidiaErrorEnvelope | undef
   }
 }
 
-/** Build a `PraesidiaApiError` from a non-2xx response's raw text body. */
+/** Build a `PraesidiaApiError` from a non-2xx response's bounded-read body. */
 function buildApiError(status: number, path: string, text: string): PraesidiaApiError {
   const envelope = parseErrorEnvelope(text);
   return new PraesidiaApiError(status, path, text, envelope, isRetryableStatus(status));
 }
 
 export function resolveRequestTimeoutMs(value?: number): number {
-  const envValue = process.env['PRAESIDIA_REQUEST_TIMEOUT_MS'];
-  const resolved = value ?? (envValue === undefined ? DEFAULT_REQUEST_TIMEOUT_MS : Number(envValue));
+  const envValue = process.env["PRAESIDIA_REQUEST_TIMEOUT_MS"];
+  const resolved =
+    value ??
+    (envValue === undefined ? DEFAULT_REQUEST_TIMEOUT_MS : Number(envValue));
   if (!Number.isInteger(resolved) || resolved < 1 || resolved > 300_000) {
     throw new PraesidiaConfigError(
-      'requestTimeoutMs/PRAESIDIA_REQUEST_TIMEOUT_MS must be an integer from 1 to 300000',
+      "requestTimeoutMs/PRAESIDIA_REQUEST_TIMEOUT_MS must be an integer from 1 to 300000",
     );
   }
   return resolved;
@@ -64,37 +172,45 @@ export function resolveRequestTimeoutMs(value?: number): number {
 
 export function normalizeBaseUrl(value: string): string {
   if (
-    typeof value !== 'string' ||
+    typeof value !== "string" ||
     value.length === 0 ||
     value !== value.trim() ||
     /\s|\\/.test(value)
   ) {
     throw new PraesidiaConfigError(
-      'baseUrl/PRAESIDIA_BASE_URL must contain no whitespace or backslashes',
+      "baseUrl/PRAESIDIA_BASE_URL must contain no whitespace or backslashes",
     );
   }
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new PraesidiaConfigError('baseUrl/PRAESIDIA_BASE_URL must be an absolute HTTP(S) URL');
-  }
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
     throw new PraesidiaConfigError(
-      'baseUrl/PRAESIDIA_BASE_URL must use HTTP(S) and contain no credentials, query, or fragment',
+      "baseUrl/PRAESIDIA_BASE_URL must be an absolute HTTP(S) URL",
     );
   }
-  return url.toString().replace(/\/$/, '');
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    throw new PraesidiaConfigError(
+      "baseUrl/PRAESIDIA_BASE_URL must use HTTP(S) and contain no credentials, query, or fragment",
+    );
+  }
+  return url.toString().replace(/\/$/, "");
 }
 
 /** Validate and encode one caller-controlled URL path segment. */
 export function encodePathSegment(value: string, label: string): string {
   if (
-    typeof value !== 'string' ||
+    typeof value !== "string" ||
     value.length === 0 ||
     value !== value.trim() ||
-    value === '.' ||
-    value === '..' ||
+    value === "." ||
+    value === ".." ||
     /[\u0000-\u001f\u007f]/.test(value)
   ) {
     throw new PraesidiaConfigError(
@@ -113,7 +229,9 @@ export function assertPagination(query: {
     query.page !== undefined &&
     (!Number.isInteger(query.page) || (query.page as number) < 1)
   ) {
-    throw new PraesidiaConfigError('page must be an integer greater than or equal to 1');
+    throw new PraesidiaConfigError(
+      "page must be an integer greater than or equal to 1",
+    );
   }
   if (
     query.limit !== undefined &&
@@ -121,16 +239,17 @@ export function assertPagination(query: {
       (query.limit as number) < 1 ||
       (query.limit as number) > 100)
   ) {
-    throw new PraesidiaConfigError('limit must be an integer from 1 to 100');
+    throw new PraesidiaConfigError("limit must be an integer from 1 to 100");
   }
 }
 
 /** Validate an ISO-8601 date accepted by the backend's `@IsDateString()`. */
 export function assertIsoDate(value: string | undefined, label: string): void {
   if (value === undefined) return;
-  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.exec(
-    value,
-  );
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.exec(
+      value,
+    );
   if (!match || !Number.isFinite(Date.parse(value))) {
     throw new PraesidiaConfigError(`${label} must be a valid ISO-8601 date`);
   }
@@ -152,14 +271,16 @@ export function assertIsoDateRange(
   fromDate: string | undefined,
   toDate: string | undefined,
 ): void {
-  assertIsoDate(fromDate, 'fromDate');
-  assertIsoDate(toDate, 'toDate');
+  assertIsoDate(fromDate, "fromDate");
+  assertIsoDate(toDate, "toDate");
   if (
     fromDate !== undefined &&
     toDate !== undefined &&
     Date.parse(fromDate) > Date.parse(toDate)
   ) {
-    throw new PraesidiaConfigError('fromDate must be earlier than or equal to toDate');
+    throw new PraesidiaConfigError(
+      "fromDate must be earlier than or equal to toDate",
+    );
   }
 }
 
@@ -216,26 +337,26 @@ export class PraesidiaClient {
 
   private assertApiKey(apiKey: string): void {
     if (
-      typeof apiKey !== 'string' ||
+      typeof apiKey !== "string" ||
       !apiKey ||
       apiKey !== apiKey.trim() ||
       /[\u0000-\u001f\u007f]/.test(apiKey)
     ) {
       throw new PraesidiaConfigError(
-        'apiKey must be non-empty and contain no surrounding whitespace or control characters',
+        "apiKey must be non-empty and contain no surrounding whitespace or control characters",
       );
     }
   }
 
   private assertIdempotencyKey(idempotencyKey: string): void {
     if (
-      typeof idempotencyKey !== 'string' ||
+      typeof idempotencyKey !== "string" ||
       idempotencyKey.length === 0 ||
       idempotencyKey !== idempotencyKey.trim() ||
       /[\u0000-\u001f\u007f]/.test(idempotencyKey)
     ) {
       throw new PraesidiaConfigError(
-        'idempotencyKey must be non-empty and contain no surrounding whitespace or control characters',
+        "idempotencyKey must be non-empty and contain no surrounding whitespace or control characters",
       );
     }
   }
@@ -250,12 +371,12 @@ export class PraesidiaClient {
     if (
       chainId !== null &&
       chainId !== undefined &&
-      (typeof chainId !== 'string' ||
+      (typeof chainId !== "string" ||
         chainId !== chainId.trim() ||
         /[\u0000-\u001f\u007f]/.test(chainId))
     ) {
       throw new PraesidiaConfigError(
-        'chainId must be a single-line string without surrounding whitespace',
+        "chainId must be a single-line string without surrounding whitespace",
       );
     }
     this.chainId = chainId ? chainId : undefined;
@@ -270,7 +391,7 @@ export class PraesidiaClient {
     extraHeaders?: Record<string, string>,
   ): Record<string, string> {
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       // api-key.strategy.ts uses passport-http-bearer which reads the
       // Authorization: Bearer header. This is the canonical header for
       // org-scoped API keys in be-core.
@@ -304,7 +425,8 @@ export class PraesidiaClient {
     if (this.retryConfig === false) {
       return fetch(url, initFactory());
     }
-    const { maxAttempts, baseDelayMs, maxDelayMs, maxElapsedMs } = this.retryConfig;
+    const { maxAttempts, baseDelayMs, maxDelayMs, maxElapsedMs } =
+      this.retryConfig;
     const start = performance.now();
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -328,8 +450,11 @@ export class PraesidiaClient {
         performance.now() - start < maxElapsedMs
       ) {
         const elapsed = performance.now() - start;
-        const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
-        const delay = retryAfterMs ?? computeBackoffMs(attempt, baseDelayMs, maxDelayMs);
+        const retryAfterMs = parseRetryAfterMs(
+          response.headers.get("retry-after"),
+        );
+        const delay =
+          retryAfterMs ?? computeBackoffMs(attempt, baseDelayMs, maxDelayMs);
         if (elapsed + delay >= maxElapsedMs) return response;
         // This response will never be returned to the caller. Explicitly
         // cancel its body so Undici can release the socket/buffer before a
@@ -343,7 +468,7 @@ export class PraesidiaClient {
     // Unreachable — the loop above always returns or throws — but keeps
     // control-flow analysis happy.
     /* istanbul ignore next */
-    throw new PraesidiaApiError(0, url, 'retry loop exhausted unexpectedly');
+    throw new PraesidiaApiError(0, url, "retry loop exhausted unexpectedly");
   }
 
   async post<T>(
@@ -355,16 +480,17 @@ export class PraesidiaClient {
     const url = `${this.baseUrl}${path}`;
     if (opts?.idempotencyKey !== undefined) {
       this.assertIdempotencyKey(opts.idempotencyKey);
-      assertIdempotencyKeySupported('POST', path);
+      assertIdempotencyKeySupported("POST", path);
     }
-    const headers = opts?.idempotencyKey !== undefined
-      ? { ...extraHeaders, 'Idempotency-Key': opts.idempotencyKey }
-      : extraHeaders;
+    const headers =
+      opts?.idempotencyKey !== undefined
+        ? { ...extraHeaders, "Idempotency-Key": opts.idempotencyKey }
+        : extraHeaders;
     const retryable = opts?.idempotencyKey !== undefined;
     const response = retryable
       ? await this.fetchWithRetry(
           () => ({
-            method: 'POST',
+            method: "POST",
             headers: this.buildHeaders(headers),
             body: JSON.stringify(body),
             signal: AbortSignal.timeout(this.requestTimeoutMs),
@@ -372,18 +498,18 @@ export class PraesidiaClient {
           url,
         )
       : await fetch(url, {
-          method: 'POST',
+          method: "POST",
           headers: this.buildHeaders(headers),
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(this.requestTimeoutMs),
         });
 
     if (!response.ok) {
-      const text = await response.text().catch(() => '');
+      const text = await readBoundedErrorResponse(response, path);
       throw buildApiError(response.status, path, text);
     }
 
-    return response.json() as Promise<T>;
+    return readBoundedJsonResponse<T>(response, path);
   }
 
   /**
@@ -401,14 +527,15 @@ export class PraesidiaClient {
     const url = `${this.baseUrl}${path}`;
     if (opts?.idempotencyKey !== undefined) {
       this.assertIdempotencyKey(opts.idempotencyKey);
-      assertIdempotencyKeySupported('PATCH', path);
+      assertIdempotencyKeySupported("PATCH", path);
     }
-    const headers = opts?.idempotencyKey !== undefined
-      ? { ...extraHeaders, 'Idempotency-Key': opts.idempotencyKey }
-      : extraHeaders;
+    const headers =
+      opts?.idempotencyKey !== undefined
+        ? { ...extraHeaders, "Idempotency-Key": opts.idempotencyKey }
+        : extraHeaders;
     const retryable = opts?.idempotencyKey !== undefined;
     const initFactory = (): RequestInit & { method: string } => ({
-      method: 'PATCH',
+      method: "PATCH",
       headers: this.buildHeaders(headers),
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(this.requestTimeoutMs),
@@ -418,11 +545,11 @@ export class PraesidiaClient {
       : await fetch(url, initFactory());
 
     if (!response.ok) {
-      const text = await response.text().catch(() => '');
+      const text = await readBoundedErrorResponse(response, path);
       throw buildApiError(response.status, path, text);
     }
 
-    return response.json() as Promise<T>;
+    return readBoundedJsonResponse<T>(response, path);
   }
 
   /** GET is always idempotent — retried per the configured (or default) policy. */
@@ -433,7 +560,7 @@ export class PraesidiaClient {
     const url = `${this.baseUrl}${path}`;
     const response = await this.fetchWithRetry(
       () => ({
-        method: 'GET',
+        method: "GET",
         headers: this.buildHeaders(extraHeaders),
         signal: AbortSignal.timeout(this.requestTimeoutMs),
       }),
@@ -441,11 +568,11 @@ export class PraesidiaClient {
     );
 
     if (!response.ok) {
-      const text = await response.text().catch(() => '');
+      const text = await readBoundedErrorResponse(response, path);
       throw buildApiError(response.status, path, text);
     }
 
-    return response.json() as Promise<T>;
+    return readBoundedJsonResponse<T>(response, path);
   }
 
   /**
@@ -459,17 +586,26 @@ export class PraesidiaClient {
     extraHeaders?: Record<string, string>,
   ): Promise<void> {
     const url = `${this.baseUrl}${path}`;
-    const response = await this.fetchWithRetry(
-      () => ({
-        method: 'DELETE',
+    let attempts = 0;
+    const response = await this.fetchWithRetry(() => {
+      attempts += 1;
+      return {
+        method: "DELETE",
         headers: this.buildHeaders(extraHeaders),
         signal: AbortSignal.timeout(this.requestTimeoutMs),
-      }),
-      url,
-    );
+      };
+    }, url);
 
+    // If an earlier DELETE attempt had a retryable/ambiguous outcome, a 404
+    // on the retry is the expected end state when the first attempt actually
+    // committed but its response was lost. Preserve an initial 404 as a real
+    // not-found error so a typo/wrong resource id is not silently accepted.
+    if (response.status === 404 && attempts > 1) {
+      await response.body?.cancel().catch(() => undefined);
+      return;
+    }
     if (!response.ok) {
-      const text = await response.text().catch(() => '');
+      const text = await readBoundedErrorResponse(response, path);
       throw buildApiError(response.status, path, text);
     }
     // DELETE callers do not receive a response body. Release any unexpected
@@ -488,7 +624,7 @@ export class PraesidiaClient {
   async getBytes(path: string): Promise<Uint8Array> {
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {
-      Accept: 'application/octet-stream',
+      Accept: "application/octet-stream",
       Authorization: `Bearer ${this.#apiKey}`,
     };
     if (this.chainId) {
@@ -496,7 +632,7 @@ export class PraesidiaClient {
     }
     const response = await this.fetchWithRetry(
       () => ({
-        method: 'GET',
+        method: "GET",
         headers,
         signal: AbortSignal.timeout(this.requestTimeoutMs),
       }),
@@ -504,11 +640,15 @@ export class PraesidiaClient {
     );
 
     if (!response.ok) {
-      const text = await response.text().catch(() => '');
+      const text = await readBoundedErrorResponse(response, path);
       throw buildApiError(response.status, path, text);
     }
 
-    const buffer = await response.arrayBuffer();
-    return new Uint8Array(buffer);
+    return readBoundedResponseBytes(
+      response,
+      MAX_BINARY_RESPONSE_BYTES,
+      path,
+      "binary response body",
+    );
   }
 }

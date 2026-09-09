@@ -1,11 +1,11 @@
 import type { ActionDenyReason, TriggeredGuardrail } from './types.js';
 
 /**
- * Thrown by PraesidiaGuard.run() and checkInput() when the input content
- * is blocked by one or more guardrails.
- *
- * The wrapped function is NOT called when this is thrown — the guard fails
- * closed on content violations (this behaviour is not affected by failOpen).
+ * Thrown when content is blocked by one or more guardrails. An input block is
+ * raised before `PraesidiaGuard.run()` calls the wrapped function. In strict
+ * mode an output block is raised after the function runs and its failed audit
+ * task is persisted, but the blocked output is never returned to the caller.
+ * `failOpen` affects connectivity failures only, not content-block decisions.
  */
 export class GuardrailBlockedError extends Error {
   readonly triggered: TriggeredGuardrail[];

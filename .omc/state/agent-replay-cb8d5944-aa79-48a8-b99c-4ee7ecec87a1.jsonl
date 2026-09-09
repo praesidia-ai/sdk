@@ -1,0 +1,10 @@
+{"t":0,"agent":"a56da25","agent_type":"sdk-dev","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a56da25","agent_type":"sdk-dev","event":"agent_stop","success":true,"duration_ms":130199}
+{"t":0,"agent":"a56da25","agent_type":"sdk-dev","event":"agent_stop","success":true,"duration_ms":133583}
+{"t":0,"agent":"a56da25","agent_type":"sdk-dev","event":"agent_stop","success":true,"duration_ms":136031}
+{"t":0,"agent":"a56da25","agent_type":"sdk-dev","event":"agent_stop","success":true,"duration_ms":138313}
+{"t":0,"agent":"a56da25","agent_type":"sdk-dev","event":"agent_stop","success":true,"duration_ms":140804}
+{"t":0,"agent":"a56da25","agent_type":"sdk-dev","event":"agent_stop","success":true,"duration_ms":142945}
+{"t":0,"agent":"a56da25","agent_type":"sdk-dev","event":"agent_stop","success":true,"duration_ms":145134}
+{"t":0,"agent":"a56da25","agent_type":"sdk-dev","event":"agent_stop","success":true,"duration_ms":147373}
+{"t":0,"agent":"a56da25","agent_type":"sdk-dev","event":"agent_stop","success":true,"duration_ms":149585}

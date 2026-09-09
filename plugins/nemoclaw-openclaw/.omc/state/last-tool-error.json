@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd /Users/mihaiandreisoica/projects/praesidia_v3/core/sdk && git status --short plugins/ scripts/test-plugins.sh package.json vitest.config.ts 2>&1 | head -20; echo \\\"---check node_modules...",
+  "error": "Exit code 1\n M package.json\n M vitest.config.ts\n?? plugins/\n?? scripts/test-plugins.sh\n---check node_modules ignored---",
+  "timestamp": "2026-09-08T21:21:15.059Z",
+  "retry_count": 1
+}

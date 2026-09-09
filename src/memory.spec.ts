@@ -41,6 +41,19 @@ describe('PraesidiaMemory', () => {
     vi.restoreAllMocks();
   });
 
+  it('synchronizes source ACL and version, lists current sources, and preserves API conflicts', async () => {
+    const input = { sourceReference: 'doc/1', contentVersion: 'v2', authorityUrl: 'https://authority.example.test/check', authorityPublicKey: 'public-key', allowedUserIds: ['reader-id'], validUntil: '2026-09-05T12:10:00Z', expectedRevision: 4, state: 'active' as const };
+    globalThis.fetch = makeFetchMock([{ ok: true, status: 201, body: { ...input, id: 'source-1', revision: 5 } }, { ok: true, body: [{ id: 'source-1' }] }, { ok: false, status: 409, body: { message: 'Source ownership or revision changed' } }]);
+    const memory = new PraesidiaMemory(config);
+    expect(await memory.synchronizeSource(input)).toMatchObject({ id: 'source-1', revision: 5 });
+    expect(await memory.listSources()).toEqual([{ id: 'source-1' }]);
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls[0][0]).toContain('/organizations/org-uuid-123/memory-sources/synchronize');
+    expect(JSON.parse(calls[0][1].body)).toEqual(input);
+    expect(calls[1][0]).toContain('/organizations/org-uuid-123/memory-sources');
+    await expect(memory.synchronizeSource(input)).rejects.toMatchObject({ status: 409 });
+  });
+
   it('rejects an unsafe rotated credential', () => {
     const memory = new PraesidiaMemory({ apiKey: 'pk_x', orgId: 'org-1' });
     expect(() => memory.refreshCredential(' bad')).toThrow(PraesidiaConfigError);
@@ -78,6 +91,7 @@ describe('PraesidiaMemory', () => {
       memoryKey: 'namespace-1',
       tags: ['crm'],
       sourceType: 'IMPORT',
+      accessSourceId: '00000000-0000-4000-8000-000000000002',
       sourceAgentId: '00000000-0000-4000-8000-000000000001',
       sourceReference: 'import-job-1',
       retentionRegime: 'CUSTOM',
@@ -95,6 +109,7 @@ describe('PraesidiaMemory', () => {
       memoryKey: 'namespace-1',
       tags: ['crm'],
       sourceType: 'IMPORT',
+      accessSourceId: '00000000-0000-4000-8000-000000000002',
       sourceAgentId: '00000000-0000-4000-8000-000000000001',
       sourceReference: 'import-job-1',
       retentionRegime: 'CUSTOM',

@@ -11,6 +11,8 @@ import type {
   GuardConfig,
   ListMemoriesQuery,
   MemoryRecord,
+  MemorySourceAuthorization,
+  MemorySourceAuthorizationInput,
   SearchMemoryInput,
 } from './types.js';
 import {
@@ -74,6 +76,16 @@ export class PraesidiaMemory {
     this.memoriesBase = `/organizations/${this.orgId}/memories`;
   }
 
+  /** Synchronize a connector-owned, current upstream document ACL (15-minute maximum lease). */
+  async synchronizeSource(input: MemorySourceAuthorizationInput): Promise<MemorySourceAuthorization> {
+    return this.client.post(this.memoriesBase.replace(/memories$/, 'memory-sources/synchronize'), input);
+  }
+
+  /** The 100 most recently updated sources owned by the authenticated connector user. */
+  async listSources(): Promise<MemorySourceAuthorization[]> {
+    return this.client.get(this.memoriesBase.replace(/memories$/, 'memory-sources'));
+  }
+
   // ── Public API ──────────────────────────────────────────────────────────────
 
   /**
@@ -84,6 +96,7 @@ export class PraesidiaMemory {
    * {@link erase} can GDPR Art-17 crypto-shred exactly that subject.
    */
   async create(input: CreateMemoryInput): Promise<MemoryRecord> {
+    if (input?.sourceType === 'IMPORT' && !input.accessSourceId) throw new PraesidiaConfigError('Imported memory requires accessSourceId');
     if (
       !input ||
       typeof input.content !== 'string' ||

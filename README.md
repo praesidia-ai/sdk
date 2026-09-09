@@ -10,6 +10,26 @@ Apache 2.0 licensed. Free forever.
 npm install @praesidia/sdk
 ```
 
+This README describes the current source checkout. A registry release may not
+contain every method shown here. For unreleased features, use the matching
+reviewed package supplied by your deployment operator, or build this checkout
+with `npm run build` and `npm pack` and install the resulting local `.tgz` file.
+A successful local build does not publish a registry release.
+
+## Managed runtime tools (source version 0.3.1)
+
+`PraesidiaRuntimeTool` prepares an exact registered HTTP request, pauses for a
+distinct Praesidia reviewer, and recovers its checkpoint using the host's stable
+session and tool-call IDs. It preserves partial and unknown outcomes and never
+treats a framework's approval flag as Praesidia authorization. See the
+[runtime guide](docs/runtime-tools.md) for the API and installation boundaries.
+
+Source packages for native [OpenClaw](plugins/openclaw/README.md) and
+[OpenAI Agents TypeScript](plugins/openai-agents/README.md) live under `plugins/`
+and are packed separately. Their exact framework versions and narrower tested
+surfaces are documented there. Installing the base SDK does not intercept a
+runtime's other tools or contain its process.
+
 ## Quick start (10 lines)
 
 ```typescript
@@ -25,6 +45,65 @@ const response = await guard.run(
 // response.output  — the LLM response (only reached if input passed guardrails)
 // response.taskId  — Praesidia audit log entry ID
 ```
+
+## Inspect a protected action and export its evidence
+
+After a managed MCP call returns an `actionId`, use a **separate personal,
+user-backed management key** for evidence review. It needs the `audit:read`
+scope, your user's `protected_actions.view` permission, and the workspace's
+`proof.actions` feature. Organization, service-account, and application keys
+are not accepted by these protected-action read routes. Runtime access to a
+tool does not grant access to the organization's evidence.
+
+```typescript
+import { writeFile } from 'node:fs/promises';
+import { PraesidiaProof, PraesidiaAudit } from '@praesidia/sdk';
+
+const reviewKey = process.env.PRAESIDIA_REVIEW_API_KEY;
+if (!reviewKey) throw new Error('Set a separate personal review key');
+const reviewConfig = {
+  apiKey: reviewKey, // personal pk_ key; do not fall back to a runtime key
+  orgId: process.env.PRAESIDIA_ORG_ID,
+};
+const proof = new PraesidiaProof(reviewConfig);
+// actionId comes from the governed call, or from proof.list().data.
+const actionId = process.env.PRAESIDIA_ACTION_ID!;
+const action = await proof.get(actionId);
+const events = await proof.events(actionId);
+console.log(action.closure, action.verificationStatus, events.length);
+
+const scope = await proof.captureScope();
+const coverage = await proof.coverageSummary();
+const page = await proof.list({ closure: 'OUTCOME_UNKNOWN', limit: 20 });
+
+// Bundle export additionally requires an owner/compliance-officer role and
+// COMPLIANCE_VIEW permission. Select a range that covers the action's events.
+const audit = new PraesidiaAudit(reviewConfig);
+const bundle = await audit.exportBundle({
+  from: '2026-09-01T00:00:00Z', to: '2026-09-02T00:00:00Z',
+});
+await writeFile('audit-bundle.zip', bundle);
+```
+
+`list` accepts `agentId`, `taskId`, `chainId`, `state`, `closure`, `from`, `to`,
+`page`, and `limit` (1–100), returning the server's full `data`/`total`/`meta`
+envelope. The list's `from` bound is inclusive and `to` is exclusive. Event
+sequences remain decimal strings, including values beyond JavaScript's safe
+integer range; signature fields and redacted `null` payloads remain unchanged.
+
+`exportBundle` downloads the signed ZIP, while `audit.export()` remains the
+ordinary JSON/CSV log export. Bundle windows must be greater than zero and at
+most 90 days. Dates use `YYYY-MM-DD` (UTC) or an ISO timestamp with an explicit
+timezone and up to three fractional-second digits. Downloads retain the
+transport's 128 MiB cap and finite timeout; oversized exports raise an error.
+
+Retrieval **does not verify** a projection, event stream, or bundle. A
+`SUCCEEDED` closure can coexist with incomplete evidence, and the projection's
+`evidenceGrade` is a declared value. Run your obtained verifier against the ZIP
+with an independently trusted deployment platform key and review its component
+results. Do not disable receipt verification to obtain a passing result. These
+SDK resources implement Praesidia's evidence API; they do not claim SCITT,
+MCP OAuth, or A2A protocol conformance. See the [integration gap analysis](docs/interop-research.md).
 
 ## Modes
 
@@ -90,6 +169,8 @@ const result = await guard.run(
 ```
 
 Throws `GuardrailBlockedError` if input is blocked. `fn` is **not** called in that case.
+With `strict: true`, a blocked output is recorded as a failed audit task and
+then throws the same error instead of returning the output.
 If `fn` throws, `run` records one failed audit task on a best-effort basis and
 then rethrows the original error. Per-run `chainId` headers are request-scoped,
 so concurrent runs on one guard do not overwrite each other's trace context.
@@ -263,6 +344,11 @@ becomes `failed`, or if `timeoutMs` elapses before it is ready. The JSON/PDF
 downloads throw `PraesidiaApiError` with status `409` if called before the
 report is `completed`.
 
+All response bodies are consumed through bounded streams: JSON responses are
+limited to 16 MiB, error bodies to 64 KiB, and binary downloads to 128 MiB.
+An upstream that exceeds a limit fails with `PraesidiaApiError` before the SDK
+can buffer an unbounded body.
+
 ## Agent credential refresh
 
 `PraesidiaAgents` lets a long-lived client adopt a newly provisioned agent
@@ -327,7 +413,7 @@ try {
 | `identity()` | `AgentIdentity` | sync; `{ orgId, agentId, baseUrl, connected }` |
 | `guardInput(input, opts?)` | `Promise<CheckResult>` | throws `GuardrailBlockedError` on block |
 | `guardOutput(output, opts?)` | `Promise<CheckResult>` | throws only when `throwOnBlock`/`strict` |
-| `beginTask(opts?)` | `TaskHandle` | `.complete(output, opts?)` / `.fail(error, opts?)` |
+| `beginTask(opts?)` | `TaskHandle` | `.complete(output, opts?)` / `.fail(error, opts?)`; first terminal call wins and is written once |
 
 ## OTLP GenAI telemetry — become an OBSERVED agent (H1-02)
 
@@ -364,6 +450,19 @@ Client-side payload bounds mirror the server (fail-fast before the network):
 120 requests/minute rate limit, so batch spans where practical. `genAiSpan(input)`
 is exported if you want to build a span without sending it.
 
+Generated spans pin OpenTelemetry semantic conventions **1.37.0** and emit
+`gen_ai.provider.name`. Pass a valid W3C `traceparent` to create a child span;
+`taskId` and `actionId` preserve correlation. These trace attributes are
+observations, never authorization or execution proof.
+
+Prompt, response, document and tool content are omitted by default. Explicit
+`captureContent: true` requires a `redactContent` callback; secret attributes
+remain excluded. Raw `emit(resourceSpans)` is an explicit pass-through API, so
+apply your exporter privacy policy before using it. Backend ingestion retains
+only bounded metadata before publishing to its queue. The real collector
+acceptance command is `node ../infra/scripts/verify-telemetry-interoperability.mjs`
+after building this SDK and preparing the sibling Python environment.
+
 ## Agent memory (H2-06e)
 
 `PraesidiaMemory` wraps the org-scoped memory API. Writes are PII-redacted +
@@ -397,37 +496,6 @@ await memory.delete(m.id);
 | `get(id)` | `Promise<MemoryRecord>` | `GET .../memories/:id` |
 | `delete(id)` | `Promise<void>` | `DELETE .../memories/:id` |
 
-## Pagination (SCAN2-011)
-
-`PraesidiaAgents.list`, `PraesidiaConnections.list`, `PraesidiaWorkflows.list`, and
-`PraesidiaWorkflows.listRuns` return only the first page as a bare array — their exact prior
-signature, kept for backwards compatibility. There is no way to tell from that array alone whether
-more rows exist beyond the page. Two additive methods exist alongside each for callers who need to
-know:
-
-- **`<method>Page(...)`** — same request, but returns be's full pagination envelope:
-  `{ data, total, meta: { page, limit, total, totalPages, hasNextPage, hasPrevPage } }`.
-- **`<method>All(...)`** — an `AsyncGenerator` that auto-paginates through every page and yields
-  every row, so "give me all of them" is correct by default:
-
-```typescript
-import { PraesidiaAgents } from '@praesidia/sdk';
-
-const agents = new PraesidiaAgents();
-
-// First page only, exactly as before:
-const firstPage = await agents.list();
-
-// Full envelope, so you can tell if there's more:
-const { data, total, meta } = await agents.listPage();
-if (meta.hasNextPage) { /* ... */ }
-
-// Every agent, across every page:
-for await (const agent of agents.listAll()) {
-  console.log(agent.id);
-}
-```
-
 ## Agent CRUD (FINDING-2 parity with the Python SDK)
 
 `PraesidiaAgents` also manages the agent's own lifecycle, not just credential
@@ -453,9 +521,7 @@ mirrors the SDK's existing organization and is unchanged.
 
 | Method | Returns | Endpoint |
 |---|---|---|
-| `list(query?)` | `Promise<AgentRecord[]>` | `GET .../agents` (first page only — see [Pagination](#pagination-scan2-011)) |
-| `listPage(query?)` | `Promise<PaginatedEnvelope<AgentRecord>>` | `GET .../agents`, full envelope (`total`/`meta`) |
-| `listAll(query?)` | `AsyncGenerator<AgentRecord>` | `GET .../agents`, auto-paginated |
+| `list(query?)` | `Promise<AgentRecord[]>` | `GET .../agents` |
 | `get(id)` | `Promise<AgentRecord>` | `GET .../agents/:id` |
 | `create(data)` | `Promise<AgentRecord>` | `POST .../agents` |
 | `update(id, data)` | `Promise<AgentRecord>` | `PATCH .../agents/:id` |
@@ -481,17 +547,13 @@ const runDetail = await workflows.getRun(wf.id as string, run.id as string);
 
 | Method | Returns | Endpoint |
 |---|---|---|
-| `list(query?)` | `Promise<WorkflowRecord[]>` | `GET .../workflows` (first page only — see [Pagination](#pagination-scan2-011)) |
-| `listPage(query?)` | `Promise<PaginatedEnvelope<WorkflowRecord>>` | `GET .../workflows`, full envelope |
-| `listAll(query?)` | `AsyncGenerator<WorkflowRecord>` | `GET .../workflows`, auto-paginated |
+| `list(query?)` | `Promise<WorkflowRecord[]>` | `GET .../workflows` |
 | `get(id)` | `Promise<WorkflowRecord>` | `GET .../workflows/:id` |
 | `create(data)` | `Promise<WorkflowRecord>` | `POST .../workflows` |
 | `update(id, data)` | `Promise<WorkflowRecord>` | `PATCH .../workflows/:id` |
 | `delete(id)` | `Promise<void>` | `DELETE .../workflows/:id` |
 | `trigger(id, opts?)` | `Promise<WorkflowRunRecord>` | `POST .../workflows/:id/runs` |
-| `listRuns(id, query?)` | `Promise<WorkflowRunRecord[]>` | `GET .../workflows/:id/runs` (first page only) |
-| `listRunsPage(id, query?)` | `Promise<PaginatedEnvelope<WorkflowRunRecord>>` | `GET .../workflows/:id/runs`, full envelope |
-| `listRunsAll(id, query?)` | `AsyncGenerator<WorkflowRunRecord>` | `GET .../workflows/:id/runs`, auto-paginated |
+| `listRuns(id, query?)` | `Promise<WorkflowRunRecord[]>` | `GET .../workflows/:id/runs` |
 | `getRun(id, runId)` | `Promise<WorkflowRunRecord>` | `GET .../workflows/:id/runs/:runId` |
 
 ## Connections (FINDING-2 parity with the Python SDK)
@@ -510,9 +572,7 @@ const health = await connections.health(conn.id as string);
 
 | Method | Returns | Endpoint |
 |---|---|---|
-| `list(query?)` | `Promise<ConnectionRecord[]>` | `GET .../connections` (first page only — see [Pagination](#pagination-scan2-011)) |
-| `listPage(query?)` | `Promise<PaginatedEnvelope<ConnectionRecord>>` | `GET .../connections`, full envelope |
-| `listAll(query?)` | `AsyncGenerator<ConnectionRecord>` | `GET .../connections`, auto-paginated |
+| `list(query?)` | `Promise<ConnectionRecord[]>` | `GET .../connections` |
 | `get(id)` | `Promise<ConnectionRecord>` | `GET .../connections/:id` |
 | `createAgent(data)` | `Promise<ConnectionRecord>` | `POST .../connections/agent` |
 | `createMcp(data)` | `Promise<ConnectionRecord>` | `POST .../connections/mcp` |
@@ -692,7 +752,8 @@ never throws — a malformed passport / key yields `{ verified: false, reason }`
 
 | Scenario | Default behaviour |
 |---|---|
-| Guardrail blocks content | Always throws `GuardrailBlockedError` (fail-closed) |
+| Input guardrail blocks content | Always throws `GuardrailBlockedError` before `fn` runs |
+| Output guardrail blocks content | Returned for inspection by default; `strict: true` / `throwOnBlock` throws |
 | Network error reaching Praesidia | Degrades to local rules, emits `console.warn` |
 | `strict: true` + network error | Throws `PraesidiaApiError` |
 | `failOpen: true` | Silently degrades (no `console.warn`) |
@@ -715,31 +776,6 @@ try {
 `ProtectedActionDeniedError` and `UnsupportedProtectedActionTargetError` (PA01 DX-001) are thrown
 only by `guard.protectAction` — see [above](#guardprotectactionopts--promiseprotectactionresult-pa01-dx-001).
 
-### `PraesidiaApiError` — be's structured error envelope (SCAN2-007)
-
-Any non-2xx response from the Praesidia API throws `PraesidiaApiError`. Its `.message` string is
-unchanged from prior SDK versions (safe for existing callers), and it also exposes be's structured
-error envelope as typed properties so you don't have to string-match `.message`:
-
-```typescript
-try {
-  await sdk.agents.list();
-} catch (err) {
-  if (err instanceof PraesidiaApiError) {
-    console.log(err.status);     // HTTP status, e.g. 429
-    console.log(err.code);       // be's machine error code, e.g. "RATE_LIMITED" (may be undefined)
-    console.log(err.requestId);  // for support correlation (may be undefined)
-    console.log(err.details);    // validation/field errors, shape varies by route (may be undefined)
-    console.log(err.retryAfter); // seconds to wait on a 429/503, if be sent one (may be undefined)
-    console.log(err.retryable);  // true for 429/5xx — whether retrying is worth it at all
-    console.log(err.body);       // the full raw parsed envelope, or undefined if the body wasn't JSON
-  }
-}
-```
-
-`code`/`requestId`/`details`/`retryAfter`/`body` are `undefined` whenever be's response wasn't a
-JSON object (e.g. an intermediary proxy's plain-text error) — never assume they are present.
-
 ## Praesidia API endpoints used
 
 | Operation | Endpoint | Required scope |
@@ -760,6 +796,27 @@ JSON object (e.g. an intermediary proxy's plain-text error) — never assume the
 
 Authentication: `Authorization: Bearer <apiKey>` (org-scoped API key). The trust
 passport routes are public; `PraesidiaTrust` verifies signatures offline.
+
+## Not covered by this SDK
+
+The following `be` API surfaces have no client methods here, intentionally — they are
+org-admin / dashboard configuration screens consumed by the Praesidia UI, not primitives an
+agent-runtime caller needs:
+
+- **`governance-controls`** (catalog/create/patch/review/runs) — the governance-policy admin
+  catalog.
+- **`mcp-servers/inventory`** (list/refresh/review/dependencies) — the MCP tool-inventory review
+  surface.
+- **`runtime-installations`** management (create/patch/challenge/disable/list/verify) — only the
+  opaque, already-provisioned `runtimeInstallationId` is accepted (see `PraesidiaProtectedHttp`
+  config); creating and verifying an installation is done once, in the app.
+- **`identity`** provider/binding/consent/grant/revocation CRUD — only `PraesidiaIdentity`'s
+  `exchange` / `downExchange` / `introspect` (token-exchange and introspection) are covered.
+- **`agents/oauth/browser`** admin endpoints (authorize/approve/deny/browser-client CRUD) — only
+  the token-exchange side effect is consumed, via `identity` above.
+
+This matches `sdk-python`'s coverage exactly (no TS↔Python gap). If any of these should become
+SDK-callable, treat it as a new feature request, not a bug in this list.
 
 ## Development
 
@@ -883,3 +940,7 @@ this repo's scanner rather than a third, Python-native re-derivation.
 ## License
 
 Apache 2.0 — see [LICENSE](./LICENSE).
+
+### Durable HTTP approval and target receipts
+
+Use `PraesidiaProtectedHttp` for an exact-request approval checkpoint, single-use resume, caller acknowledgment and independently pinned target receipt verification. See [the lifecycle and receipt contract](docs/protected-http.md). The Python SDK includes a durable LangGraph adapter.

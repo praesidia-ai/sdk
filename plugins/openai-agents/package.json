@@ -1,0 +1,28 @@
+{
+  "name": "@praesidia/openai-agents",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Durable Praesidia protected tools for OpenAI Agents",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@praesidia/sdk": "^0.3.0"
+  },
+  "peerDependencies": {
+    "@openai/agents": "0.17.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

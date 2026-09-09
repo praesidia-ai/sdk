@@ -2,6 +2,8 @@ import { PraesidiaApiError } from './errors.js';
 import {
   encodePathSegment,
   normalizeBaseUrl,
+  readBoundedErrorResponse,
+  readBoundedJsonResponse,
   resolveRequestTimeoutMs,
 } from './client.js';
 import {
@@ -221,10 +223,10 @@ export class PraesidiaTrust {
       signal: AbortSignal.timeout(this.requestTimeoutMs),
     });
     if (!response.ok) {
-      const text = await response.text().catch(() => '');
+      const text = await readBoundedErrorResponse(response, path);
       throw new PraesidiaApiError(response.status, path, text);
     }
-    return response.json() as Promise<T>;
+    return readBoundedJsonResponse<T>(response, path);
   }
 }
 

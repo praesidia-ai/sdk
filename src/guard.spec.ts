@@ -201,6 +201,94 @@ describe('PraesidiaGuard', () => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(3);
     });
 
+    it('run() propagates audit persistence failures in strict mode', async () => {
+      globalThis.fetch = makeFetchMock([
+        { ok: true, body: PASS_RESULT },
+        { ok: true, body: PASS_RESULT },
+        {
+          ok: false,
+          status: 503,
+          body: { message: 'Audit persistence unavailable' },
+        },
+      ]);
+      const guard = new PraesidiaGuard({ ...config, strict: true });
+      const fn = vi.fn(async () => 'AI response');
+
+      await expect(
+        guard.run(fn, { input: 'clean input' }),
+      ).rejects.toThrow(PraesidiaApiError);
+
+      expect(fn).toHaveBeenCalledOnce();
+      expect(globalThis.fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('run() audits a strict output block as failed before throwing it', async () => {
+      globalThis.fetch = makeFetchMock([
+        { ok: true, body: PASS_RESULT },
+        { ok: true, body: BLOCK_RESULT },
+        { ok: true, status: 201, body: TASK_CREATED },
+      ]);
+      const guard = new PraesidiaGuard({ ...config, strict: true });
+
+      await expect(
+        guard.run(async () => 'blocked AI response', {
+          input: 'clean input',
+        }),
+      ).rejects.toThrow(GuardrailBlockedError);
+
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+        .calls as [string, RequestInit][];
+      expect(calls).toHaveLength(3);
+      const taskBody = JSON.parse(calls[2][1].body as string);
+      expect(taskBody.input.status).toBe('failed');
+      expect(taskBody.input.output).toBe('blocked AI response');
+    });
+
+    it('run() never returns blocked output when its strict failed-task audit cannot persist', async () => {
+      globalThis.fetch = makeFetchMock([
+        { ok: true, body: PASS_RESULT },
+        { ok: true, body: BLOCK_RESULT },
+        {
+          ok: false,
+          status: 503,
+          body: { message: 'Audit persistence unavailable' },
+        },
+      ]);
+      const guard = new PraesidiaGuard({ ...config, strict: true });
+
+      await expect(
+        guard.run(async () => 'blocked AI response', {
+          input: 'clean input',
+        }),
+      ).rejects.toThrow(PraesidiaApiError);
+
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+        .calls as [string, RequestInit][];
+      expect(calls).toHaveLength(3);
+      const taskBody = JSON.parse(calls[2][1].body as string);
+      expect(taskBody.input.status).toBe('failed');
+    });
+
+    it('run() keeps output blocks observable but fail-open outside strict mode', async () => {
+      globalThis.fetch = makeFetchMock([
+        { ok: true, body: PASS_RESULT },
+        { ok: true, body: BLOCK_RESULT },
+        { ok: true, status: 201, body: TASK_CREATED },
+      ]);
+      const guard = new PraesidiaGuard(config);
+
+      const result = await guard.run(async () => 'observed AI response', {
+        input: 'clean input',
+      });
+
+      expect(result.output).toBe('observed AI response');
+      expect(result.outputCheck.passed).toBe(false);
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+        .calls as [string, RequestInit][];
+      const taskBody = JSON.parse(calls[2][1].body as string);
+      expect(taskBody.input.status).toBe('completed');
+    });
+
     it('run() records a failed task before rethrowing the original agent error', async () => {
       globalThis.fetch = makeFetchMock([
         { ok: true, body: PASS_RESULT },

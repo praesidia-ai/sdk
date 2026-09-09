@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { PraesidiaTelemetry, genAiSpan } from './telemetry.js';
 import { PraesidiaConfigError } from './errors.js';
 import { OTLP_MAX_BODY_BYTES, OTLP_MAX_RESOURCE_SPANS } from './types.js';
@@ -64,6 +65,19 @@ describe('PraesidiaTelemetry', () => {
   );
 
   // ── emitGenAiSpan ─────────────────────────────────────────────────────────
+
+  it('stamps the published SDK version on its OTLP instrumentation scope', () => {
+    const packageVersion = (
+      JSON.parse(
+        readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+      ) as { version: string }
+    ).version;
+    const resourceSpans = new PraesidiaTelemetry(config).buildGenAiResourceSpans([
+      { agentName: 'support-bot' },
+    ]);
+
+    expect(resourceSpans[0]?.scopeSpans?.[0]?.scope?.version).toBe(packageVersion);
+  });
 
   it('POSTs an OTLP ExportTraceServiceRequest to the ingest endpoint with Bearer auth', async () => {
     globalThis.fetch = makeFetchMock([{ ok: true, body: ACK }]);

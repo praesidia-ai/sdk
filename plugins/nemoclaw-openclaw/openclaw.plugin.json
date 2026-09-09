@@ -1,0 +1,16 @@
+{
+  "id": "praesidia-nemoclaw",
+  "name": "Praesidia managed NemoClaw tools",
+  "description": "Only the registered Praesidia managed MCP tool may dispatch in this OpenClaw runtime",
+  "contracts": {"tools": ["praesidia_managed_action"]},
+  "activation": {"onStartup": true},
+  "configSchema": {
+    "type": "object", "additionalProperties": false, "required": ["mcpUrl", "installationId"],
+    "properties": {
+      "mcpUrl": {"type": "string", "description": "Exact registered managed companion HTTPS URL"},
+      "installationId": {"type": "string", "format": "uuid"},
+      "configPath": {"type": "string", "default": "/sandbox/.openclaw/workspace/config/mcporter.json"},
+      "allowLocalCli": {"type": "boolean", "default": false}
+    }
+  }
+}

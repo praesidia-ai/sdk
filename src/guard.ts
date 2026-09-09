@@ -114,9 +114,10 @@ function buildTaskInput(task: {
  *
  * Config resolution order: constructor arg → environment variable → default.
  *
- * Fail-open / fail-closed behaviour (network errors only):
- *   - Content blocks (guardrail triggered) ALWAYS throw GuardrailBlockedError,
- *     regardless of failOpen or strict settings.
+ * Fail-open / fail-closed behaviour:
+ *   - Input blocks ALWAYS throw GuardrailBlockedError before the wrapped call.
+ *   - Output blocks are returned for inspection by default; strict guards and
+ *     guardOutput({ throwOnBlock: true }) throw GuardrailBlockedError.
  *   - Network errors to Praesidia: by default (failOpen=false, strict=false)
  *     they are logged to console.warn and treated as a local pass so the
  *     caller's agent is not disrupted by infrastructure failures.
@@ -269,10 +270,27 @@ export class PraesidiaGuard {
         status,
       });
 
+    // A lifecycle has one terminal decision. Memoize the first promise itself
+    // (including rejection) so sequential or concurrent complete/fail calls
+    // cannot create duplicate/conflicting audit rows or retry an ambiguous
+    // network write whose server-side outcome is unknown.
+    let finalizationPromise: Promise<string | undefined> | undefined;
+    const finalizeOnce = (
+      status: 'completed' | 'failed',
+      output: string | undefined,
+      finalize: CompleteTaskOptions | undefined,
+    ): Promise<string | undefined> => {
+      if (!finalizationPromise) {
+        finalizationPromise = record(status, output, finalize);
+      }
+      return finalizationPromise;
+    };
+
     return {
-      complete: (output, finalize) => record('completed', output, finalize),
+      complete: (output, finalize) =>
+        finalizeOnce('completed', output, finalize),
       fail: (error, finalize) =>
-        record('failed', this.errorToString(error), finalize),
+        finalizeOnce('failed', this.errorToString(error), finalize),
     };
   }
 
@@ -283,8 +301,9 @@ export class PraesidiaGuard {
    *   1. checkInput → if blocked, throw GuardrailBlockedError (fn NOT called)
    *   2. call fn()
    *   3. checkOutput on the string representation of the result
-   *   4. logTask for audit persistence
-   *   5. return GuardedResult<T>
+   *   4. logTask for audit persistence (`failed` for a strict output block)
+   *   5. throw GuardrailBlockedError for a strict output block; otherwise
+   *      return GuardedResult<T>
    */
   async run<T>(
     fn: () => Promise<T>,
@@ -339,26 +358,29 @@ export class PraesidiaGuard {
       context: opts.context,
       chainId: opts.chainId,
     });
+    const outputBlocked = !outputCheck.passed && this.strict;
 
-    // Step 4 — audit log (best-effort; never throws)
-    let taskId: string | undefined;
-    try {
-      taskId = await this.logTask({
-        agentId,
-        input: opts.input,
-        output: outputStr,
-        taskType: opts.taskType ?? 'run',
-        context: opts.context,
-        // AUDIT-SDK-02 — required to build a valid CreateAgentTaskDto.
-        connectionId: opts.connectionId,
-        type: opts.type,
-        startedAt,
-        completedAt,
-        status: 'completed',
-        chainId: opts.chainId,
-      });
-    } catch {
-      // logTask failure is always swallowed — audit is best-effort
+    // Step 4 — audit log. logTask already implements best-effort degradation
+    // for normal mode and explicit failOpen; in strict mode its failure must
+    // remain observable so callers never mistake an unaudited action for a
+    // successfully completed guarded run.
+    const taskId = await this.logTask({
+      agentId,
+      input: opts.input,
+      output: outputStr,
+      taskType: opts.taskType ?? 'run',
+      context: opts.context,
+      // AUDIT-SDK-02 — required to build a valid CreateAgentTaskDto.
+      connectionId: opts.connectionId,
+      type: opts.type,
+      startedAt,
+      completedAt,
+      status: outputBlocked ? 'failed' : 'completed',
+      chainId: opts.chainId,
+    });
+
+    if (outputBlocked) {
+      throw new GuardrailBlockedError(outputCheck.triggered);
     }
 
     return { output, taskId, inputCheck, outputCheck };

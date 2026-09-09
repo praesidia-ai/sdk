@@ -1,0 +1,36 @@
+{
+  "name": "@praesidia/openclaw",
+  "version": "0.1.1",
+  "type": "module",
+  "description": "Praesidia approved tool execution for OpenClaw",
+  "license": "Apache-2.0",
+  "files": [
+    "index.js",
+    "openclaw.plugin.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ],
+    "compat": {
+      "pluginApi": "2026.9.2",
+      "minGatewayVersion": "2026.9.2"
+    },
+    "build": {
+      "openclawVersion": "2026.9.2",
+      "pluginSdkVersion": "2026.9.2"
+    }
+  },
+  "dependencies": {
+    "@praesidia/sdk": "^0.3.1"
+  },
+  "peerDependencies": {
+    "openclaw": "2026.9.2",
+    "@praesidia/sdk": "^0.3.1"
+  },
+  "engines": {
+    "node": ">=24.15.0"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@praesidia/nemoclaw-openclaw",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Pinned NemoClaw OpenClaw gate for the Praesidia managed MCP companion",
+  "license": "Apache-2.0",
+  "files": ["index.js", "bridge.js", "openclaw.plugin.json", "README.md", "LICENSE"],
+  "scripts": {"test": "node --test test/*.test.mjs"},
+  "openclaw": {
+    "extensions": ["./index.js"],
+    "compat": {"pluginApi": "2026.7.1", "minGatewayVersion": "2026.7.1"},
+    "build": {"openclawVersion": "2026.7.1", "pluginSdkVersion": "2026.7.1"}
+  },
+  "peerDependencies": {"openclaw": "2026.7.1", "mcporter": "0.7.3"},
+  "devDependencies": {"openclaw": "2026.7.1", "mcporter": "0.7.3"},
+  "engines": {"node": ">=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0"}
+}

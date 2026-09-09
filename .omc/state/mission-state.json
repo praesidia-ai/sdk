@@ -1,0 +1,117 @@
+{
+  "updatedAt": "2026-09-08T21:28:46.184Z",
+  "missions": [
+    {
+      "id": "session:cb8d5944-aa79-48a8-b99c-4ee7ecec87a1:none",
+      "source": "session",
+      "name": "none",
+      "objective": "Session mission",
+      "createdAt": "2026-09-08T21:26:16.599Z",
+      "updatedAt": "2026-09-08T21:28:46.184Z",
+      "status": "done",
+      "workerCount": 1,
+      "taskCounts": {
+        "total": 1,
+        "pending": 0,
+        "blocked": 0,
+        "inProgress": 0,
+        "completed": 1,
+        "failed": 0
+      },
+      "agents": [
+        {
+          "name": "sdk-dev:a56da25",
+          "role": "sdk-dev",
+          "ownership": "a56da252a6f8cfd47",
+          "status": "done",
+          "currentStep": null,
+          "latestUpdate": "completed",
+          "completedSummary": null,
+          "updatedAt": "2026-09-08T21:28:46.184Z"
+        }
+      ],
+      "timeline": [
+        {
+          "id": "session-start:a56da252a6f8cfd47:2026-09-08T21:26:16.599Z",
+          "at": "2026-09-08T21:26:16.599Z",
+          "kind": "update",
+          "agent": "sdk-dev:a56da25",
+          "detail": "started sdk-dev:a56da25",
+          "sourceKey": "session-start:a56da252a6f8cfd47"
+        },
+        {
+          "id": "session-stop:a56da252a6f8cfd47:2026-09-08T21:28:26.798Z",
+          "at": "2026-09-08T21:28:26.798Z",
+          "kind": "completion",
+          "agent": "sdk-dev:a56da25",
+          "detail": "completed",
+          "sourceKey": "session-stop:a56da252a6f8cfd47"
+        },
+        {
+          "id": "session-stop:a56da252a6f8cfd47:2026-09-08T21:28:30.182Z",
+          "at": "2026-09-08T21:28:30.182Z",
+          "kind": "completion",
+          "agent": "sdk-dev:a56da25",
+          "detail": "completed",
+          "sourceKey": "session-stop:a56da252a6f8cfd47"
+        },
+        {
+          "id": "session-stop:a56da252a6f8cfd47:2026-09-08T21:28:32.630Z",
+          "at": "2026-09-08T21:28:32.630Z",
+          "kind": "completion",
+          "agent": "sdk-dev:a56da25",
+          "detail": "completed",
+          "sourceKey": "session-stop:a56da252a6f8cfd47"
+        },
+        {
+          "id": "session-stop:a56da252a6f8cfd47:2026-09-08T21:28:34.912Z",
+          "at": "2026-09-08T21:28:34.912Z",
+          "kind": "completion",
+          "agent": "sdk-dev:a56da25",
+          "detail": "completed",
+          "sourceKey": "session-stop:a56da252a6f8cfd47"
+        },
+        {
+          "id": "session-stop:a56da252a6f8cfd47:2026-09-08T21:28:37.403Z",
+          "at": "2026-09-08T21:28:37.403Z",
+          "kind": "completion",
+          "agent": "sdk-dev:a56da25",
+          "detail": "completed",
+          "sourceKey": "session-stop:a56da252a6f8cfd47"
+        },
+        {
+          "id": "session-stop:a56da252a6f8cfd47:2026-09-08T21:28:39.544Z",
+          "at": "2026-09-08T21:28:39.544Z",
+          "kind": "completion",
+          "agent": "sdk-dev:a56da25",
+          "detail": "completed",
+          "sourceKey": "session-stop:a56da252a6f8cfd47"
+        },
+        {
+          "id": "session-stop:a56da252a6f8cfd47:2026-09-08T21:28:41.733Z",
+          "at": "2026-09-08T21:28:41.733Z",
+          "kind": "completion",
+          "agent": "sdk-dev:a56da25",
+          "detail": "completed",
+          "sourceKey": "session-stop:a56da252a6f8cfd47"
+        },
+        {
+          "id": "session-stop:a56da252a6f8cfd47:2026-09-08T21:28:43.972Z",
+          "at": "2026-09-08T21:28:43.972Z",
+          "kind": "completion",
+          "agent": "sdk-dev:a56da25",
+          "detail": "completed",
+          "sourceKey": "session-stop:a56da252a6f8cfd47"
+        },
+        {
+          "id": "session-stop:a56da252a6f8cfd47:2026-09-08T21:28:46.184Z",
+          "at": "2026-09-08T21:28:46.184Z",
+          "kind": "completion",
+          "agent": "sdk-dev:a56da25",
+          "detail": "completed",
+          "sourceKey": "session-stop:a56da252a6f8cfd47"
+        }
+      ]
+    }
+  ]
+}

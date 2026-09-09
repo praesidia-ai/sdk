@@ -26,6 +26,13 @@ export { PraesidiaConnections } from './connections.js';
 export { PraesidiaAudit } from './audit.js';
 // SCAN2-011 — shared pagination envelope/helpers for the list families above.
 export type { PaginationMeta, PaginatedEnvelope } from './pagination.js';
+export { PraesidiaProof } from './proof.js';
+export { PROTECTED_ACTION_CLOSURES } from './proof-types.js';
+export type {
+  ProtectedActionClosure, EvidenceGrade, ListProtectedActionsQuery,
+  ProtectedActionSummary, ProtectedActionDetail, ProtectedActionList,
+  ProtectedActionEvent, CaptureScopeEntry, ProtectedActionCoverage,
+} from './proof-types.js';
 export { PraesidiaAnalytics } from './analytics.js';
 export { PraesidiaClient, CHAIN_ID_HEADER } from './client.js';
 // FINDING-4 — retry policy config type.
@@ -134,6 +141,8 @@ export type {
   ListMemoriesQuery,
   EraseMemoryInput,
   MemoryRecord,
+  MemorySourceAuthorization,
+  MemorySourceAuthorizationInput,
   MemoryProvenance,
   MemoryGuardrail,
   MemoryRetention,
@@ -172,3 +181,15 @@ export type {
 } from './types.js';
 // PA01 D2/D18 — JCS canonicalization value type
 export type { JsonValue } from './jcs-canonical.js';
+
+export { PraesidiaProtectedHttp, verifyProtectedHttpResult, PROTECTED_HTTP_RUNTIMES } from './protected-http.js';
+export type { ProtectedHttpRequest, ProtectedHttpCheckpoint, ProtectedHttpResult, RuntimeCheckpoint, TrustedHttpTarget, ProtectedHttpRuntime } from './protected-http.js';
+export { PraesidiaRuntimeTool } from './runtime-tool.js';
+export { FileRuntimeAttemptStore } from './runtime-attempt-store.js';
+export type { RuntimeAttemptStore, RuntimeAttempt } from './runtime-attempt-store.js';
+export type { RuntimeCall, RuntimeToolConfig, RuntimeToolResource, RuntimeToolOutcome } from './runtime-tool.js';
+export { verifyHttpReceipt, httpRequestCommitment, httpTargetKeyFingerprint, HTTP_RECEIPT_VERSION } from './http-receipt.js';
+export type { SignedHttpReceipt, HttpReceiptStatement, HttpRequestEnvelope } from './http-receipt.js';
+
+export { PraesidiaIdentity } from './identity.js';
+export type { FederatedCredential, FederatedAuthority, ExternalAssertionExchange } from './identity.js';

@@ -1,0 +1,21 @@
+{
+  "id": "praesidia",
+  "name": "Praesidia",
+  "description": "Approved registered HTTP tools with explicit control over unrelated tools",
+  "contracts": {"tools": ["praesidia_protected_action"]},
+  "activation": {"onStartup": true},
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["orgId", "targetId"],
+    "properties": {
+      "orgId": {"type": "string", "minLength": 1},
+      "installationId": {"type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"},
+      "targetId": {"type": "string", "minLength": 1},
+      "baseUrl": {"type": "string", "default": "https://api.praesidia.ai"},
+      "credentialEnv": {"type": "string", "default": "PRAESIDIA_API_KEY", "pattern": "^[A-Z][A-Z0-9_]*$"},
+      "enforceManagedOnly": {"type": "boolean", "default": true},
+      "allowLocalCli": {"type": "boolean", "default": false}
+    }
+  }
+}
