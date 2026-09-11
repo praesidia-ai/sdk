@@ -10,6 +10,10 @@ Apache 2.0 licensed. Free forever.
 npm install @praesidia/sdk
 ```
 
+ESM only (`"type": "module"`, no CommonJS build/export condition) — `import` this
+package; `require('@praesidia/sdk')` will fail with `ERR_REQUIRE_ESM`. Requires
+Node.js >= 18.
+
 This README describes the current source checkout. A registry release may not
 contain every method shown here. For unreleased features, use the matching
 reviewed package supplied by your deployment operator, or build this checkout
@@ -43,7 +47,7 @@ const response = await guard.run(
   { input: userMessage, context: { userId, sessionId } },
 );
 // response.output  — the LLM response (only reached if input passed guardrails)
-// response.taskId  — Praesidia audit log entry ID
+// response.taskId  — Praesidia audit log entry ID (undefined in local mode; see Modes below)
 ```
 
 ## Inspect a protected action and export its evidence

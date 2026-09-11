@@ -49,6 +49,7 @@
     "agent"
   ],
   "license": "Apache-2.0",
+  "homepage": "https://praesidia.ai",
   "repository": {
     "type": "git",
     "url": "https://github.com/praesidia-ai/sdk"
