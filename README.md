@@ -729,22 +729,47 @@ DID document or verification bundle; a signature can prove integrity relative
 to that key, but cannot by itself prove that an arbitrary key belongs to the
 passport's claimed issuer.
 
+**`fetchAndVerify` requires a trust anchor.** The verify route is public and
+unauthenticated and returns the passport *and* the key, so checking one against
+the other proves nothing — anyone able to answer that request can mint both.
+Pass the key (or its fingerprint) that you obtained some other way:
+
 ```typescript
-import { PraesidiaTrust } from '@praesidia/sdk';
+import { PraesidiaTrust, jwkThumbprint } from '@praesidia/sdk';
 
 const trust = new PraesidiaTrust(); // no auth — public routes
 
-const { verified, passport, reason } = await trust.fetchAndVerify(peerAgentId);
+const { verified, passport, reason } = await trust.fetchAndVerify(peerAgentId, {
+  trustedKeys: [issuerJwk],           // array, or a map keyed by kid/issuer
+  // expectedFingerprint: 'sha256:…', // alternative: pin the RFC 7638 thumbprint
+});
 if (verified && passport.credentialSubject.trustScore >= 70) {
   // The signed reputation is genuine and fresh — safe to trust the peer.
 }
 
+// With NO anchor the signature is still checked, but the call refuses to
+// call the outcome an assurance:
+const unpinned = await trust.fetchAndVerify(peerAgentId);
+// { verified: false, reason: 'unpinned_key', signatureValid: true }
+
+// Print the thumbprint of a key you trust, to pin it elsewhere:
+jwkThumbprint(issuerJwk); // base64url; jwkThumbprintHex() for hex
+
 // Or verify a passport handed to you out-of-band:
 const bundle = await trust.fetchVerifyBundle(peerAgentId);
-const result = trust.verifyPassport(bundle.passport, bundle.publicKeyJwk);
+const result = trust.verifyPassport(bundle.passport, myTrustedJwk);
 // result.reason ∈ ok | missing-proof | malformed-public-key
 //                  | signature-mismatch | invalid-expiration | expired
+//                  | unpinned_key | untrusted_key | fingerprint_mismatch
 ```
+
+| `fetchAndVerify` anchor | Outcome |
+|---|---|
+| none | `verified: false`, `reason: 'unpinned_key'`, `signatureValid` truthful |
+| `trustedKeys` contains the signing key | `verified: true` (subject to expiry) |
+| `trustedKeys` without the signing key | `verified: false`, `reason: 'untrusted_key'` |
+| `expectedFingerprint` matches the served key | verified normally against that key |
+| `expectedFingerprint` differs | `verified: false`, `reason: 'fingerprint_mismatch'` |
 
 `verifyPassport` reconstructs the canonical JSON of the passport with its `proof`
 member removed (RFC-8785-style), base64-decodes `proof.proofValue`, and verifies

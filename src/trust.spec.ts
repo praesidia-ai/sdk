@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  createHash,
   generateKeyPairSync,
   sign as nodeSign,
   type KeyObject,
 } from 'node:crypto';
-import { PraesidiaTrust } from './trust.js';
+import { PraesidiaTrust, jwkThumbprint, jwkThumbprintHex } from './trust.js';
 import { PraesidiaApiError } from './errors.js';
 import {
   canonicalJson,
@@ -439,7 +440,11 @@ describe('PraesidiaTrust', () => {
     globalThis.fetch = makeFetchMock([{ ok: true, status: 200, json: bundle }]);
 
     const trust = new PraesidiaTrust({ baseUrl: 'https://api.praesidia.ai' });
-    const result = await trust.fetchAndVerify('agent-1');
+    // MCPSDK-04 — this assertion used to pass with NO anchor, which was the
+    // bug: the key came from the same response. It now needs a pinned key.
+    const result = await trust.fetchAndVerify('agent-1', {
+      trustedKeys: [publicKeyJwk],
+    });
 
     expect(result.verified).toBe(true);
     expect(result.passport.credentialSubject.agentName).toBe('Nova');
@@ -452,6 +457,182 @@ describe('PraesidiaTrust', () => {
     expect(
       (init.headers as Record<string, string>)['Authorization'],
     ).toBeUndefined();
+  });
+
+  // ── fetchAndVerify trust anchor (SEC-2026-09-12 MCPSDK-04) ─────────────────
+
+  function mockBundle(bundleParts: {
+    passport: TrustPassport;
+    publicKeyJwk: Record<string, unknown>;
+  }) {
+    globalThis.fetch = makeFetchMock([
+      {
+        ok: true,
+        status: 200,
+        json: {
+          ...bundleParts,
+          didDocumentUrl:
+            'https://api.praesidia.ai/agents/agent-1/did.json',
+        },
+      },
+    ]);
+    return new PraesidiaTrust({ baseUrl: 'https://api.praesidia.ai' });
+  }
+
+  it('fetchAndVerify without an anchor refuses to call the result verified', async () => {
+    const { passport, publicKeyJwk } = makeKeypairAndPassport();
+    const trust = mockBundle({ passport, publicKeyJwk });
+
+    const result = await trust.fetchAndVerify('agent-1');
+
+    // The key came from the same unauthenticated GET as the passport, so the
+    // signature check proves integrity only — never authenticity.
+    expect(result.verified).toBe(false);
+    expect(result.reason).toBe('unpinned_key');
+    // ...but the signature state stays truthful so callers can tell a mangled
+    // passport from an unpinned one.
+    expect(result.signatureValid).toBe(true);
+    expect(result.expired).toBe(false);
+    expect(result.publicKeyJwk).toEqual(publicKeyJwk);
+  });
+
+  it('fetchAndVerify without an anchor still reports a broken signature honestly', async () => {
+    const { passport, publicKeyJwk } = makeKeypairAndPassport();
+    const tampered = {
+      ...passport,
+      credentialSubject: { ...passport.credentialSubject, trustScore: 99 },
+    };
+    const trust = mockBundle({ passport: tampered, publicKeyJwk });
+
+    const result = await trust.fetchAndVerify('agent-1');
+
+    expect(result.verified).toBe(false);
+    expect(result.signatureValid).toBe(false);
+    expect(result.reason).toBe('signature-mismatch');
+  });
+
+  it('fetchAndVerify verifies against a matching trustedKeys anchor', async () => {
+    const { passport, publicKeyJwk } = makeKeypairAndPassport();
+    const trust = mockBundle({ passport, publicKeyJwk });
+
+    const result = await trust.fetchAndVerify('agent-1', {
+      trustedKeys: [publicKeyJwk],
+    });
+
+    expect(result).toMatchObject({
+      verified: true,
+      signatureValid: true,
+      expired: false,
+      reason: 'ok',
+    });
+  });
+
+  it('fetchAndVerify accepts the map form of trustedKeys', async () => {
+    const { passport, publicKeyJwk } = makeKeypairAndPassport();
+    const other = makeKeypairAndPassport().publicKeyJwk;
+    const trust = mockBundle({ passport, publicKeyJwk });
+
+    const result = await trust.fetchAndVerify('agent-1', {
+      trustedKeys: { 'key-0': other, 'key-1': publicKeyJwk },
+    });
+
+    expect(result.verified).toBe(true);
+    expect(result.reason).toBe('ok');
+  });
+
+  it('fetchAndVerify rejects a passport signed by a key outside the anchor', async () => {
+    // The attacker controls the response: passport + matching key are both
+    // theirs. Under the old code this returned verified: true.
+    const { passport, publicKeyJwk } = makeKeypairAndPassport();
+    const trustedKey = makeKeypairAndPassport().publicKeyJwk;
+    const trust = mockBundle({ passport, publicKeyJwk });
+
+    const result = await trust.fetchAndVerify('agent-1', {
+      trustedKeys: [trustedKey],
+    });
+
+    expect(result.verified).toBe(false);
+    expect(result.signatureValid).toBe(false);
+    expect(result.reason).toBe('untrusted_key');
+  });
+
+  it('fetchAndVerify treats an empty trustedKeys list as a failed anchor, not an absent one', async () => {
+    const { passport, publicKeyJwk } = makeKeypairAndPassport();
+    const trust = mockBundle({ passport, publicKeyJwk });
+
+    const result = await trust.fetchAndVerify('agent-1', { trustedKeys: [] });
+
+    expect(result.verified).toBe(false);
+    expect(result.reason).toBe('untrusted_key');
+  });
+
+  it('fetchAndVerify keeps the expiry reason when the anchor key matches', async () => {
+    const { passport, publicKeyJwk } = makeKeypairAndPassport(
+      '2026-07-07T00:00:00.000Z',
+    );
+    const trust = mockBundle({ passport, publicKeyJwk });
+
+    const result = await trust.fetchAndVerify('agent-1', {
+      trustedKeys: [publicKeyJwk],
+    });
+
+    expect(result).toMatchObject({
+      verified: false,
+      signatureValid: true,
+      expired: true,
+      reason: 'expired',
+    });
+  });
+
+  it('fetchAndVerify accepts a matching expectedFingerprint (base64url and hex)', async () => {
+    const { passport, publicKeyJwk } = makeKeypairAndPassport();
+
+    for (const fingerprint of [
+      jwkThumbprint(publicKeyJwk) as string,
+      jwkThumbprintHex(publicKeyJwk) as string,
+      `sha256:${jwkThumbprintHex(publicKeyJwk) as string}`,
+    ]) {
+      const trust = mockBundle({ passport, publicKeyJwk });
+      const result = await trust.fetchAndVerify('agent-1', {
+        expectedFingerprint: fingerprint,
+      });
+      expect(result.verified).toBe(true);
+      expect(result.reason).toBe('ok');
+    }
+  });
+
+  it('fetchAndVerify rejects a served key whose fingerprint is not the pinned one', async () => {
+    const { passport, publicKeyJwk } = makeKeypairAndPassport();
+    const pinned = jwkThumbprint(
+      makeKeypairAndPassport().publicKeyJwk,
+    ) as string;
+    const trust = mockBundle({ passport, publicKeyJwk });
+
+    const result = await trust.fetchAndVerify('agent-1', {
+      expectedFingerprint: pinned,
+    });
+
+    expect(result.verified).toBe(false);
+    expect(result.reason).toBe('fingerprint_mismatch');
+    // The served key does sign this passport — that is exactly why the
+    // self-referential check was worthless.
+    expect(result.signatureValid).toBe(true);
+  });
+
+  it('jwkThumbprint is the RFC 7638 SHA-256 thumbprint and is null for unusable keys', () => {
+    const { publicKeyJwk } = makeKeypairAndPassport();
+    const expected = createHash('sha256')
+      .update(
+        JSON.stringify({
+          crv: publicKeyJwk['crv'],
+          kty: 'OKP',
+          x: publicKeyJwk['x'],
+        }),
+      )
+      .digest();
+    expect(jwkThumbprint(publicKeyJwk)).toBe(expected.toString('base64url'));
+    expect(jwkThumbprintHex(publicKeyJwk)).toBe(expected.toString('hex'));
+    expect(jwkThumbprint({ kty: 'RSA', n: 'x', e: 'AQAB' })).toBeNull();
   });
 
   it('fetchPassport surfaces a 404 as PraesidiaApiError', async () => {

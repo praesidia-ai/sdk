@@ -18,7 +18,7 @@ export { PraesidiaCompliance } from './compliance.js';
 export { PraesidiaAgents } from './agents.js';
 export { PraesidiaMemory } from './memory.js';
 export { PraesidiaTelemetry, genAiSpan } from './telemetry.js';
-export { PraesidiaTrust } from './trust.js';
+export { PraesidiaTrust, jwkThumbprint, jwkThumbprintHex } from './trust.js';
 // FINDING-2 — parity with the Python SDK's workflows/connections/audit
 // resources; FINDING-1 — analytics implementation matching the README claim.
 export { PraesidiaWorkflows } from './workflows.js';
@@ -170,6 +170,9 @@ export type {
   TrustVerificationResult,
   TrustVerificationReason,
   TrustFetchAndVerifyResult,
+  // SEC-2026-09-12 MCPSDK-04 — caller-supplied trust anchor for fetchAndVerify.
+  TrustFetchAndVerifyOptions,
+  TrustAnchorJwk,
   // PA01 DX-001 — protectAction (managed MCP Proof Edge)
   ProtectActionTarget,
   McpProtectedActionTarget,

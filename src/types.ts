@@ -765,7 +765,14 @@ export interface TrustPassportVerifyBundle {
   embed?: Record<string, unknown>;
 }
 
-/** H3-02f — reasons a local passport verification can fail. */
+/**
+ * H3-02f — reasons a local passport verification can fail.
+ *
+ * The three snake_case members are TRUST-ANCHOR outcomes introduced by
+ * SEC-2026-09-12 MCPSDK-04; they describe the provenance of the verification
+ * key, not the cryptography. The kebab-case members are the pre-existing
+ * envelope/signature/expiry outcomes.
+ */
 export type TrustVerificationReason =
   | 'ok'
   | 'missing-proof'
@@ -773,13 +780,53 @@ export type TrustVerificationReason =
   | 'signature-mismatch'
   | 'malformed-passport'
   | 'invalid-expiration'
-  | 'expired';
+  | 'expired'
+  /** No trust anchor was supplied, so the key came from the same response. */
+  | 'unpinned_key'
+  /** An anchor was supplied and the passport verifies under none of its keys. */
+  | 'untrusted_key'
+  /** `expectedFingerprint` does not match the JWK the server returned. */
+  | 'fingerprint_mismatch';
+
+/**
+ * A public key JWK usable as a trust anchor (OKP/Ed25519 or EC/P-256).
+ * Deliberately a `Record` rather than the DOM/Node `JsonWebKey` interface so it
+ * stays assignable to the `Record<string, unknown>` JWK parameter the rest of
+ * this surface uses.
+ */
+export type TrustAnchorJwk = Record<string, unknown>;
+
+/**
+ * SEC-2026-09-12 MCPSDK-04 — caller-supplied trust anchor for
+ * `PraesidiaTrust.fetchAndVerify`. Without one, the passport and the key that
+ * "verifies" it both come from the same unauthenticated GET, so the result is
+ * self-referential and `verified` is forced to `false`.
+ */
+export interface TrustFetchAndVerifyOptions {
+  /**
+   * Out-of-band public key JWK(s) to verify against — an array, or a map
+   * (keyed however the caller likes, e.g. by `kid` or issuer DID) whose values
+   * are the anchors. The passport must verify under one of them. Mirrors the
+   * caller-supplied target key of `verifyProtectedHttpResult`.
+   */
+  trustedKeys?: TrustAnchorJwk[] | Record<string, TrustAnchorJwk>;
+  /**
+   * RFC 7638 JWK thumbprint (SHA-256) the server-returned key must match,
+   * base64url (canonical) or hex, with an optional `sha256:` prefix. Use this
+   * when you can obtain the fingerprint over a second channel but not the key.
+   */
+  expectedFingerprint?: string;
+}
 
 /** H3-02f — the outcome of `PraesidiaTrust.verifyPassport`. */
 export interface TrustVerificationResult {
-  /** True iff the tenant-key signature verified AND the passport is fresh. */
+  /**
+   * True iff the signature verified under a TRUSTED key AND the passport is
+   * fresh. From `fetchAndVerify` this can only be true when the caller supplied
+   * a trust anchor (MCPSDK-04).
+   */
   verified: boolean;
-  /** True iff the tenant-key signature is valid (ignores expiry). */
+  /** True iff the signature is valid under the key actually used (ignores expiry). */
   signatureValid: boolean;
   /** True iff `expirationDate` is in the past. */
   expired: boolean;

@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { PraesidiaApiError } from './errors.js';
 import {
   encodePathSegment,
@@ -14,6 +16,8 @@ import {
   verifyEs256,
 } from './crypto.js';
 import type {
+  TrustAnchorJwk,
+  TrustFetchAndVerifyOptions,
   TrustFetchAndVerifyResult,
   TrustPassport,
   TrustPassportVerifyBundle,
@@ -40,9 +44,14 @@ const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
  * that JWK from a trusted DID document/bundle; signature verification alone
  * cannot establish that an arbitrary key is authorized for a claimed issuer.
  *
- * The routes are public, so no API key is needed:
+ * The routes are public, so no API key is needed — but a passport fetched from
+ * a public route and checked with the key from that SAME response proves
+ * nothing, so `fetchAndVerify` requires an out-of-band trust anchor before it
+ * will report `verified: true` (SEC-2026-09-12 MCPSDK-04):
  *   const trust = new PraesidiaTrust();
- *   const { passport, verified } = await trust.fetchAndVerify(peerAgentId);
+ *   const { passport, verified } = await trust.fetchAndVerify(peerAgentId, {
+ *     trustedKeys: [issuerJwkFromYourDidDocument],
+ *   });
  *   if (verified && passport.credentialSubject.trustScore >= 70) { ...trust... }
  *
  * The crypto lives in `crypto.ts` (hand-written, not part of any generated
@@ -199,17 +208,100 @@ export class PraesidiaTrust {
    * Fetch the verification bundle AND verify it offline in one call. Returns the
    * passport, the public key JWK, the DID document URL, and the verification
    * result flattened in.
+   *
+   * SEC-2026-09-12 MCPSDK-04 — `GET /trust/passport/:agentId/verify` is a
+   * PUBLIC, unauthenticated route that returns the passport AND the key that
+   * "verifies" it. Checking one against the other is self-referential: anyone
+   * who can answer that request (a TLS-terminating proxy, DNS control, a
+   * compromised API) can mint a passport plus a matching key. So the trust
+   * anchor must come from somewhere else:
+   *
+   * - `options.trustedKeys` — one or more JWKs you resolved out-of-band (DID
+   *   document, vendor onboarding, config). The passport must verify under one
+   *   of them. Same shape of guarantee as `verifyProtectedHttpResult`, whose
+   *   target key is likewise caller-supplied and never taken from the response.
+   * - `options.expectedFingerprint` — the RFC 7638 SHA-256 thumbprint the
+   *   returned key must match, when you can pin the fingerprint but not the key.
+   *
+   * With NO anchor the signature is still checked (so `signatureValid` stays
+   * truthful and you can tell a mangled passport from a substituted one), but
+   * the result is `verified: false, reason: 'unpinned_key'` — an integrity
+   * check against an unauthenticated key is not an assurance and must not read
+   * like one.
    */
   async fetchAndVerify(
     agentId: string,
+    options?: TrustFetchAndVerifyOptions,
   ): Promise<TrustFetchAndVerifyResult> {
     const bundle = await this.fetchVerifyBundle(agentId);
-    const result = this.verifyPassport(bundle.passport, bundle.publicKeyJwk);
+    const result = this.verifyAgainstAnchor(
+      bundle.passport,
+      bundle.publicKeyJwk,
+      options,
+    );
     return {
       ...result,
       passport: bundle.passport,
       publicKeyJwk: bundle.publicKeyJwk,
       didDocumentUrl: bundle.didDocumentUrl,
+    };
+  }
+
+  /**
+   * Verify `passport` against the caller's anchor, falling back to a truthful
+   * but explicitly unpinned result when no anchor was supplied.
+   *
+   * `servedKeyJwk` is the key that arrived with the passport; it is only ever
+   * used to compute an honest `signatureValid`, or after its fingerprint has
+   * been pinned by the caller.
+   */
+  private verifyAgainstAnchor(
+    passport: TrustPassport,
+    servedKeyJwk: Record<string, unknown>,
+    options?: TrustFetchAndVerifyOptions,
+  ): TrustVerificationResult {
+    const anchors = normalizeTrustedKeys(options?.trustedKeys);
+    const expectedFingerprint = options?.expectedFingerprint;
+    const hasFingerprint =
+      typeof expectedFingerprint === 'string' && expectedFingerprint.length > 0;
+
+    if (!anchors && !hasFingerprint) {
+      // Unpinned: report the real signature/expiry state, deny the assurance.
+      // A concrete failure (signature-mismatch, expired, ...) is kept because
+      // it is strictly more informative; only an otherwise-'ok' check is
+      // downgraded to 'unpinned_key'.
+      const served = this.verifyPassport(passport, servedKeyJwk);
+      return served.reason === 'ok'
+        ? { ...served, verified: false, reason: 'unpinned_key' }
+        : { ...served, verified: false };
+    }
+
+    if (hasFingerprint && !jwkMatchesFingerprint(servedKeyJwk, expectedFingerprint)) {
+      const served = this.verifyPassport(passport, servedKeyJwk);
+      return { ...served, verified: false, reason: 'fingerprint_mismatch' };
+    }
+
+    if (!anchors) {
+      // Fingerprint-only anchor, and the served key matched it.
+      return this.verifyPassport(passport, servedKeyJwk);
+    }
+
+    // Key anchor: the passport must verify under one of the caller's keys.
+    let underTrustedKey: TrustVerificationResult | undefined;
+    for (const anchor of anchors) {
+      const result = this.verifyPassport(passport, anchor);
+      if (result.verified) return result;
+      // Signature is good under a trusted key but something else failed
+      // (expired / invalid expiration) — that reason is more useful than
+      // 'untrusted_key'.
+      if (result.signatureValid && !underTrustedKey) underTrustedKey = result;
+    }
+    if (underTrustedKey) return underTrustedKey;
+    return {
+      verified: false,
+      signatureValid: false,
+      expired: false,
+      reason: 'untrusted_key',
     };
   }
 
@@ -327,4 +419,80 @@ function expirationState(
   const t = Date.parse(expirationDate);
   if (t <= Date.parse(issuanceDate)) return 'invalid';
   return t <= Date.now() ? 'expired' : 'valid';
+}
+
+
+/**
+ * RFC 7638 JWK thumbprint (SHA-256) of an Ed25519 (OKP) or P-256 (EC) public
+ * key, base64url-encoded. Returns `null` for anything else. Exposed so callers
+ * can print the fingerprint of a key they trust and pin it via
+ * `TrustFetchAndVerifyOptions.expectedFingerprint`.
+ */
+export function jwkThumbprint(jwk: Record<string, unknown>): string | null {
+  const bytes = thumbprintDigest(jwk);
+  return bytes ? bytes.toString('base64url') : null;
+}
+
+/** Same thumbprint as {@link jwkThumbprint}, lowercase hex. */
+export function jwkThumbprintHex(jwk: Record<string, unknown>): string | null {
+  const bytes = thumbprintDigest(jwk);
+  return bytes ? bytes.toString('hex') : null;
+}
+
+function thumbprintDigest(jwk: Record<string, unknown>): Buffer | null {
+  try {
+    const kty = jwk?.['kty'];
+    const crv = jwk?.['crv'];
+    const x = jwk?.['x'];
+    let required: Record<string, string>;
+    if (kty === 'OKP' && typeof crv === 'string' && typeof x === 'string') {
+      // RFC 7638 requires the required members only, in lexicographic order.
+      required = { crv, kty: 'OKP', x };
+    } else if (
+      kty === 'EC' &&
+      typeof crv === 'string' &&
+      typeof x === 'string' &&
+      typeof jwk['y'] === 'string'
+    ) {
+      required = { crv, kty: 'EC', x, y: jwk['y'] as string };
+    } else {
+      return null;
+    }
+    return createHash('sha256').update(JSON.stringify(required), 'utf8').digest();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when `expected` is the RFC 7638 thumbprint of `jwk`. Accepts base64url
+ * or hex, with an optional `sha256:` prefix, so a fingerprint copied from a
+ * console, a DID document or the CLI all work.
+ */
+function jwkMatchesFingerprint(
+  jwk: Record<string, unknown>,
+  expected: string,
+): boolean {
+  const bytes = thumbprintDigest(jwk);
+  if (!bytes) return false;
+  const candidate = expected.trim().replace(/^sha-?256:/i, '');
+  if (candidate.length === 0) return false;
+  return (
+    candidate === bytes.toString('base64url') ||
+    candidate.toLowerCase() === bytes.toString('hex')
+  );
+}
+
+/** Accept both anchor shapes (array or map) as a flat candidate list. */
+function normalizeTrustedKeys(
+  trustedKeys: TrustFetchAndVerifyOptions['trustedKeys'],
+): TrustAnchorJwk[] | undefined {
+  if (trustedKeys === undefined || trustedKeys === null) return undefined;
+  const list = Array.isArray(trustedKeys)
+    ? trustedKeys
+    : Object.values(trustedKeys);
+  const keys = list.filter(
+    (key): key is TrustAnchorJwk => !!key && typeof key === 'object',
+  );
+  return keys.length > 0 ? keys : [];
 }
