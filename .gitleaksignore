@@ -1,0 +1,4 @@
+# Reviewed non-secret test fixture. The flagged value is the SHA-256 *fingerprint*
+# of a fixture signing key (public data), not the key itself.
+# Fingerprint-scoped ignores do not suppress new values in this file or later commits.
+d398b0598dd2845a038a83afc2187cc9af77359a:test-fixtures/http-receipt-v1.json:generic-api-key:31
