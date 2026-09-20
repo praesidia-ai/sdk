@@ -233,4 +233,10 @@ export type {
   CreateAssetRelationshipInput,
   ListAssetRelationshipsQuery,
   AssetRelationshipRecord,
+  // SDK-0003 — full CONTRACT parity additions
+  UpdateAiSystemOwnersInput,
+  CreateAiAssetInput,
+  UpdateAiAssetInput,
+  ChangeAiSystemAssetRoleInput,
+  UpdateAssetRelationshipInput,
 } from './types.js';

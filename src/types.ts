@@ -1314,6 +1314,23 @@ export interface ListAiSystemsQuery {
 /** An AI System record as returned by the API (`AiSystemResponseDto`, passthrough shape). */
 export type AiSystemRecord = Record<string, unknown>;
 
+/**
+ * Body accepted by `PraesidiaAiSystems.updateOwners` (`UpdateAiSystemOwnersDto`,
+ * SDK-0003). All four owner pairs are optional and independently settable;
+ * `null` clears a pair. `be` validates each `*Type`/`*Id` pair together
+ * (membership + non-member owner checks) in the service, not this DTO.
+ */
+export interface UpdateAiSystemOwnersInput {
+  ownerType?: AiSystemOwnerType | null;
+  ownerId?: string | null;
+  technicalOwnerType?: AiSystemOwnerType | null;
+  technicalOwnerId?: string | null;
+  securityOwnerType?: AiSystemOwnerType | null;
+  securityOwnerId?: string | null;
+  complianceOwnerType?: AiSystemOwnerType | null;
+  complianceOwnerId?: string | null;
+}
+
 /** `entities/ai-asset.entity.ts`'s `AI_ASSET_TYPES` (20 values). */
 export const AI_ASSET_TYPES = [
   'APPLICATION', 'AGENT', 'MODEL', 'MODEL_ENDPOINT', 'MCP_SERVER', 'MCP_TOOL', 'A2A_ENDPOINT',
@@ -1358,6 +1375,33 @@ export interface AdoptAiAssetInput {
 /** An AI Asset record as returned by the API (`AiAssetResponseDto`, passthrough shape). */
 export type AiAssetRecord = Record<string, unknown>;
 
+/**
+ * Body accepted by `PraesidiaAiSystems.createAsset` (`CreateAiAssetDto`,
+ * SDK-0003). For an asset backed by a real agent/application/MCP server/
+ * model/workflow/eval-dataset row, use {@link AdoptAiAssetInput} via
+ * `adoptAsset` instead — this creates metadata-only assets (e.g. `VENDOR`,
+ * `CREDENTIAL`) with no backing runtime entity.
+ */
+export interface CreateAiAssetInput {
+  name: string;
+  assetType: AiAssetType;
+  source?: AiAssetSource;
+  discoveryStatus?: AiAssetDiscoveryStatus;
+  environment?: AiSystemEnvironment;
+  ownerType?: AiSystemOwnerType;
+  ownerId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Body accepted by `PraesidiaAiSystems.updateAsset` (`UpdateAiAssetDto`,
+ * SDK-0003) — `assetType`/`source`/`discoveryStatus` are immutable/
+ * behaviour-owned and omitted here, matching `be`'s DTO.
+ */
+export type UpdateAiAssetInput = Partial<
+  Omit<CreateAiAssetInput, 'assetType' | 'source' | 'discoveryStatus'>
+>;
+
 /** `entities/ai-system-asset.entity.ts`'s `AiSystemAssetRole` (hand-copied per CONTRACT.md —
  * not entity-array-derived like the other AI Systems enums). */
 export const AI_SYSTEM_ASSET_ROLES = ['primary', 'supporting', 'dependency', 'external'] as const;
@@ -1371,6 +1415,11 @@ export interface AttachAiSystemAssetInput {
 
 /** An AI System ↔ Asset membership record (`AiSystemAssetResponseDto`, passthrough shape). */
 export type AiSystemAssetRecord = Record<string, unknown>;
+
+/** Body accepted by `PraesidiaAiSystems.changeAssetRole` (`ChangeAiSystemAssetRoleDto`, SDK-0003). */
+export interface ChangeAiSystemAssetRoleInput {
+  role: AiSystemAssetRole;
+}
 
 /** `entities/asset-relationship.entity.ts`'s `ASSET_RELATIONSHIP_TYPES`. */
 export const ASSET_RELATIONSHIP_TYPES = [
@@ -1403,3 +1452,13 @@ export interface ListAssetRelationshipsQuery {
 
 /** An asset relationship (graph edge) record (`AssetRelationshipResponseDto`, passthrough shape). */
 export type AssetRelationshipRecord = Record<string, unknown>;
+
+/**
+ * Body accepted by `PraesidiaAiSystems.updateRelationship`
+ * (`UpdateAssetRelationshipDto`, SDK-0003) — endpoints (`sourceAssetId`/
+ * `targetAssetId`) are immutable after creation; moving one is archiving
+ * this edge and creating a new one, matching `be`'s DTO.
+ */
+export type UpdateAssetRelationshipInput = Partial<
+  Omit<CreateAssetRelationshipInput, 'sourceAssetId' | 'targetAssetId'>
+>;

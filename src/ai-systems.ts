@@ -13,6 +13,7 @@ import {
   AI_ASSET_DISCOVERY_STATUSES,
   AI_ASSET_SOURCES,
   AI_ASSET_TYPES,
+  AI_SYSTEM_ASSET_ROLES,
   AI_SYSTEM_CRITICALITIES,
   AI_SYSTEM_ENVIRONMENTS,
   AI_SYSTEM_LIFECYCLE_STATUSES,
@@ -20,14 +21,20 @@ import {
   type AdoptAiAssetInput,
   type AiAssetRecord,
   type AiSystemAssetRecord,
+  type AiSystemLifecycleStatus,
   type AiSystemRecord,
   type AssetRelationshipRecord,
   type AttachAiSystemAssetInput,
+  type ChangeAiSystemAssetRoleInput,
+  type CreateAiAssetInput,
   type CreateAssetRelationshipInput,
   type GuardConfig,
   type ListAiAssetsQuery,
   type ListAiSystemsQuery,
   type ListAssetRelationshipsQuery,
+  type UpdateAiAssetInput,
+  type UpdateAiSystemOwnersInput,
+  type UpdateAssetRelationshipInput,
 } from './types.js';
 
 const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
@@ -160,6 +167,42 @@ export class PraesidiaAiSystems {
     );
   }
 
+  /**
+   * Update one or more of the four owner pairs on an AI System.
+   * PATCH .../ai-systems/:id/owners. `null` clears a pair.
+   */
+  async updateOwners(
+    aiSystemId: string,
+    data: UpdateAiSystemOwnersInput,
+  ): Promise<AiSystemRecord> {
+    return this.client.patch<AiSystemRecord>(
+      `${this.systemsBase}/${encodePathSegment(aiSystemId, 'aiSystemId')}/owners`,
+      data,
+    );
+  }
+
+  /**
+   * Transition an AI System's lifecycle status. PATCH .../ai-systems/:id/lifecycle.
+   * Throws on an illegal transition (be 400s with the from/to pair).
+   */
+  async transitionLifecycle(
+    aiSystemId: string,
+    lifecycleStatus: AiSystemLifecycleStatus,
+  ): Promise<AiSystemRecord> {
+    assertEnum(lifecycleStatus, AI_SYSTEM_LIFECYCLE_STATUSES, 'lifecycleStatus');
+    return this.client.patch<AiSystemRecord>(
+      `${this.systemsBase}/${encodePathSegment(aiSystemId, 'aiSystemId')}/lifecycle`,
+      { lifecycleStatus },
+    );
+  }
+
+  /** Soft-delete an AI System. DELETE .../ai-systems/:id. */
+  async delete(aiSystemId: string): Promise<void> {
+    return this.client.del(
+      `${this.systemsBase}/${encodePathSegment(aiSystemId, 'aiSystemId')}`,
+    );
+  }
+
   // ── AI Assets ────────────────────────────────────────────────────────────
 
   /**
@@ -206,6 +249,57 @@ export class PraesidiaAiSystems {
     return this.client.post<AiAssetRecord>(`${this.assetsBase}/adopt`, data);
   }
 
+  /**
+   * Create a metadata-only AI Asset (no backing runtime entity — e.g.
+   * `VENDOR`, `CREDENTIAL`). POST .../ai-assets. Use {@link adoptAsset} for
+   * an asset backed by a real agent/application/MCP server/model/workflow/
+   * eval-dataset row.
+   */
+  async createAsset(data: CreateAiAssetInput): Promise<AiAssetRecord> {
+    assertEnum(data.assetType, AI_ASSET_TYPES, 'assetType');
+    assertEnum(data.source, AI_ASSET_SOURCES, 'source');
+    assertEnum(data.discoveryStatus, AI_ASSET_DISCOVERY_STATUSES, 'discoveryStatus');
+    return this.client.post<AiAssetRecord>(this.assetsBase, data);
+  }
+
+  /** Fetch a single AI Asset by id. GET .../ai-assets/:id. */
+  async getAsset(assetId: string): Promise<AiAssetRecord> {
+    return this.client.get<AiAssetRecord>(
+      `${this.assetsBase}/${encodePathSegment(assetId, 'assetId')}`,
+    );
+  }
+
+  /**
+   * Partially update an AI Asset's descriptive fields. PATCH .../ai-assets/:id.
+   * `assetType`/`source`/`discoveryStatus` are immutable/behaviour-owned and
+   * not accepted here (matching be's `UpdateAiAssetDto`).
+   */
+  async updateAsset(
+    assetId: string,
+    data: UpdateAiAssetInput,
+  ): Promise<AiAssetRecord> {
+    return this.client.patch<AiAssetRecord>(
+      `${this.assetsBase}/${encodePathSegment(assetId, 'assetId')}`,
+      data,
+    );
+  }
+
+  /** Archive an AI Asset. POST .../ai-assets/:id/archive. */
+  async archiveAsset(assetId: string): Promise<AiAssetRecord> {
+    return this.client.post<AiAssetRecord>(
+      `${this.assetsBase}/${encodePathSegment(assetId, 'assetId')}/archive`,
+      {},
+    );
+  }
+
+  /** Restore an archived AI Asset. POST .../ai-assets/:id/restore. */
+  async restoreAsset(assetId: string): Promise<AiAssetRecord> {
+    return this.client.post<AiAssetRecord>(
+      `${this.assetsBase}/${encodePathSegment(assetId, 'assetId')}/restore`,
+      {},
+    );
+  }
+
   // ── AI System ↔ Asset membership ────────────────────────────────────────
 
   /**
@@ -217,6 +311,23 @@ export class PraesidiaAiSystems {
   ): Promise<AiSystemAssetRecord> {
     return this.client.post<AiSystemAssetRecord>(
       `${this.systemsBase}/${encodePathSegment(aiSystemId, 'aiSystemId')}/assets`,
+      data,
+    );
+  }
+
+  /**
+   * Change the role of an AI Asset already attached to an AI System.
+   * PATCH .../ai-systems/:id/assets/:assetId/role.
+   */
+  async changeAssetRole(
+    aiSystemId: string,
+    assetId: string,
+    data: ChangeAiSystemAssetRoleInput,
+  ): Promise<AiSystemAssetRecord> {
+    assertEnum(data.role, AI_SYSTEM_ASSET_ROLES, 'role');
+    return this.client.patch<AiSystemAssetRecord>(
+      `${this.systemsBase}/${encodePathSegment(aiSystemId, 'aiSystemId')}` +
+        `/assets/${encodePathSegment(assetId, 'assetId')}/role`,
       data,
     );
   }
@@ -273,6 +384,46 @@ export class PraesidiaAiSystems {
     query: Omit<ListAssetRelationshipsQuery, 'page'> = {},
   ): AsyncGenerator<AssetRelationshipRecord, void, undefined> {
     yield* paginateAll((page) => this.listRelationshipsPage({ ...query, page }));
+  }
+
+  /** Fetch a single asset relationship by id. GET .../asset-relationships/:id. */
+  async getRelationship(relationshipId: string): Promise<AssetRelationshipRecord> {
+    return this.client.get<AssetRelationshipRecord>(
+      `${this.relationshipsBase}/${encodePathSegment(relationshipId, 'relationshipId')}`,
+    );
+  }
+
+  /**
+   * Partially update a relationship (e.g. `relationshipType`, `confidence`).
+   * PATCH .../asset-relationships/:id. Endpoints (`sourceAssetId`/
+   * `targetAssetId`) are immutable and not accepted here; be bumps `version`
+   * and appends an `asset_relationship_history` row.
+   */
+  async updateRelationship(
+    relationshipId: string,
+    data: UpdateAssetRelationshipInput,
+  ): Promise<AssetRelationshipRecord> {
+    assertEnum(data.relationshipType, ASSET_RELATIONSHIP_TYPES, 'relationshipType');
+    return this.client.patch<AssetRelationshipRecord>(
+      `${this.relationshipsBase}/${encodePathSegment(relationshipId, 'relationshipId')}`,
+      data,
+    );
+  }
+
+  /** Archive a relationship. POST .../asset-relationships/:id/archive. */
+  async archiveRelationship(relationshipId: string): Promise<AssetRelationshipRecord> {
+    return this.client.post<AssetRelationshipRecord>(
+      `${this.relationshipsBase}/${encodePathSegment(relationshipId, 'relationshipId')}/archive`,
+      {},
+    );
+  }
+
+  /** Restore an archived relationship. POST .../asset-relationships/:id/restore. */
+  async restoreRelationship(relationshipId: string): Promise<AssetRelationshipRecord> {
+    return this.client.post<AssetRelationshipRecord>(
+      `${this.relationshipsBase}/${encodePathSegment(relationshipId, 'relationshipId')}/restore`,
+      {},
+    );
   }
 
   /** Adopt a rotated credential in-process (zero-downtime swap). */

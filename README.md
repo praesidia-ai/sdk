@@ -612,26 +612,40 @@ await aiSystems.createRelationship({
 | `get(id)` | `Promise<AiSystemRecord>` | `GET .../ai-systems/:id` |
 | `create(data)` | `Promise<AiSystemRecord>` | `POST .../ai-systems` |
 | `update(id, data)` | `Promise<AiSystemRecord>` | `PATCH .../ai-systems/:id` |
+| `updateOwners(id, data)` | `Promise<AiSystemRecord>` | `PATCH .../ai-systems/:id/owners` |
+| `transitionLifecycle(id, status)` | `Promise<AiSystemRecord>` | `PATCH .../ai-systems/:id/lifecycle` |
 | `archive(id)` | `Promise<AiSystemRecord>` | `POST .../ai-systems/:id/archive` |
 | `restore(id)` | `Promise<AiSystemRecord>` | `POST .../ai-systems/:id/restore` |
+| `delete(id)` | `Promise<void>` | `DELETE .../ai-systems/:id` (soft-delete) |
 | `listAssets(query?)` | `Promise<AiAssetRecord[]>` | `GET .../ai-assets` |
+| `createAsset(data)` | `Promise<AiAssetRecord>` | `POST .../ai-assets` |
+| `getAsset(id)` | `Promise<AiAssetRecord>` | `GET .../ai-assets/:id` |
+| `updateAsset(id, data)` | `Promise<AiAssetRecord>` | `PATCH .../ai-assets/:id` |
+| `archiveAsset(id)` | `Promise<AiAssetRecord>` | `POST .../ai-assets/:id/archive` |
+| `restoreAsset(id)` | `Promise<AiAssetRecord>` | `POST .../ai-assets/:id/restore` |
 | `adoptAsset(data)` | `Promise<AiAssetRecord>` | `POST .../ai-assets/adopt` (idempotent) |
 | `attachAsset(aiSystemId, data)` | `Promise<AiSystemAssetRecord>` | `POST .../ai-systems/:id/assets` |
+| `changeAssetRole(aiSystemId, assetId, data)` | `Promise<AiSystemAssetRecord>` | `PATCH .../ai-systems/:id/assets/:assetId/role` |
 | `detachAsset(aiSystemId, assetId)` | `Promise<void>` | `DELETE .../ai-systems/:id/assets/:assetId` |
 | `createRelationship(data)` | `Promise<AssetRelationshipRecord>` | `POST .../asset-relationships` |
 | `listRelationships(query?)` | `Promise<AssetRelationshipRecord[]>` | `GET .../asset-relationships` |
+| `getRelationship(id)` | `Promise<AssetRelationshipRecord>` | `GET .../asset-relationships/:id` |
+| `updateRelationship(id, data)` | `Promise<AssetRelationshipRecord>` | `PATCH .../asset-relationships/:id` |
+| `archiveRelationship(id)` | `Promise<AssetRelationshipRecord>` | `POST .../asset-relationships/:id/archive` |
+| `restoreRelationship(id)` | `Promise<AssetRelationshipRecord>` | `POST .../asset-relationships/:id/restore` |
 
 Every `list*`/`listAssets`/`listRelationships` also has a `*Page` (full
 pagination envelope) and `*All` (auto-paginating async generator) sibling,
 matching the `listPage`/`listAll` convention above (SCAN2-011).
 
 > **Multi-hop graph traversal is not covered yet.** be's traversal endpoint
-> (AISYS-0003, `{ nodes, edges, stats }`) had not landed on `be/openapi.json`
-> as of this release — add a `traverse()` method once that contract lands
-> (SDK-0001's Evidence tracks the deferral). AI System `owners`/`lifecycle`
-> sub-resource PATCHes, direct AI Asset create/update/archive/restore, and
-> per-relationship get/update/archive/restore/role-change are also out of
-> this ticket's scope — file a follow-up if a caller needs them.
+> (AISYS-0003, `{ nodes, edges, stats }`) has still not landed on
+> `be/openapi.json` as of this release (SDK-0003) — add a `traverse()`
+> method once that contract lands (see SDK-0001's Evidence for the original
+> deferral; SDK-0005 tracks the follow-up). Every other route on be's
+> AISYS-0002 contract (owner/lifecycle sub-resource PATCHes, direct AI Asset
+> create/get/update/archive/restore, membership role-change, and
+> per-relationship get/update/archive/restore) is now covered as of SDK-0003.
 
 ## Audit log read-back (FINDING-2 parity with the Python SDK)
 
@@ -925,6 +939,18 @@ sibling checkout in `sdk-python`'s own `contract-drift.yml` — CD-0007 reuses
 this repo's scanner rather than a third, Python-native re-derivation.
 
 ## Changelog
+
+### Unreleased — SDK-0003: full CONTRACT parity for the AI System / asset graph
+
+- **Added** to `PraesidiaAiSystems` (`src/ai-systems.ts`): systems
+  `updateOwners`/`transitionLifecycle`/`delete`; assets
+  `createAsset`/`getAsset`/`updateAsset`/`archiveAsset`/`restoreAsset`;
+  membership `changeAssetRole`; relationships
+  `getRelationship`/`updateRelationship`/`archiveRelationship`/
+  `restoreRelationship` — closing every be AISYS-0002 route SDK-0001 left
+  out. New methods only, no existing signature touched — not a breaking
+  change. Multi-hop traversal (be's AISYS-0003) is still deferred; it has
+  not landed on `be/openapi.json` as of this release.
 
 ### Unreleased — SDK-0001: AI System / asset / relationship graph resource
 

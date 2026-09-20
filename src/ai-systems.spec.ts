@@ -96,6 +96,50 @@ describe('PraesidiaAiSystems', () => {
       expect((calls[0]![1] as RequestInit).method).toBe('POST');
       expect(calls[1]![0]).toContain('/ai-systems/sys-1/restore');
     });
+
+    it('updates AI System owners via PATCH .../ai-systems/:id/owners (SDK-0003)', async () => {
+      globalThis.fetch = makeFetchMock([{ json: { id: 'sys-1', ownerId: 'user-1' } }]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      await aiSystems.updateOwners('sys-1', { ownerType: 'user', ownerId: 'user-1' });
+      const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+        string,
+        RequestInit,
+      ];
+      expect(url).toContain('/ai-systems/sys-1/owners');
+      expect(init.method).toBe('PATCH');
+    });
+
+    it('transitions AI System lifecycle via PATCH .../ai-systems/:id/lifecycle (SDK-0003)', async () => {
+      globalThis.fetch = makeFetchMock([{ json: { id: 'sys-1', lifecycleStatus: 'approved' } }]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      await aiSystems.transitionLifecycle('sys-1', 'approved');
+      const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+        string,
+        RequestInit,
+      ];
+      expect(url).toContain('/ai-systems/sys-1/lifecycle');
+      expect(init.method).toBe('PATCH');
+      expect(init.body).toBe(JSON.stringify({ lifecycleStatus: 'approved' }));
+    });
+
+    it('rejects an invalid lifecycleStatus before sending a request (SDK-0003)', async () => {
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      await expect(
+        aiSystems.transitionLifecycle('sys-1', 'archived' as never),
+      ).rejects.toThrow(PraesidiaConfigError);
+    });
+
+    it('soft-deletes an AI System via DELETE .../ai-systems/:id (SDK-0003)', async () => {
+      globalThis.fetch = makeFetchMock([{ ok: true, status: 204 }]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      await expect(aiSystems.delete('sys-1')).resolves.toBeUndefined();
+      const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+        string,
+        RequestInit,
+      ];
+      expect(url).toContain('/ai-systems/sys-1');
+      expect(init.method).toBe('DELETE');
+    });
   });
 
   describe('AI Assets + membership + relationships', () => {
@@ -119,6 +163,37 @@ describe('PraesidiaAiSystems', () => {
       const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
       await expect(
         aiSystems.listAssets({ assetType: 'NOT_A_TYPE' as never }),
+      ).rejects.toThrow(PraesidiaConfigError);
+    });
+
+    it('creates, gets, updates, archives and restores an AI Asset (SDK-0003)', async () => {
+      globalThis.fetch = makeFetchMock([
+        { json: { id: 'asset-3', assetType: 'VENDOR' } },
+        { json: { id: 'asset-3', name: 'Vendor Co' } },
+        { json: { id: 'asset-3', name: 'Renamed Vendor' } },
+        { json: { id: 'asset-3', archivedAt: '2026-09-20T00:00:00Z' } },
+        { json: { id: 'asset-3', archivedAt: null } },
+      ]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      await aiSystems.createAsset({ name: 'Vendor Co', assetType: 'VENDOR' });
+      await aiSystems.getAsset('asset-3');
+      await aiSystems.updateAsset('asset-3', { name: 'Renamed Vendor' });
+      await aiSystems.archiveAsset('asset-3');
+      await aiSystems.restoreAsset('asset-3');
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls[0]![0]).toContain('/organizations/org-1/ai-assets');
+      expect((calls[0]![1] as RequestInit).method).toBe('POST');
+      expect(calls[1]![0]).toContain('/ai-assets/asset-3');
+      expect((calls[1]![1] as RequestInit).method).toBe('GET');
+      expect((calls[2]![1] as RequestInit).method).toBe('PATCH');
+      expect(calls[3]![0]).toContain('/ai-assets/asset-3/archive');
+      expect(calls[4]![0]).toContain('/ai-assets/asset-3/restore');
+    });
+
+    it('rejects an invalid assetType on createAsset before sending a request (SDK-0003)', async () => {
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      await expect(
+        aiSystems.createAsset({ name: 'x', assetType: 'NOT_A_TYPE' as never }),
       ).rejects.toThrow(PraesidiaConfigError);
     });
 
@@ -151,6 +226,28 @@ describe('PraesidiaAiSystems', () => {
       expect((calls[1]![1] as RequestInit).method).toBe('DELETE');
     });
 
+    it('changes an attached asset role via PATCH .../assets/:assetId/role (SDK-0003)', async () => {
+      globalThis.fetch = makeFetchMock([
+        { json: { id: 'link-1', aiSystemId: 'sys-1', assetId: 'asset-2', role: 'dependency' } },
+      ]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      const link = await aiSystems.changeAssetRole('sys-1', 'asset-2', { role: 'dependency' });
+      expect(link).toEqual({ id: 'link-1', aiSystemId: 'sys-1', assetId: 'asset-2', role: 'dependency' });
+      const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+        string,
+        RequestInit,
+      ];
+      expect(url).toContain('/ai-systems/sys-1/assets/asset-2/role');
+      expect(init.method).toBe('PATCH');
+    });
+
+    it('rejects an invalid role on changeAssetRole before sending a request (SDK-0003)', async () => {
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      await expect(
+        aiSystems.changeAssetRole('sys-1', 'asset-2', { role: 'owner' as never }),
+      ).rejects.toThrow(PraesidiaConfigError);
+    });
+
     it('creates and lists asset relationships (graph edges)', async () => {
       globalThis.fetch = makeFetchMock([
         { json: { id: 'rel-1', sourceAssetId: 'a', targetAssetId: 'b', relationshipType: 'USES' } },
@@ -168,6 +265,33 @@ describe('PraesidiaAiSystems', () => {
       expect(calls[0]![0]).toContain('/organizations/org-1/asset-relationships');
       expect((calls[0]![1] as RequestInit).method).toBe('POST');
       expect(calls[1]![0]).toContain('assetId=a');
+    });
+
+    it('gets, updates, archives and restores an asset relationship (SDK-0003)', async () => {
+      globalThis.fetch = makeFetchMock([
+        { json: { id: 'rel-1', relationshipType: 'USES' } },
+        { json: { id: 'rel-1', relationshipType: 'CALLS', version: 2 } },
+        { json: { id: 'rel-1', archivedAt: '2026-09-20T00:00:00Z', version: 3 } },
+        { json: { id: 'rel-1', archivedAt: null, version: 4 } },
+      ]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      await aiSystems.getRelationship('rel-1');
+      await aiSystems.updateRelationship('rel-1', { relationshipType: 'CALLS' });
+      await aiSystems.archiveRelationship('rel-1');
+      await aiSystems.restoreRelationship('rel-1');
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls[0]![0]).toContain('/asset-relationships/rel-1');
+      expect((calls[0]![1] as RequestInit).method).toBe('GET');
+      expect((calls[1]![1] as RequestInit).method).toBe('PATCH');
+      expect(calls[2]![0]).toContain('/asset-relationships/rel-1/archive');
+      expect(calls[3]![0]).toContain('/asset-relationships/rel-1/restore');
+    });
+
+    it('rejects an invalid relationshipType on updateRelationship before sending a request (SDK-0003)', async () => {
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      await expect(
+        aiSystems.updateRelationship('rel-1', { relationshipType: 'FRIENDS_WITH' as never }),
+      ).rejects.toThrow(PraesidiaConfigError);
     });
 
     it('rejects an invalid relationshipType filter before sending a request', async () => {
