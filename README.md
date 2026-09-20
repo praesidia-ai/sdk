@@ -586,6 +586,53 @@ const health = await connections.health(conn.id as string);
 | `test(id)` | `Promise<ConnectionRecord>` | `POST .../connections/:id/test` |
 | `health(id)` | `Promise<ConnectionRecord>` | `GET .../connections/:id/health` |
 
+## AI Systems / assets / relationship graph (SDK-0001, parity with be's AISYS-0002)
+
+`PraesidiaAiSystems` manages the AI System inventory, the AI Asset catalog
+(agents, models, MCP servers, data sources, ...), the membership linking
+assets to systems, and the relationship graph (edges) between assets.
+
+```typescript
+import { PraesidiaAiSystems } from '@praesidia/sdk';
+
+const aiSystems = new PraesidiaAiSystems();
+const system = await aiSystems.create({ name: 'Support triage bot', criticality: 'high' });
+const asset = await aiSystems.adoptAsset({ entityType: 'agent', entityId, aiSystemId: system.id as string });
+await aiSystems.attachAsset(system.id as string, { assetId: asset.id as string, role: 'primary' });
+await aiSystems.createRelationship({
+  sourceAssetId: asset.id as string,
+  targetAssetId: otherAssetId,
+  relationshipType: 'CALLS',
+});
+```
+
+| Method | Returns | Endpoint |
+|---|---|---|
+| `list(query?)` | `Promise<AiSystemRecord[]>` | `GET .../ai-systems` |
+| `get(id)` | `Promise<AiSystemRecord>` | `GET .../ai-systems/:id` |
+| `create(data)` | `Promise<AiSystemRecord>` | `POST .../ai-systems` |
+| `update(id, data)` | `Promise<AiSystemRecord>` | `PATCH .../ai-systems/:id` |
+| `archive(id)` | `Promise<AiSystemRecord>` | `POST .../ai-systems/:id/archive` |
+| `restore(id)` | `Promise<AiSystemRecord>` | `POST .../ai-systems/:id/restore` |
+| `listAssets(query?)` | `Promise<AiAssetRecord[]>` | `GET .../ai-assets` |
+| `adoptAsset(data)` | `Promise<AiAssetRecord>` | `POST .../ai-assets/adopt` (idempotent) |
+| `attachAsset(aiSystemId, data)` | `Promise<AiSystemAssetRecord>` | `POST .../ai-systems/:id/assets` |
+| `detachAsset(aiSystemId, assetId)` | `Promise<void>` | `DELETE .../ai-systems/:id/assets/:assetId` |
+| `createRelationship(data)` | `Promise<AssetRelationshipRecord>` | `POST .../asset-relationships` |
+| `listRelationships(query?)` | `Promise<AssetRelationshipRecord[]>` | `GET .../asset-relationships` |
+
+Every `list*`/`listAssets`/`listRelationships` also has a `*Page` (full
+pagination envelope) and `*All` (auto-paginating async generator) sibling,
+matching the `listPage`/`listAll` convention above (SCAN2-011).
+
+> **Multi-hop graph traversal is not covered yet.** be's traversal endpoint
+> (AISYS-0003, `{ nodes, edges, stats }`) had not landed on `be/openapi.json`
+> as of this release — add a `traverse()` method once that contract lands
+> (SDK-0001's Evidence tracks the deferral). AI System `owners`/`lifecycle`
+> sub-resource PATCHes, direct AI Asset create/update/archive/restore, and
+> per-relationship get/update/archive/restore/role-change are also out of
+> this ticket's scope — file a follow-up if a caller needs them.
+
 ## Audit log read-back (FINDING-2 parity with the Python SDK)
 
 `PraesidiaAudit` reads back the org audit trail — before this, a TS caller had
@@ -819,6 +866,7 @@ only by `guard.protectAction` — see [above](#guardprotectactionopts--promisepr
 | `PraesidiaAgents.*` | `GET/POST/PATCH/DELETE /organizations/:orgId/agents[/…]` | agent management permissions |
 | `PraesidiaWorkflows.*` | `GET/POST/PATCH/DELETE /organizations/:orgId/workflows[/…]` | `WORKFLOWS_*` (`APPROVAL_WORKFLOWS` feature) |
 | `PraesidiaConnections.*` | `GET/POST/PATCH/DELETE /organizations/:orgId/connections[/…]` | `CONNECTIONS_*` (`A2A_COMMUNICATION` feature) |
+| `PraesidiaAiSystems.*` | `GET/POST/PATCH/DELETE /organizations/:orgId/ai-systems\|ai-assets\|asset-relationships[/…]` | `AI_SYSTEMS_*` / `AI_ASSETS_*` (`AI_SYSTEMS` feature) |
 | `PraesidiaAudit.*` | `GET /organizations/:orgId/audit-logs[/export]` | `AUDIT_VIEW` / `AUDIT_EXPORT` |
 | `PraesidiaAnalytics.*` | `GET /organizations/:orgId/analytics[/…]` | `ANALYTICS_VIEW` / `ANALYTICS_EXPORT` (`advanced/*` needs `ADVANCED_ANALYTICS`) |
 | `PraesidiaTrust.fetch*` | `GET /trust/passport/:agentId[/verify]` | public (no auth) |
@@ -877,6 +925,18 @@ sibling checkout in `sdk-python`'s own `contract-drift.yml` — CD-0007 reuses
 this repo's scanner rather than a third, Python-native re-derivation.
 
 ## Changelog
+
+### Unreleased — SDK-0001: AI System / asset / relationship graph resource
+
+- **Added** `PraesidiaAiSystems` (`src/ai-systems.ts`), parity with be-core's
+  AISYS-0002 module: AI System CRUD (`list`/`get`/`create`/`update`) +
+  lifecycle (`archive`/`restore`), the AI Asset catalog
+  (`listAssets`/`adoptAsset`), AI System ↔ Asset membership
+  (`attachAsset`/`detachAsset`), and the asset relationship graph
+  (`createRelationship`/`listRelationships`) — each `list*` family also gets
+  `*Page`/`*All` siblings (SCAN2-011 convention). New export, no existing
+  signature changed. Multi-hop traversal (be's AISYS-0003) is deferred —
+  `be/openapi.json` did not have that route at release time.
 
 ### Unreleased — AUD-0063: close the analytics resource coverage gap
 

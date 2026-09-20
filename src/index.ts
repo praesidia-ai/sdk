@@ -196,3 +196,41 @@ export type { SignedHttpReceipt, HttpReceiptStatement, HttpRequestEnvelope } fro
 
 export { PraesidiaIdentity } from './identity.js';
 export type { FederatedCredential, FederatedAuthority, ExternalAssertionExchange } from './identity.js';
+
+// SDK-0001 — AI System / asset / relationship graph parity with be's
+// AISYS-0002: PraesidiaAiSystems (aiSystems resource).
+export { PraesidiaAiSystems } from './ai-systems.js';
+export {
+  AI_SYSTEM_OWNER_TYPES,
+  AI_SYSTEM_CRITICALITIES,
+  AI_SYSTEM_ENVIRONMENTS,
+  AI_SYSTEM_LIFECYCLE_STATUSES,
+  AI_ASSET_TYPES,
+  AI_ASSET_SOURCES,
+  AI_ASSET_DISCOVERY_STATUSES,
+  AI_ASSET_ENTITY_TYPES,
+  AI_SYSTEM_ASSET_ROLES,
+  ASSET_RELATIONSHIP_TYPES,
+} from './types.js';
+export type {
+  AiSystemOwnerType,
+  AiSystemCriticality,
+  AiSystemEnvironment,
+  AiSystemLifecycleStatus,
+  ListAiSystemsQuery,
+  AiSystemRecord,
+  AiAssetType,
+  AiAssetSource,
+  AiAssetDiscoveryStatus,
+  AiAssetEntityType,
+  ListAiAssetsQuery,
+  AdoptAiAssetInput,
+  AiAssetRecord,
+  AiSystemAssetRole,
+  AttachAiSystemAssetInput,
+  AiSystemAssetRecord,
+  AssetRelationshipType,
+  CreateAssetRelationshipInput,
+  ListAssetRelationshipsQuery,
+  AssetRelationshipRecord,
+} from './types.js';

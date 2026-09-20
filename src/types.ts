@@ -1276,3 +1276,130 @@ export interface MemorySourceAuthorization extends Omit<MemorySourceAuthorizatio
   authorityUrl: string | null;
   authorityPublicKey: string | null;
 }
+
+// ── AI Systems / Assets / Relationships (SDK-0001 — parity with be's
+// AISYS-0002; see be/openapi.json + CONTRACT.md, entity-derived enums) ──────
+
+/** `entities/ai-system.entity.ts`'s `AI_SYSTEM_OWNER_TYPES`. */
+export const AI_SYSTEM_OWNER_TYPES = ['user', 'team'] as const;
+export type AiSystemOwnerType = (typeof AI_SYSTEM_OWNER_TYPES)[number];
+
+/** `entities/ai-system.entity.ts`'s `AI_SYSTEM_CRITICALITIES`. */
+export const AI_SYSTEM_CRITICALITIES = ['low', 'medium', 'high', 'critical'] as const;
+export type AiSystemCriticality = (typeof AI_SYSTEM_CRITICALITIES)[number];
+
+/** `entities/ai-system.entity.ts`'s `AI_SYSTEM_ENVIRONMENTS`. */
+export const AI_SYSTEM_ENVIRONMENTS = ['development', 'staging', 'production', 'sandbox'] as const;
+export type AiSystemEnvironment = (typeof AI_SYSTEM_ENVIRONMENTS)[number];
+
+/** `entities/ai-system.entity.ts`'s `AI_SYSTEM_LIFECYCLE_STATUSES`. */
+export const AI_SYSTEM_LIFECYCLE_STATUSES = [
+  'proposed', 'assessment', 'approved', 'development', 'production', 'suspended', 'retired',
+] as const;
+export type AiSystemLifecycleStatus = (typeof AI_SYSTEM_LIFECYCLE_STATUSES)[number];
+
+/** Query params accepted by `PraesidiaAiSystems.list` (`ListAiSystemsQueryDto`). */
+export interface ListAiSystemsQuery {
+  lifecycleStatus?: AiSystemLifecycleStatus;
+  environment?: AiSystemEnvironment;
+  criticality?: AiSystemCriticality;
+  businessUnit?: string;
+  ownerId?: string;
+  includeArchived?: boolean;
+  q?: string;
+  page?: number;
+  limit?: number;
+}
+
+/** An AI System record as returned by the API (`AiSystemResponseDto`, passthrough shape). */
+export type AiSystemRecord = Record<string, unknown>;
+
+/** `entities/ai-asset.entity.ts`'s `AI_ASSET_TYPES` (20 values). */
+export const AI_ASSET_TYPES = [
+  'APPLICATION', 'AGENT', 'MODEL', 'MODEL_ENDPOINT', 'MCP_SERVER', 'MCP_TOOL', 'A2A_ENDPOINT',
+  'API', 'DATA_SOURCE', 'DATASET', 'VECTOR_STORE', 'RAG_INDEX', 'PROMPT', 'SKILL', 'VENDOR',
+  'IDENTITY', 'CREDENTIAL', 'REPOSITORY', 'CLOUD_RESOURCE', 'WORKFLOW',
+] as const;
+export type AiAssetType = (typeof AI_ASSET_TYPES)[number];
+
+/** `entities/ai-asset.entity.ts`'s `AI_ASSET_SOURCES`. */
+export const AI_ASSET_SOURCES = ['manual', 'runtime_observation', 'discovery_connector', 'api', 'import'] as const;
+export type AiAssetSource = (typeof AI_ASSET_SOURCES)[number];
+
+/** `entities/ai-asset.entity.ts`'s `AI_ASSET_DISCOVERY_STATUSES`. */
+export const AI_ASSET_DISCOVERY_STATUSES = ['discovered', 'adopted', 'ignored'] as const;
+export type AiAssetDiscoveryStatus = (typeof AI_ASSET_DISCOVERY_STATUSES)[number];
+
+/** `dto/adopt-ai-asset.dto.ts`'s `AI_ASSET_ENTITY_TYPES` (adopt's `entityType`). */
+export const AI_ASSET_ENTITY_TYPES = ['agent', 'application', 'mcp-server', 'llm-config', 'workflow', 'eval-dataset'] as const;
+export type AiAssetEntityType = (typeof AI_ASSET_ENTITY_TYPES)[number];
+
+/** Query params accepted by `PraesidiaAiSystems.listAssets` (`ListAiAssetsQueryDto`). */
+export interface ListAiAssetsQuery {
+  assetType?: AiAssetType;
+  source?: AiAssetSource;
+  discoveryStatus?: AiAssetDiscoveryStatus;
+  environment?: AiSystemEnvironment;
+  includeArchived?: boolean;
+  q?: string;
+  page?: number;
+  limit?: number;
+}
+
+/** Body accepted by `PraesidiaAiSystems.adoptAsset` (`AdoptAiAssetDto`). Idempotent: a repeat
+ * call for the same `entityType`/`entityId` returns the same asset id, no duplicate. */
+export interface AdoptAiAssetInput {
+  entityType: AiAssetEntityType;
+  entityId: string;
+  aiSystemId?: string;
+  role?: AiSystemAssetRole;
+}
+
+/** An AI Asset record as returned by the API (`AiAssetResponseDto`, passthrough shape). */
+export type AiAssetRecord = Record<string, unknown>;
+
+/** `entities/ai-system-asset.entity.ts`'s `AiSystemAssetRole` (hand-copied per CONTRACT.md —
+ * not entity-array-derived like the other AI Systems enums). */
+export const AI_SYSTEM_ASSET_ROLES = ['primary', 'supporting', 'dependency', 'external'] as const;
+export type AiSystemAssetRole = (typeof AI_SYSTEM_ASSET_ROLES)[number];
+
+/** Body accepted by `PraesidiaAiSystems.attachAsset` (`AttachAiSystemAssetDto`). */
+export interface AttachAiSystemAssetInput {
+  assetId: string;
+  role?: AiSystemAssetRole;
+}
+
+/** An AI System ↔ Asset membership record (`AiSystemAssetResponseDto`, passthrough shape). */
+export type AiSystemAssetRecord = Record<string, unknown>;
+
+/** `entities/asset-relationship.entity.ts`'s `ASSET_RELATIONSHIP_TYPES`. */
+export const ASSET_RELATIONSHIP_TYPES = [
+  'USES', 'CALLS', 'ACCESSES', 'CONTAINS', 'DELEGATES_TO', 'HOSTED_BY', 'READS',
+  'HAS_PERMISSION', 'GOVERNED_BY',
+] as const;
+export type AssetRelationshipType = (typeof ASSET_RELATIONSHIP_TYPES)[number];
+
+/** Body accepted by `PraesidiaAiSystems.createRelationship` (`CreateAssetRelationshipDto`). */
+export interface CreateAssetRelationshipInput {
+  sourceAssetId: string;
+  targetAssetId: string;
+  relationshipType: AssetRelationshipType;
+  source?: string;
+  confidence?: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** Query params accepted by `PraesidiaAiSystems.listRelationships` (`ListAssetRelationshipsQueryDto`). */
+export interface ListAssetRelationshipsQuery {
+  sourceAssetId?: string;
+  targetAssetId?: string;
+  /** Either endpoint (source or target). */
+  assetId?: string;
+  relationshipType?: AssetRelationshipType;
+  includeArchived?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+/** An asset relationship (graph edge) record (`AssetRelationshipResponseDto`, passthrough shape). */
+export type AssetRelationshipRecord = Record<string, unknown>;
