@@ -1331,11 +1331,13 @@ export interface UpdateAiSystemOwnersInput {
   complianceOwnerId?: string | null;
 }
 
-/** `entities/ai-asset.entity.ts`'s `AI_ASSET_TYPES` (20 values). */
+/** `entities/ai-asset.entity.ts`'s `AI_ASSET_TYPES` (23 values, SDK-0007 synced with DB-0300's
+ * widened enum; kept in sync via `ai-systems.spec.ts`'s openapi contract test). */
 export const AI_ASSET_TYPES = [
   'APPLICATION', 'AGENT', 'MODEL', 'MODEL_ENDPOINT', 'MCP_SERVER', 'MCP_TOOL', 'A2A_ENDPOINT',
   'API', 'DATA_SOURCE', 'DATASET', 'VECTOR_STORE', 'RAG_INDEX', 'PROMPT', 'SKILL', 'VENDOR',
-  'IDENTITY', 'CREDENTIAL', 'REPOSITORY', 'CLOUD_RESOURCE', 'WORKFLOW',
+  'IDENTITY', 'CREDENTIAL', 'REPOSITORY', 'CLOUD_RESOURCE', 'WORKFLOW', 'TOOL', 'API_ENDPOINT',
+  'DATA_SCOPE',
 ] as const;
 export type AiAssetType = (typeof AI_ASSET_TYPES)[number];
 
@@ -1421,10 +1423,11 @@ export interface ChangeAiSystemAssetRoleInput {
   role: AiSystemAssetRole;
 }
 
-/** `entities/asset-relationship.entity.ts`'s `ASSET_RELATIONSHIP_TYPES`. */
+/** `entities/asset-relationship.entity.ts`'s `ASSET_RELATIONSHIP_TYPES` (12 values, SDK-0007
+ * synced -- see `AI_ASSET_TYPES`'s note above). */
 export const ASSET_RELATIONSHIP_TYPES = [
   'USES', 'CALLS', 'ACCESSES', 'CONTAINS', 'DELEGATES_TO', 'HOSTED_BY', 'READS',
-  'HAS_PERMISSION', 'GOVERNED_BY',
+  'HAS_PERMISSION', 'GOVERNED_BY', 'CAN_INVOKE', 'GRANTS_SCOPE', 'CAN_ASSUME',
 ] as const;
 export type AssetRelationshipType = (typeof ASSET_RELATIONSHIP_TYPES)[number];
 

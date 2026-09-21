@@ -1,6 +1,10 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { PraesidiaAiSystems } from './ai-systems.js';
 import { PraesidiaConfigError } from './errors.js';
+import { AI_ASSET_TYPES, ASSET_RELATIONSHIP_TYPES } from './types.js';
 import { makeFetchMock } from './__tests__/fetch-mock.js';
 
 describe('PraesidiaAiSystems', () => {
@@ -372,5 +376,19 @@ describe('PraesidiaAiSystems', () => {
     );
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
+  });
+
+  it('AI_ASSET_TYPES/ASSET_RELATIONSHIP_TYPES match be/openapi.json (SDK-0007)', () => {
+    // Reads the sibling-checkout be/openapi.json (never regenerated here) and
+    // fails if it drifts from these tuples again -- see SDK-0007.
+    const here = dirname(fileURLToPath(import.meta.url));
+    const specPath = join(here, '..', '..', 'be', 'openapi.json');
+    const spec = JSON.parse(readFileSync(specPath, 'utf8'));
+    const schemas = spec.components.schemas;
+    const openapiAssetTypes: string[] = schemas.AiAsset.properties.assetType.enum;
+    const openapiRelationshipTypes: string[] =
+      schemas.AssetRelationship.properties.relationshipType.enum;
+    expect(new Set(AI_ASSET_TYPES)).toEqual(new Set(openapiAssetTypes));
+    expect(new Set(ASSET_RELATIONSHIP_TYPES)).toEqual(new Set(openapiRelationshipTypes));
   });
 });
