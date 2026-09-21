@@ -211,6 +211,7 @@ export {
   AI_ASSET_ENTITY_TYPES,
   AI_SYSTEM_ASSET_ROLES,
   ASSET_RELATIONSHIP_TYPES,
+  ASSET_GRAPH_DIRECTIONS,
 } from './types.js';
 export type {
   AiSystemOwnerType,
@@ -239,4 +240,13 @@ export type {
   UpdateAiAssetInput,
   ChangeAiSystemAssetRoleInput,
   UpdateAssetRelationshipInput,
+  // SDK-0005 — traverse (AISYS-0003) + summary (AISYS-0004)
+  AssetGraphDirection,
+  TraverseAssetGraphQuery,
+  AssetGraphNode,
+  AssetGraphEdge,
+  AssetGraphStats,
+  AssetGraphTraversalResponse,
+  AiSystemSummarySection,
+  AiSystemSummaryResponse,
 } from './types.js';

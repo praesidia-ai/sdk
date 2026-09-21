@@ -1462,3 +1462,96 @@ export type AssetRelationshipRecord = Record<string, unknown>;
 export type UpdateAssetRelationshipInput = Partial<
   Omit<CreateAssetRelationshipInput, 'sourceAssetId' | 'targetAssetId'>
 >;
+
+/** `TraverseAssetGraphQueryDto`'s `direction` (be's AISYS-0003). */
+export const ASSET_GRAPH_DIRECTIONS = ['downstream', 'upstream', 'both'] as const;
+export type AssetGraphDirection = (typeof ASSET_GRAPH_DIRECTIONS)[number];
+
+/**
+ * Query params accepted by `PraesidiaAiSystems.traverse`
+ * (`TraverseAssetGraphQueryDto`, be's AISYS-0003, SDK-0005). `assetTypes`/
+ * `relationshipTypes` are applied INSIDE the recursive traversal leg, so a
+ * filtered-out node prunes everything beyond it too.
+ */
+export interface TraverseAssetGraphQuery {
+  /** Anchor node to traverse from. */
+  assetId: string;
+  direction?: AssetGraphDirection;
+  /** Hop cap; server-clamped by `AI_SYSTEM_GRAPH_MAX_DEPTH` (default 6) — a
+   * value above the cap is lowered, not rejected (see `stats.depthClamped`). */
+  maxDepth?: number;
+  assetTypes?: AiAssetType[];
+  relationshipTypes?: AssetRelationshipType[];
+  includeArchived?: boolean;
+}
+
+/** A node in a traversal result (`AssetNodeDto`, passthrough shape). */
+export interface AssetGraphNode {
+  id: string;
+  assetType: AiAssetType;
+  name: string;
+  entityType?: AiAssetEntityType | null;
+  entityId?: string | null;
+  environment?: AiSystemEnvironment | null;
+}
+
+/** An edge in a traversal result (`RelationshipEdgeDto`). */
+export interface AssetGraphEdge {
+  id: string;
+  sourceAssetId: string;
+  targetAssetId: string;
+  relationshipType: AssetRelationshipType;
+  source: string;
+  confidence: string;
+}
+
+/** `AssetGraphStatsDto` — `depth` is the `maxDepth` actually applied (post-clamp). `truncated`
+ * is always `false` today: an oversized result 413s instead (`AI_SYSTEM_GRAPH_MAX_NODES`). */
+export interface AssetGraphStats {
+  depth: number;
+  nodeCount: number;
+  edgeCount: number;
+  depthClamped: boolean;
+  truncated: boolean;
+}
+
+/**
+ * Response of `PraesidiaAiSystems.traverse` (`AssetGraphTraversalResponseDto`).
+ * The anchor's shortest-hop reachability TREE (one inbound edge per
+ * non-anchor node), not the full induced subgraph of every edge between
+ * reached nodes.
+ */
+export interface AssetGraphTraversalResponse {
+  nodes: AssetGraphNode[];
+  edges: AssetGraphEdge[];
+  stats: AssetGraphStats;
+}
+
+/**
+ * One section of `PraesidiaAiSystems.getSummary`'s response
+ * (`AiSystemSummarySectionDto`, be's AISYS-0004). `available: false` means
+ * the backing service cannot filter by this AI System's asset entity ids at
+ * all (see `reason`) — distinct from a genuine all-zero `counts`.
+ */
+export interface AiSystemSummarySection {
+  available: boolean;
+  reason?: string;
+  counts?: Record<string, number>;
+  updatedAt?: string;
+}
+
+/**
+ * Response of `PraesidiaAiSystems.getSummary`
+ * (`AiSystemSummaryResponseDto`, be's AISYS-0004, SDK-0005) — thin
+ * cross-domain aggregations for one AI System's linked assets.
+ * `cost` is always `available: false` today (AISYS-0025 tracks the gap).
+ */
+export interface AiSystemSummaryResponse {
+  compliance: AiSystemSummarySection;
+  risk: AiSystemSummarySection;
+  evaluations: AiSystemSummarySection;
+  cost: AiSystemSummarySection;
+  evidence: AiSystemSummarySection;
+  /** Assets attached to this AI System whose `entityType` is null. */
+  unlinkedAssets: number;
+}

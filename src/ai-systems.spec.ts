@@ -59,6 +59,27 @@ describe('PraesidiaAiSystems', () => {
       expect(url).toContain('/ai-systems/sys-1');
     });
 
+    it('gets an AI System summary via GET .../ai-systems/:id/summary (SDK-0005)', async () => {
+      globalThis.fetch = makeFetchMock([
+        {
+          json: {
+            compliance: { available: true, counts: { classified: 2 } },
+            risk: { available: true, counts: { open: 0 } },
+            evaluations: { available: true, counts: { runs: 4 } },
+            cost: { available: false, reason: 'no per-entity cost filter yet (AISYS-0025)' },
+            evidence: { available: true, counts: { logs: 10 } },
+            unlinkedAssets: 1,
+          },
+        },
+      ]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      const summary = await aiSystems.getSummary('sys-1');
+      expect(summary.cost.available).toBe(false);
+      expect(summary.unlinkedAssets).toBe(1);
+      const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
+      expect(url).toContain('/ai-systems/sys-1/summary');
+    });
+
     it('creates an AI System via POST', async () => {
       globalThis.fetch = makeFetchMock([{ json: { id: 'sys-2', name: 'New system' } }]);
       const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
@@ -298,6 +319,43 @@ describe('PraesidiaAiSystems', () => {
       const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
       await expect(
         aiSystems.listRelationships({ relationshipType: 'FRIENDS_WITH' as never }),
+      ).rejects.toThrow(PraesidiaConfigError);
+    });
+
+    it('traverses the asset graph via GET .../asset-relationships/graph/traverse (SDK-0005)', async () => {
+      globalThis.fetch = makeFetchMock([
+        {
+          json: {
+            nodes: [{ id: 'a', assetType: 'AGENT', name: 'Agent A' }],
+            edges: [],
+            stats: { depth: 3, nodeCount: 1, edgeCount: 0, depthClamped: false, truncated: false },
+          },
+        },
+      ]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      const result = await aiSystems.traverse({
+        assetId: 'a',
+        direction: 'both',
+        assetTypes: ['AGENT', 'MODEL'],
+      });
+      expect(result.stats.nodeCount).toBe(1);
+      const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
+      expect(url).toContain('/organizations/org-1/asset-relationships/graph/traverse');
+      expect(url).toContain('assetId=a');
+      expect(url).toContain('direction=both');
+      expect(url).toContain('assetTypes=AGENT%2CMODEL');
+    });
+
+    it('rejects an invalid direction/assetTypes/relationshipTypes on traverse before sending a request (SDK-0005)', async () => {
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      await expect(
+        aiSystems.traverse({ assetId: 'a', direction: 'sideways' as never }),
+      ).rejects.toThrow(PraesidiaConfigError);
+      await expect(
+        aiSystems.traverse({ assetId: 'a', assetTypes: ['NOT_A_TYPE' as never] }),
+      ).rejects.toThrow(PraesidiaConfigError);
+      await expect(
+        aiSystems.traverse({ assetId: 'a', relationshipTypes: ['FRIENDS_WITH' as never] }),
       ).rejects.toThrow(PraesidiaConfigError);
     });
   });

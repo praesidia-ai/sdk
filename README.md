@@ -610,6 +610,7 @@ await aiSystems.createRelationship({
 |---|---|---|
 | `list(query?)` | `Promise<AiSystemRecord[]>` | `GET .../ai-systems` |
 | `get(id)` | `Promise<AiSystemRecord>` | `GET .../ai-systems/:id` |
+| `getSummary(id)` | `Promise<AiSystemSummaryResponse>` | `GET .../ai-systems/:id/summary` |
 | `create(data)` | `Promise<AiSystemRecord>` | `POST .../ai-systems` |
 | `update(id, data)` | `Promise<AiSystemRecord>` | `PATCH .../ai-systems/:id` |
 | `updateOwners(id, data)` | `Promise<AiSystemRecord>` | `PATCH .../ai-systems/:id/owners` |
@@ -633,19 +634,27 @@ await aiSystems.createRelationship({
 | `updateRelationship(id, data)` | `Promise<AssetRelationshipRecord>` | `PATCH .../asset-relationships/:id` |
 | `archiveRelationship(id)` | `Promise<AssetRelationshipRecord>` | `POST .../asset-relationships/:id/archive` |
 | `restoreRelationship(id)` | `Promise<AssetRelationshipRecord>` | `POST .../asset-relationships/:id/restore` |
+| `traverse(query)` | `Promise<AssetGraphTraversalResponse>` | `GET .../asset-relationships/graph/traverse` |
 
 Every `list*`/`listAssets`/`listRelationships` also has a `*Page` (full
 pagination envelope) and `*All` (auto-paginating async generator) sibling,
 matching the `listPage`/`listAll` convention above (SCAN2-011).
 
-> **Multi-hop graph traversal is not covered yet.** be's traversal endpoint
-> (AISYS-0003, `{ nodes, edges, stats }`) has still not landed on
-> `be/openapi.json` as of this release (SDK-0003) — add a `traverse()`
-> method once that contract lands (see SDK-0001's Evidence for the original
-> deferral; SDK-0005 tracks the follow-up). Every other route on be's
-> AISYS-0002 contract (owner/lifecycle sub-resource PATCHes, direct AI Asset
-> create/get/update/archive/restore, membership role-change, and
-> per-relationship get/update/archive/restore) is now covered as of SDK-0003.
+`traverse({ assetId, direction?, maxDepth?, assetTypes?, relationshipTypes?,
+includeArchived? })` (be's AISYS-0003) walks the asset graph from an anchor
+node and returns `{ nodes, edges, stats }` — the anchor's shortest-hop
+reachability TREE (one inbound edge per non-anchor node), not the full
+induced subgraph of every edge between reached nodes. `maxDepth` above
+`AI_SYSTEM_GRAPH_MAX_DEPTH` (default 6) is clamped, not rejected
+(`stats.depthClamped`); an oversized result 413s
+(`AI_SYSTEM_GRAPH_MAX_NODES`, default 2000) rather than truncating.
+
+`getSummary(id)` (be's AISYS-0004) returns `{ compliance, risk,
+evaluations, cost, evidence, unlinkedAssets }` — each section
+`{ available, reason?, counts?, updatedAt? }`. `available: false` means the
+backing service cannot filter by this AI System's linked asset entity ids
+at all (see `reason`); `cost` is always `available: false` today
+(AISYS-0025 tracks the gap).
 
 ## Audit log read-back (FINDING-2 parity with the Python SDK)
 
@@ -940,6 +949,19 @@ this repo's scanner rather than a third, Python-native re-derivation.
 
 ## Changelog
 
+### Unreleased — SDK-0005: `traverse` + `summary`, closing the AISYS-0003/0004 gap
+
+- **Added** to `PraesidiaAiSystems` (`src/ai-systems.ts`): `traverse(query)`
+  (`GET .../asset-relationships/graph/traverse`, be's AISYS-0003) and
+  `getSummary(id)` (`GET .../ai-systems/:id/summary`, be's AISYS-0004,
+  landed on the same contract batch — added together rather than filing a
+  second ticket for a one-line addition). New methods + new `types.ts`
+  exports (`TraverseAssetGraphQuery`, `AssetGraphTraversalResponse`,
+  `AssetGraphNode`, `AssetGraphEdge`, `AssetGraphStats`,
+  `AiSystemSummaryResponse`, `AiSystemSummarySection`,
+  `ASSET_GRAPH_DIRECTIONS`/`AssetGraphDirection`) only — no existing
+  signature touched, not a breaking change.
+
 ### Unreleased — SDK-0003: full CONTRACT parity for the AI System / asset graph
 
 - **Added** to `PraesidiaAiSystems` (`src/ai-systems.ts`): systems
@@ -949,8 +971,8 @@ this repo's scanner rather than a third, Python-native re-derivation.
   `getRelationship`/`updateRelationship`/`archiveRelationship`/
   `restoreRelationship` — closing every be AISYS-0002 route SDK-0001 left
   out. New methods only, no existing signature touched — not a breaking
-  change. Multi-hop traversal (be's AISYS-0003) is still deferred; it has
-  not landed on `be/openapi.json` as of this release.
+  change. Multi-hop traversal (be's AISYS-0003) was still deferred at that
+  point; SDK-0005 adds it.
 
 ### Unreleased — SDK-0001: AI System / asset / relationship graph resource
 

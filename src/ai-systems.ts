@@ -17,12 +17,15 @@ import {
   AI_SYSTEM_CRITICALITIES,
   AI_SYSTEM_ENVIRONMENTS,
   AI_SYSTEM_LIFECYCLE_STATUSES,
+  ASSET_GRAPH_DIRECTIONS,
   ASSET_RELATIONSHIP_TYPES,
   type AdoptAiAssetInput,
   type AiAssetRecord,
   type AiSystemAssetRecord,
   type AiSystemLifecycleStatus,
   type AiSystemRecord,
+  type AiSystemSummaryResponse,
+  type AssetGraphTraversalResponse,
   type AssetRelationshipRecord,
   type AttachAiSystemAssetInput,
   type ChangeAiSystemAssetRoleInput,
@@ -32,6 +35,7 @@ import {
   type ListAiAssetsQuery,
   type ListAiSystemsQuery,
   type ListAssetRelationshipsQuery,
+  type TraverseAssetGraphQuery,
   type UpdateAiAssetInput,
   type UpdateAiSystemOwnersInput,
   type UpdateAssetRelationshipInput,
@@ -59,9 +63,9 @@ const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
  * /asset-relationships. Auth: Authorization: Bearer <apiKey>. Requires the
  * AI_SYSTEMS feature and the AI_SYSTEMS_ / AI_ASSETS_ permission families.
  *
- * Multi-hop graph traversal (be's AISYS-0003) is not yet landed on
- * `be/openapi.json` as of this SDK release — not covered here; add it once
- * the contract lands (see the item's Evidence for the exact deferral).
+ * Multi-hop graph traversal ({@link traverse}, be's AISYS-0003) and the
+ * cross-domain summary ({@link getSummary}, be's AISYS-0004) are covered
+ * as of SDK-0005.
  */
 export class PraesidiaAiSystems {
   private readonly client: PraesidiaClient;
@@ -132,6 +136,19 @@ export class PraesidiaAiSystems {
   async get(aiSystemId: string): Promise<AiSystemRecord> {
     return this.client.get<AiSystemRecord>(
       `${this.systemsBase}/${encodePathSegment(aiSystemId, 'aiSystemId')}`,
+    );
+  }
+
+  /**
+   * Thin cross-domain aggregation summary for an AI System (be's AISYS-0004).
+   * GET .../ai-systems/:id/summary. A section reports `available: false`
+   * with a `reason` when the backing service cannot filter by this AI
+   * System's linked asset entity ids at all (e.g. `cost`, pending
+   * AISYS-0025) — distinct from a genuine all-zero `counts`.
+   */
+  async getSummary(aiSystemId: string): Promise<AiSystemSummaryResponse> {
+    return this.client.get<AiSystemSummaryResponse>(
+      `${this.systemsBase}/${encodePathSegment(aiSystemId, 'aiSystemId')}/summary`,
     );
   }
 
@@ -426,6 +443,27 @@ export class PraesidiaAiSystems {
     );
   }
 
+  /**
+   * Multi-hop graph traversal from an anchor asset (be's AISYS-0003).
+   * GET .../asset-relationships/graph/traverse. Returns the anchor's
+   * shortest-hop reachability TREE (one inbound edge per non-anchor node),
+   * not the full induced subgraph of every edge between reached nodes.
+   * `maxDepth` above `AI_SYSTEM_GRAPH_MAX_DEPTH` is clamped, not rejected
+   * (see the response's `stats.depthClamped`); an oversized result 413s
+   * (`AI_SYSTEM_GRAPH_MAX_NODES`) rather than truncating.
+   */
+  async traverse(
+    query: TraverseAssetGraphQuery,
+  ): Promise<AssetGraphTraversalResponse> {
+    assertEnum(query.direction, ASSET_GRAPH_DIRECTIONS, 'direction');
+    assertEnumArray(query.assetTypes, AI_ASSET_TYPES, 'assetTypes');
+    assertEnumArray(query.relationshipTypes, ASSET_RELATIONSHIP_TYPES, 'relationshipTypes');
+    const qs = buildQueryString(query);
+    return this.client.get<AssetGraphTraversalResponse>(
+      `${this.relationshipsBase}/graph/traverse${qs}`,
+    );
+  }
+
   /** Adopt a rotated credential in-process (zero-downtime swap). */
   refreshCredential(apiKey: string): void {
     this.client.setApiKey(apiKey);
@@ -441,6 +479,16 @@ function assertEnum<T extends string>(
   if (value !== undefined && !allowed.includes(value)) {
     throw new PraesidiaConfigError(`${label} must be one of ${allowed.join(', ')}`);
   }
+}
+
+/** Like {@link assertEnum}, but checks every element of an optional array. */
+function assertEnumArray<T extends string>(
+  values: readonly T[] | undefined,
+  allowed: readonly T[],
+  label: string,
+): void {
+  if (values === undefined) return;
+  for (const value of values) assertEnum(value, allowed, label);
 }
 
 /** Build a `?a=b&c=d` query string, omitting undefined values. */
