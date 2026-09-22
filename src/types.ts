@@ -1423,10 +1423,10 @@ export interface ChangeAiSystemAssetRoleInput {
   role: AiSystemAssetRole;
 }
 
-/** `entities/asset-relationship.entity.ts`'s `ASSET_RELATIONSHIP_TYPES` (12 values, SDK-0007
- * synced -- see `AI_ASSET_TYPES`'s note above). */
+/** `entities/asset-relationship.entity.ts`'s `ASSET_RELATIONSHIP_TYPES` (13 values, SDK-0007/
+ * SDK-0304 synced -- see `AI_ASSET_TYPES`'s note above). */
 export const ASSET_RELATIONSHIP_TYPES = [
-  'USES', 'CALLS', 'ACCESSES', 'CONTAINS', 'DELEGATES_TO', 'HOSTED_BY', 'READS',
+  'USES', 'CALLS', 'ACCESSES', 'CONTAINS', 'DELEGATES_TO', 'HOSTED_BY', 'READS', 'WRITES',
   'HAS_PERMISSION', 'GOVERNED_BY', 'CAN_INVOKE', 'GRANTS_SCOPE', 'CAN_ASSUME',
 ] as const;
 export type AssetRelationshipType = (typeof ASSET_RELATIONSHIP_TYPES)[number];

@@ -983,6 +983,12 @@ this repo's scanner rather than a third, Python-native re-derivation.
   DELETE route that answers with a JSON body instead of 204. No breaking
   changes — additive only.
 
+### Unreleased — SDK-0304: `ASSET_RELATIONSHIP_TYPES` adds `WRITES`
+
+- **Fixed** `ASSET_RELATIONSHIP_TYPES` (`types.ts`, 12 → 13: adds `WRITES`) to match
+  `ui/swagger.json`'s `AssetRelationship.relationshipType` enum (DB-0502, the write half of the
+  PRAE-161 lineage chain). No breaking changes — widened valid-value set only.
+
 ### Unreleased — SDK-0007: `AI_ASSET_TYPES`/`ASSET_RELATIONSHIP_TYPES` contract sync
 
 - **Fixed** `AI_ASSET_TYPES` (`types.ts`, 20 → 23: adds `TOOL`, `API_ENDPOINT`, `DATA_SCOPE`) and
