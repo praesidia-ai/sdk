@@ -152,7 +152,7 @@ export function parseErrorEnvelope(text: string): PraesidiaErrorEnvelope | undef
 }
 
 /** Build a `PraesidiaApiError` from a non-2xx response's bounded-read body. */
-function buildApiError(status: number, path: string, text: string): PraesidiaApiError {
+export function buildApiError(status: number, path: string, text: string): PraesidiaApiError {
   const envelope = parseErrorEnvelope(text);
   return new PraesidiaApiError(status, path, text, envelope, isRetryableStatus(status));
 }

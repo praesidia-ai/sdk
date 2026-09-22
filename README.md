@@ -866,6 +866,17 @@ the substrate-selected signature over those exact bytes; it also checks
 `expirationDate`. It
 never throws — a malformed passport / key yields `{ verified: false, reason }`.
 
+A human-readable PDF of an **AI System's** signed passport (signature
+fingerprint + verification URL printed on it) is a public download too:
+
+```ts
+import { writeFileSync } from 'node:fs';
+
+const pdf = await trust.fetchAiSystemPassportPdf(aiSystemId); // Uint8Array, starts with %PDF-
+writeFileSync('trust-passport.pdf', pdf);
+// Unknown / soft-deleted AI System → PraesidiaApiError (status 404)
+```
+
 ## Fail-open / fail-closed
 
 | Scenario | Default behaviour |
@@ -912,6 +923,7 @@ only by `guard.protectAction` — see [above](#guardprotectactionopts--promisepr
 | `PraesidiaAudit.*` | `GET /organizations/:orgId/audit-logs[/export]` | `AUDIT_VIEW` / `AUDIT_EXPORT` |
 | `PraesidiaAnalytics.*` | `GET /organizations/:orgId/analytics[/…]` | `ANALYTICS_VIEW` / `ANALYTICS_EXPORT` (`advanced/*` needs `ADVANCED_ANALYTICS`) |
 | `PraesidiaTrust.fetch*` | `GET /trust/passport/:agentId[/verify]` | public (no auth) |
+| `PraesidiaTrust.fetchAiSystemPassportPdf` | `GET /trust/passport/ai-systems/:aiSystemId/passport.pdf` | public (no auth) |
 
 Authentication: `Authorization: Bearer <apiKey>` (org-scoped API key). The trust
 passport routes are public; `PraesidiaTrust` verifies signatures offline.

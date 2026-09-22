@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
 
-import { PraesidiaApiError } from './errors.js';
 import {
+  MAX_BINARY_RESPONSE_BYTES,
+  buildApiError,
   encodePathSegment,
   normalizeBaseUrl,
   readBoundedErrorResponse,
   readBoundedJsonResponse,
+  readBoundedResponseBytes,
   resolveRequestTimeoutMs,
 } from './client.js';
 import {
@@ -91,6 +93,23 @@ export class PraesidiaTrust {
   ): Promise<TrustPassportVerifyBundle> {
     return this.publicGet<TrustPassportVerifyBundle>(
       `/trust/passport/${encodePathSegment(agentId, 'agentId')}/verify`,
+    );
+  }
+
+  /**
+   * Download the human-readable PDF rendering of an AI System's signed trust
+   * passport (BE-0541). GET /trust/passport/ai-systems/:aiSystemId/passport.pdf
+   * (public — no auth). Returns the raw PDF bytes; in Node write them with
+   * `fs.writeFileSync(path, bytes)`. Throws `PraesidiaApiError` (404) for an
+   * unknown or soft-deleted AI System.
+   */
+  async fetchAiSystemPassportPdf(aiSystemId: string): Promise<Uint8Array> {
+    const path = `/trust/passport/ai-systems/${encodePathSegment(aiSystemId, 'aiSystemId')}/passport.pdf`;
+    return readBoundedResponseBytes(
+      await this.publicFetch(path, 'application/pdf'),
+      MAX_BINARY_RESPONSE_BYTES,
+      path,
+      'binary response body',
     );
   }
 
@@ -307,18 +326,26 @@ export class PraesidiaTrust {
 
   // ── Private helpers ─────────────────────────────────────────────────────────
 
-  /** Unauthenticated GET against a public trust route. */
+  /** Unauthenticated JSON GET against a public trust route. */
   private async publicGet<T>(path: string): Promise<T> {
+    return readBoundedJsonResponse<T>(
+      await this.publicFetch(path, 'application/json'),
+      path,
+    );
+  }
+
+  /** Unauthenticated GET against a public trust route; non-2xx throws. */
+  private async publicFetch(path: string, accept: string): Promise<Response> {
     const response = await fetch(`${this.baseUrl}${path}`, {
       method: 'GET',
-      headers: { Accept: 'application/json' },
+      headers: { Accept: accept },
       signal: AbortSignal.timeout(this.requestTimeoutMs),
     });
     if (!response.ok) {
       const text = await readBoundedErrorResponse(response, path);
-      throw new PraesidiaApiError(response.status, path, text);
+      throw buildApiError(response.status, path, text);
     }
-    return readBoundedJsonResponse<T>(response, path);
+    return response;
   }
 }
 

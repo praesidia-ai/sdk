@@ -645,4 +645,56 @@ describe('PraesidiaTrust', () => {
       PraesidiaApiError,
     );
   });
+
+  // ── SDK-0306: AI System trust-passport PDF (BE-0541, binary response) ─────
+
+  it('fetchAiSystemPassportPdf returns the exact PDF bytes, unauthenticated', async () => {
+    // A real PDF header + the high-bit "binary marker" comment line: any
+    // text/JSON decode on the way through would corrupt these bytes.
+    const pdf = new Uint8Array([
+      0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a, // %PDF-1.7\n
+      0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a, 0x00, 0xff,
+    ]);
+    globalThis.fetch = makeFetchMock([{ ok: true, status: 200, bytes: pdf }]);
+
+    const trust = new PraesidiaTrust({ baseUrl: 'https://api.praesidia.ai' });
+    const bytes = await trust.fetchAiSystemPassportPdf('sys-1');
+
+    expect(bytes).toBeInstanceOf(Uint8Array);
+    expect(Array.from(bytes)).toEqual(Array.from(pdf));
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+      .calls[0] as [string, RequestInit];
+    expect(url).toBe(
+      'https://api.praesidia.ai/trust/passport/ai-systems/sys-1/passport.pdf',
+    );
+    const headers = init.headers as Record<string, string>;
+    expect(headers['Authorization']).toBeUndefined();
+    expect(headers['Accept']).toBe('application/pdf');
+  });
+
+  it('fetchAiSystemPassportPdf raises PraesidiaApiError with the parsed JSON error envelope', async () => {
+    // be's http-exception.filter envelope for an unknown AI System.
+    globalThis.fetch = makeFetchMock([
+      {
+        ok: false,
+        status: 404,
+        json: {
+          statusCode: 404,
+          path: '/trust/passport/ai-systems/nope/passport.pdf',
+          method: 'GET',
+          requestId: 'req-404',
+          message: 'AI System not found',
+        },
+      },
+    ]);
+
+    const trust = new PraesidiaTrust();
+    const err = await trust.fetchAiSystemPassportPdf('nope').catch((e) => e);
+
+    expect(err).toBeInstanceOf(PraesidiaApiError);
+    expect(err.status).toBe(404);
+    expect(err.requestId).toBe('req-404');
+    expect(err.body?.message).toBe('AI System not found');
+    expect(err.retryable).toBe(false);
+  });
 });
