@@ -165,6 +165,66 @@ describe('PraesidiaAiSystems', () => {
       expect(url).toContain('/ai-systems/sys-1');
       expect(init.method).toBe('DELETE');
     });
+
+    it('creates-or-updates an AI System by externalId via PUT, idempotent on repeat (SDK-0302)', async () => {
+      globalThis.fetch = makeFetchMock([
+        {
+          json: {
+            id: 'sys-1',
+            externalId: 'ext-1',
+            created: true,
+            changed: true,
+            updatedAt: '2026-09-22T00:00:00Z',
+            resource: { id: 'sys-1', externalId: 'ext-1', name: 'Support triage bot' },
+          },
+        },
+        {
+          json: {
+            id: 'sys-1',
+            externalId: 'ext-1',
+            created: false,
+            changed: false,
+            updatedAt: '2026-09-22T00:00:00Z',
+            resource: { id: 'sys-1', externalId: 'ext-1', name: 'Support triage bot' },
+          },
+        },
+      ]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      const body = { name: 'Support triage bot' };
+      const first = await aiSystems.putSystemByExternalId('ext-1', body);
+      const second = await aiSystems.putSystemByExternalId('ext-1', body);
+      expect(first.created).toBe(true);
+      expect(first.changed).toBe(true);
+      expect(second.changed).toBe(false);
+      expect(second.updatedAt).toBe(first.updatedAt);
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls[0]![0]).toContain('/ai-systems/by-external-id/ext-1');
+      expect((calls[0]![1] as RequestInit).method).toBe('PUT');
+    });
+
+    it('archives an AI System by externalId via DELETE returning the outcome body (SDK-0302)', async () => {
+      globalThis.fetch = makeFetchMock([
+        {
+          json: {
+            id: 'sys-1',
+            externalId: 'ext-1',
+            created: false,
+            changed: true,
+            updatedAt: '2026-09-22T00:00:01Z',
+            resource: { id: 'sys-1', externalId: 'ext-1', archivedAt: '2026-09-22T00:00:01Z' },
+          },
+        },
+      ]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      const outcome = await aiSystems.deleteSystemByExternalId('ext-1');
+      expect(outcome.resource['archivedAt']).toBe('2026-09-22T00:00:01Z');
+      const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+        string,
+        RequestInit,
+      ];
+      expect(url).toContain('/ai-systems/by-external-id/ext-1');
+      expect(init.method).toBe('DELETE');
+    });
   });
 
   describe('AI Assets + membership + relationships', () => {
@@ -220,6 +280,63 @@ describe('PraesidiaAiSystems', () => {
       await expect(
         aiSystems.createAsset({ name: 'x', assetType: 'NOT_A_TYPE' as never }),
       ).rejects.toThrow(PraesidiaConfigError);
+    });
+
+    it('creates-or-updates an AI Asset by externalId via PUT, validating assetType first (SDK-0302)', async () => {
+      globalThis.fetch = makeFetchMock([
+        {
+          json: {
+            id: 'asset-3',
+            externalId: 'ext-asset-1',
+            created: true,
+            changed: true,
+            updatedAt: '2026-09-22T00:00:00Z',
+            resource: { id: 'asset-3', externalId: 'ext-asset-1', assetType: 'VENDOR' },
+          },
+        },
+      ]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      const outcome = await aiSystems.putAssetByExternalId('ext-asset-1', {
+        name: 'Vendor Co',
+        assetType: 'VENDOR',
+      });
+      expect(outcome.created).toBe(true);
+      const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+        string,
+        RequestInit,
+      ];
+      expect(url).toContain('/ai-assets/by-external-id/ext-asset-1');
+      expect(init.method).toBe('PUT');
+      await expect(
+        aiSystems.putAssetByExternalId('ext-asset-1', {
+          name: 'x',
+          assetType: 'NOT_A_TYPE' as never,
+        }),
+      ).rejects.toThrow(PraesidiaConfigError);
+    });
+
+    it('archives an AI Asset by externalId via DELETE returning the outcome body (SDK-0302)', async () => {
+      globalThis.fetch = makeFetchMock([
+        {
+          json: {
+            id: 'asset-3',
+            externalId: 'ext-asset-1',
+            created: false,
+            changed: true,
+            updatedAt: '2026-09-22T00:00:01Z',
+            resource: { id: 'asset-3', externalId: 'ext-asset-1', archivedAt: '2026-09-22T00:00:01Z' },
+          },
+        },
+      ]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      const outcome = await aiSystems.deleteAssetByExternalId('ext-asset-1');
+      expect(outcome.changed).toBe(true);
+      const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+        string,
+        RequestInit,
+      ];
+      expect(url).toContain('/ai-assets/by-external-id/ext-asset-1');
+      expect(init.method).toBe('DELETE');
     });
 
     it('adopts an asset via POST .../ai-assets/adopt', async () => {
@@ -324,6 +441,65 @@ describe('PraesidiaAiSystems', () => {
       await expect(
         aiSystems.listRelationships({ relationshipType: 'FRIENDS_WITH' as never }),
       ).rejects.toThrow(PraesidiaConfigError);
+    });
+
+    it('creates-or-updates a relationship by externalId via PUT, validating relationshipType first (SDK-0302)', async () => {
+      globalThis.fetch = makeFetchMock([
+        {
+          json: {
+            id: 'rel-1',
+            externalId: 'ext-rel-1',
+            created: true,
+            changed: true,
+            updatedAt: '2026-09-22T00:00:00Z',
+            resource: { id: 'rel-1', externalId: 'ext-rel-1', relationshipType: 'USES' },
+          },
+        },
+      ]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      const outcome = await aiSystems.putRelationshipByExternalId('ext-rel-1', {
+        sourceAssetId: 'a',
+        targetAssetId: 'b',
+        relationshipType: 'USES',
+      });
+      expect(outcome.created).toBe(true);
+      const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+        string,
+        RequestInit,
+      ];
+      expect(url).toContain('/asset-relationships/by-external-id/ext-rel-1');
+      expect(init.method).toBe('PUT');
+      await expect(
+        aiSystems.putRelationshipByExternalId('ext-rel-1', {
+          sourceAssetId: 'a',
+          targetAssetId: 'b',
+          relationshipType: 'FRIENDS_WITH' as never,
+        }),
+      ).rejects.toThrow(PraesidiaConfigError);
+    });
+
+    it('archives a relationship by externalId via DELETE returning the outcome body (SDK-0302)', async () => {
+      globalThis.fetch = makeFetchMock([
+        {
+          json: {
+            id: 'rel-1',
+            externalId: 'ext-rel-1',
+            created: false,
+            changed: true,
+            updatedAt: '2026-09-22T00:00:01Z',
+            resource: { id: 'rel-1', externalId: 'ext-rel-1', archivedAt: '2026-09-22T00:00:01Z' },
+          },
+        },
+      ]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      const outcome = await aiSystems.deleteRelationshipByExternalId('ext-rel-1');
+      expect(outcome.changed).toBe(true);
+      const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+        string,
+        RequestInit,
+      ];
+      expect(url).toContain('/asset-relationships/by-external-id/ext-rel-1');
+      expect(init.method).toBe('DELETE');
     });
 
     it('traverses the asset graph via GET .../asset-relationships/graph/traverse (SDK-0005)', async () => {

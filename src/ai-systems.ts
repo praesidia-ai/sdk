@@ -20,12 +20,15 @@ import {
   ASSET_GRAPH_DIRECTIONS,
   ASSET_RELATIONSHIP_TYPES,
   type AdoptAiAssetInput,
+  type AiAssetDesiredStateResult,
   type AiAssetRecord,
   type AiSystemAssetRecord,
+  type AiSystemDesiredStateResult,
   type AiSystemLifecycleStatus,
   type AiSystemRecord,
   type AiSystemSummaryResponse,
   type AssetGraphTraversalResponse,
+  type AssetRelationshipDesiredStateResult,
   type AssetRelationshipRecord,
   type AttachAiSystemAssetInput,
   type ChangeAiSystemAssetRoleInput,
@@ -65,7 +68,10 @@ const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
  *
  * Multi-hop graph traversal ({@link traverse}, be's AISYS-0003) and the
  * cross-domain summary ({@link getSummary}, be's AISYS-0004) are covered
- * as of SDK-0005.
+ * as of SDK-0005. The declarative `by-external-id` desired-state methods
+ * ({@link putSystemByExternalId} and its asset/relationship siblings, be's
+ * BE-0579) are covered as of SDK-0302 (PRAE-228/229) — the shape IaC
+ * tooling (Terraform provider, k8s operator) needs.
  */
 export class PraesidiaAiSystems {
   private readonly client: PraesidiaClient;
@@ -220,6 +226,38 @@ export class PraesidiaAiSystems {
     );
   }
 
+  /**
+   * Declaratively create-or-update an AI System keyed by an externally-owned
+   * `externalId` (be's BE-0579 desired-state API, SDK-0302/PRAE-228/229) —
+   * the shape IaC tooling (Terraform provider, k8s operator) needs instead
+   * of a lookup-then-create/update round trip. PUT
+   * .../ai-systems/by-external-id/:externalId. Idempotent: the same `data`
+   * sent twice returns `changed: false` the second time with an unchanged
+   * `updatedAt` — check it before assuming a write happened.
+   */
+  async putSystemByExternalId(
+    externalId: string,
+    data: Record<string, unknown>,
+  ): Promise<AiSystemDesiredStateResult> {
+    return this.client.put<AiSystemDesiredStateResult>(
+      `${this.systemsBase}/by-external-id/${encodePathSegment(externalId, 'externalId')}`,
+      data,
+    );
+  }
+
+  /**
+   * Archive the AI System matching `externalId` (never a hard delete, same
+   * as {@link archive}). DELETE .../ai-systems/by-external-id/:externalId.
+   * Another tenant's `externalId` 404s rather than leaking existence.
+   */
+  async deleteSystemByExternalId(
+    externalId: string,
+  ): Promise<AiSystemDesiredStateResult> {
+    return this.client.delReturning<AiSystemDesiredStateResult>(
+      `${this.systemsBase}/by-external-id/${encodePathSegment(externalId, 'externalId')}`,
+    );
+  }
+
   // ── AI Assets ────────────────────────────────────────────────────────────
 
   /**
@@ -314,6 +352,37 @@ export class PraesidiaAiSystems {
     return this.client.post<AiAssetRecord>(
       `${this.assetsBase}/${encodePathSegment(assetId, 'assetId')}/restore`,
       {},
+    );
+  }
+
+  /**
+   * Declaratively create-or-update an AI Asset keyed by an externally-owned
+   * `externalId` (be's BE-0579, SDK-0302/PRAE-228/229). PUT
+   * .../ai-assets/by-external-id/:externalId. Idempotent — see
+   * {@link putSystemByExternalId}.
+   */
+  async putAssetByExternalId(
+    externalId: string,
+    data: CreateAiAssetInput,
+  ): Promise<AiAssetDesiredStateResult> {
+    assertEnum(data.assetType, AI_ASSET_TYPES, 'assetType');
+    assertEnum(data.source, AI_ASSET_SOURCES, 'source');
+    assertEnum(data.discoveryStatus, AI_ASSET_DISCOVERY_STATUSES, 'discoveryStatus');
+    return this.client.put<AiAssetDesiredStateResult>(
+      `${this.assetsBase}/by-external-id/${encodePathSegment(externalId, 'externalId')}`,
+      data,
+    );
+  }
+
+  /**
+   * Archive the AI Asset matching `externalId` (never a hard delete).
+   * DELETE .../ai-assets/by-external-id/:externalId.
+   */
+  async deleteAssetByExternalId(
+    externalId: string,
+  ): Promise<AiAssetDesiredStateResult> {
+    return this.client.delReturning<AiAssetDesiredStateResult>(
+      `${this.assetsBase}/by-external-id/${encodePathSegment(externalId, 'externalId')}`,
     );
   }
 
@@ -461,6 +530,35 @@ export class PraesidiaAiSystems {
     const qs = buildQueryString(query);
     return this.client.get<AssetGraphTraversalResponse>(
       `${this.relationshipsBase}/graph/traverse${qs}`,
+    );
+  }
+
+  /**
+   * Declaratively create-or-update a relationship (edge) keyed by an
+   * externally-owned `externalId` (be's BE-0579, SDK-0302/PRAE-228/229). PUT
+   * .../asset-relationships/by-external-id/:externalId. Idempotent — see
+   * {@link putSystemByExternalId}.
+   */
+  async putRelationshipByExternalId(
+    externalId: string,
+    data: CreateAssetRelationshipInput,
+  ): Promise<AssetRelationshipDesiredStateResult> {
+    assertEnum(data.relationshipType, ASSET_RELATIONSHIP_TYPES, 'relationshipType');
+    return this.client.put<AssetRelationshipDesiredStateResult>(
+      `${this.relationshipsBase}/by-external-id/${encodePathSegment(externalId, 'externalId')}`,
+      data,
+    );
+  }
+
+  /**
+   * Archive the relationship matching `externalId` (never a hard delete).
+   * DELETE .../asset-relationships/by-external-id/:externalId.
+   */
+  async deleteRelationshipByExternalId(
+    externalId: string,
+  ): Promise<AssetRelationshipDesiredStateResult> {
+    return this.client.delReturning<AssetRelationshipDesiredStateResult>(
+      `${this.relationshipsBase}/by-external-id/${encodePathSegment(externalId, 'externalId')}`,
     );
   }
 

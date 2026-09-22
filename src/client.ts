@@ -552,6 +552,37 @@ export class PraesidiaClient {
     return readBoundedJsonResponse<T>(response, path);
   }
 
+  /**
+   * PUT a resource — full replace / declarative create-or-update (be's
+   * BE-0579 desired-state routes). Always idempotent per HTTP semantics (and
+   * enforced server-side there too), so — unlike {@link post}/{@link patch}
+   * — retried per the configured (or default) policy like GET/DELETE; no
+   * `Idempotency-Key` needed.
+   */
+  async put<T>(
+    path: string,
+    body: unknown,
+    extraHeaders?: Record<string, string>,
+  ): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+    const response = await this.fetchWithRetry(
+      () => ({
+        method: "PUT",
+        headers: this.buildHeaders(extraHeaders),
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(this.requestTimeoutMs),
+      }),
+      url,
+    );
+
+    if (!response.ok) {
+      const text = await readBoundedErrorResponse(response, path);
+      throw buildApiError(response.status, path, text);
+    }
+
+    return readBoundedJsonResponse<T>(response, path);
+  }
+
   /** GET is always idempotent — retried per the configured (or default) policy. */
   async get<T>(
     path: string,
@@ -611,6 +642,35 @@ export class PraesidiaClient {
     // DELETE callers do not receive a response body. Release any unexpected
     // body immediately so a non-conforming upstream cannot pin the connection.
     await response.body?.cancel().catch(() => undefined);
+  }
+
+  /**
+   * DELETE a resource that answers with a JSON body — be's BE-0579
+   * desired-state DELETE routes archive (never a hard delete) and return the
+   * same `DesiredStateOutcome` shape as their PUT sibling, so unlike
+   * {@link del} there is no 204/no-body case to tolerate. Always
+   * idempotent — retried per the configured (or default) policy.
+   */
+  async delReturning<T>(
+    path: string,
+    extraHeaders?: Record<string, string>,
+  ): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+    const response = await this.fetchWithRetry(
+      () => ({
+        method: "DELETE",
+        headers: this.buildHeaders(extraHeaders),
+        signal: AbortSignal.timeout(this.requestTimeoutMs),
+      }),
+      url,
+    );
+
+    if (!response.ok) {
+      const text = await readBoundedErrorResponse(response, path);
+      throw buildApiError(response.status, path, text);
+    }
+
+    return readBoundedJsonResponse<T>(response, path);
   }
 
   /**

@@ -1558,3 +1558,30 @@ export interface AiSystemSummaryResponse {
   /** Assets attached to this AI System whose `entityType` is null. */
   unlinkedAssets: number;
 }
+
+/**
+ * Response of every `by-external-id` desired-state method (be's BE-0579,
+ * `DesiredStateOutcomeDto`, SDK-0302/PRAE-228/229). `changed` is the
+ * plan-stability signal for IaC-shaped callers (Terraform provider, k8s
+ * operator): sending the same body twice returns `changed: false` the
+ * second time with a byte-identical `updatedAt` — nothing was written.
+ * `created` distinguishes a fresh insert from an update of an existing row;
+ * DELETE always archives (never a hard delete) and returns the same shape.
+ */
+export interface DesiredStateOutcome<T> {
+  id: string;
+  externalId: string;
+  created: boolean;
+  changed: boolean;
+  updatedAt: string;
+  resource: T;
+}
+
+/** Result of `PraesidiaAiSystems.putSystemByExternalId`/`deleteSystemByExternalId`. */
+export type AiSystemDesiredStateResult = DesiredStateOutcome<AiSystemRecord>;
+
+/** Result of `PraesidiaAiSystems.putAssetByExternalId`/`deleteAssetByExternalId`. */
+export type AiAssetDesiredStateResult = DesiredStateOutcome<AiAssetRecord>;
+
+/** Result of `PraesidiaAiSystems.putRelationshipByExternalId`/`deleteRelationshipByExternalId`. */
+export type AssetRelationshipDesiredStateResult = DesiredStateOutcome<AssetRelationshipRecord>;

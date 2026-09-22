@@ -635,6 +635,12 @@ await aiSystems.createRelationship({
 | `archiveRelationship(id)` | `Promise<AssetRelationshipRecord>` | `POST .../asset-relationships/:id/archive` |
 | `restoreRelationship(id)` | `Promise<AssetRelationshipRecord>` | `POST .../asset-relationships/:id/restore` |
 | `traverse(query)` | `Promise<AssetGraphTraversalResponse>` | `GET .../asset-relationships/graph/traverse` |
+| `putSystemByExternalId(externalId, data)` | `Promise<AiSystemDesiredStateResult>` | `PUT .../ai-systems/by-external-id/:externalId` |
+| `deleteSystemByExternalId(externalId)` | `Promise<AiSystemDesiredStateResult>` | `DELETE .../ai-systems/by-external-id/:externalId` (archives) |
+| `putAssetByExternalId(externalId, data)` | `Promise<AiAssetDesiredStateResult>` | `PUT .../ai-assets/by-external-id/:externalId` |
+| `deleteAssetByExternalId(externalId)` | `Promise<AiAssetDesiredStateResult>` | `DELETE .../ai-assets/by-external-id/:externalId` (archives) |
+| `putRelationshipByExternalId(externalId, data)` | `Promise<AssetRelationshipDesiredStateResult>` | `PUT .../asset-relationships/by-external-id/:externalId` |
+| `deleteRelationshipByExternalId(externalId)` | `Promise<AssetRelationshipDesiredStateResult>` | `DELETE .../asset-relationships/by-external-id/:externalId` (archives) |
 
 Every `list*`/`listAssets`/`listRelationships` also has a `*Page` (full
 pagination envelope) and `*All` (auto-paginating async generator) sibling,
@@ -655,6 +661,19 @@ evaluations, cost, evidence, unlinkedAssets }` — each section
 backing service cannot filter by this AI System's linked asset entity ids
 at all (see `reason`); `cost` is always `available: false` today
 (AISYS-0025 tracks the gap).
+
+`put{System,Asset,Relationship}ByExternalId(externalId, data)` (be's
+BE-0579, SDK-0302/PRAE-228/229) declaratively create-or-update a row keyed
+by an externally-owned `externalId` — the shape IaC tooling (Terraform
+provider, k8s operator) needs instead of a lookup-then-create/update round
+trip. Each returns `DesiredStateOutcome<T>` —
+`{ id, externalId, created, changed, updatedAt, resource }` — `changed` is
+the plan-stability signal: the same body sent twice returns `changed: false`
+the second time with an unchanged `updatedAt`; nothing was written.
+`delete{System,Asset,Relationship}ByExternalId(externalId)` archives (never
+a hard delete) and returns the same shape. Another tenant's `externalId`
+404s on the `DELETE` rather than leaking existence; every lookup is
+org-scoped.
 
 ## Audit log read-back (FINDING-2 parity with the Python SDK)
 
@@ -948,6 +967,21 @@ sibling checkout in `sdk-python`'s own `contract-drift.yml` — CD-0007 reuses
 this repo's scanner rather than a third, Python-native re-derivation.
 
 ## Changelog
+
+### Unreleased — SDK-0302: `by-external-id` desired-state methods (PRAE-228/229)
+
+- **Added** to `PraesidiaAiSystems` (`src/ai-systems.ts`): `putSystemByExternalId`/
+  `deleteSystemByExternalId`, `putAssetByExternalId`/`deleteAssetByExternalId`,
+  `putRelationshipByExternalId`/`deleteRelationshipByExternalId` (be's BE-0579
+  desired-state API) — the shape IaC tooling (Terraform provider PRAE-228,
+  k8s operator PRAE-229) needs. Each returns the new `DesiredStateOutcome<T>`
+  (`types.ts`) — `{ id, externalId, created, changed, updatedAt, resource }`;
+  `changed` is the plan-stability signal, surfaced not swallowed. New
+  `PraesidiaClient.put`/`delReturning` methods (`client.ts`) back them — `put`
+  is retried like `get`/`del` (PUT is naturally idempotent, no
+  `Idempotency-Key` needed) and `delReturning` is `del`'s sibling for a
+  DELETE route that answers with a JSON body instead of 204. No breaking
+  changes — additive only.
 
 ### Unreleased — SDK-0007: `AI_ASSET_TYPES`/`ASSET_RELATIONSHIP_TYPES` contract sync
 
