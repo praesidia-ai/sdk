@@ -26,7 +26,7 @@ npm run typecheck:spec    # tsc --noEmit -p tsconfig.spec.json
 
 ```bash
 npm run lint:api-contract   # node scripts/audit-api-contract.mjs, diffs src/index.ts exports
-                             # against be/openapi.json (sdk/README.md:825-853)
+                             # against ui/swagger.json (sdk/README.md:825-853)
 ```
 
 ## Building an unreleased feature locally (no publish)
@@ -59,7 +59,7 @@ until that changes.
 | `require('@praesidia/sdk')` throws `ERR_REQUIRE_ESM` | Consumer is CommonJS; this package is ESM-only, no CJS export condition | `sdk/README.md:12-14` |
 | `npm install @praesidia/sdk` fails / 404 | Package genuinely unpublished | `PUBLISHING.md:3`; use a local `.tgz` build instead |
 | A documented method is missing at runtime | Consumer has an older/lagging registry release (once one exists) vs. this checkout | `sdk/README.md:16-19` |
-| `lint:api-contract` fails | `be`'s OpenAPI spec moved without a matching SDK update | `scripts/audit-api-contract.mjs`; re-export `be/openapi.json` and re-run |
+| `lint:api-contract` fails | `be`'s OpenAPI spec moved without a matching SDK update | `scripts/audit-api-contract.mjs`; re-export `ui/swagger.json` and re-run |
 | Plugin tests fail independently of the root package | Plugins are separate packages with their own manifests/tests | `.github/workflows/runtime-compatibility.yml`; each `plugins/*/README.md` |
 
 ## Verification limits

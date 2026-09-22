@@ -1,11 +1,33 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { PraesidiaAiSystems } from './ai-systems.js';
 import { PraesidiaConfigError } from './errors.js';
 import { AI_ASSET_TYPES, ASSET_RELATIONSHIP_TYPES } from './types.js';
 import { makeFetchMock } from './__tests__/fetch-mock.js';
+
+// SDK-0303 — spec-path resolution mirrors `scripts/audit-api-contract.mjs`:
+// BE_SWAGGER_PATH override > `../ui/swagger.json` sibling checkout (this
+// monorepo's committed, gate-verified spec; be's frozen `openapi.json` export is a stale
+// snapshot nothing regenerates -- see SDK-0303). Skips with a reason (never
+// throws) when neither exists, so this package still builds/tests from a
+// bare `sdk` clone or its published npm tarball (no `ui` sibling).
+const HERE = dirname(fileURLToPath(import.meta.url));
+const SWAGGER_ENV_OVERRIDE = process.env['BE_SWAGGER_PATH'];
+const SWAGGER_PATH =
+  SWAGGER_ENV_OVERRIDE && existsSync(resolve(process.cwd(), SWAGGER_ENV_OVERRIDE))
+    ? resolve(process.cwd(), SWAGGER_ENV_OVERRIDE)
+    : join(HERE, '..', '..', 'ui', 'swagger.json');
+const swaggerAvailable = existsSync(SWAGGER_PATH);
+if (!swaggerAvailable) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[SDK-0007] no swagger.json at ${SWAGGER_PATH} (BE_SWAGGER_PATH override or ` +
+      "ui/swagger.json sibling checkout) -- enum-sync check skipped so sdk still builds/tests " +
+      'standalone.',
+  );
+}
 
 describe('PraesidiaAiSystems', () => {
   it('throws PraesidiaConfigError when apiKey/orgId are missing', () => {
@@ -554,17 +576,18 @@ describe('PraesidiaAiSystems', () => {
     vi.restoreAllMocks();
   });
 
-  it('AI_ASSET_TYPES/ASSET_RELATIONSHIP_TYPES match be/openapi.json (SDK-0007)', () => {
-    // Reads the sibling-checkout be/openapi.json (never regenerated here) and
-    // fails if it drifts from these tuples again -- see SDK-0007.
-    const here = dirname(fileURLToPath(import.meta.url));
-    const specPath = join(here, '..', '..', 'be', 'openapi.json');
-    const spec = JSON.parse(readFileSync(specPath, 'utf8'));
-    const schemas = spec.components.schemas;
-    const openapiAssetTypes: string[] = schemas.AiAsset.properties.assetType.enum;
-    const openapiRelationshipTypes: string[] =
-      schemas.AssetRelationship.properties.relationshipType.enum;
-    expect(new Set(AI_ASSET_TYPES)).toEqual(new Set(openapiAssetTypes));
-    expect(new Set(ASSET_RELATIONSHIP_TYPES)).toEqual(new Set(openapiRelationshipTypes));
-  });
+  it.skipIf(!swaggerAvailable)(
+    'AI_ASSET_TYPES/ASSET_RELATIONSHIP_TYPES match ui/swagger.json (SDK-0007)',
+    () => {
+      // Reads the gate-verified ui/swagger.json (never regenerated here) and
+      // fails if it drifts from these tuples again -- see SDK-0007/SDK-0303.
+      const spec = JSON.parse(readFileSync(SWAGGER_PATH, 'utf8'));
+      const schemas = spec.components.schemas;
+      const openapiAssetTypes: string[] = schemas.AiAsset.properties.assetType.enum;
+      const openapiRelationshipTypes: string[] =
+        schemas.AssetRelationship.properties.relationshipType.enum;
+      expect(new Set(AI_ASSET_TYPES)).toEqual(new Set(openapiAssetTypes));
+      expect(new Set(ASSET_RELATIONSHIP_TYPES)).toEqual(new Set(openapiRelationshipTypes));
+    },
+  );
 });

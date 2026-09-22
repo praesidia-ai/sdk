@@ -1278,7 +1278,7 @@ export interface MemorySourceAuthorization extends Omit<MemorySourceAuthorizatio
 }
 
 // ── AI Systems / Assets / Relationships (SDK-0001 — parity with be's
-// AISYS-0002; see be/openapi.json + CONTRACT.md, entity-derived enums) ──────
+// AISYS-0002; see ui/swagger.json + CONTRACT.md, entity-derived enums) ──────
 
 /** `entities/ai-system.entity.ts`'s `AI_SYSTEM_OWNER_TYPES`. */
 export const AI_SYSTEM_OWNER_TYPES = ['user', 'team'] as const;

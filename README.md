@@ -987,11 +987,11 @@ this repo's scanner rather than a third, Python-native re-derivation.
 
 - **Fixed** `AI_ASSET_TYPES` (`types.ts`, 20 → 23: adds `TOOL`, `API_ENDPOINT`, `DATA_SCOPE`) and
   `ASSET_RELATIONSHIP_TYPES` (9 → 12: adds `CAN_INVOKE`, `GRANTS_SCOPE`, `CAN_ASSUME`) to match
-  `be/openapi.json`'s `AiAsset.assetType`/`AssetRelationship.relationshipType` enums (DB-0300).
+  `ui/swagger.json`'s `AiAsset.assetType`/`AssetRelationship.relationshipType` enums (DB-0300).
   The stale tuples meant `traverse`'s existing client-side `assetTypes`/`relationshipTypes`
   validation would incorrectly reject valid new values with a `PraesidiaConfigError` before ever
   sending the request. New test in
-  `ai-systems.spec.ts` reads the sibling `be/openapi.json` and fails if the tuples drift again.
+  `ai-systems.spec.ts` reads the sibling `ui/swagger.json` and fails if the tuples drift again.
   No breaking changes — widened valid-value sets only.
 
 ### Unreleased — SDK-0005: `traverse` + `summary`, closing the AISYS-0003/0004 gap
@@ -1029,7 +1029,7 @@ this repo's scanner rather than a third, Python-native re-derivation.
   (`createRelationship`/`listRelationships`) — each `list*` family also gets
   `*Page`/`*All` siblings (SCAN2-011 convention). New export, no existing
   signature changed. Multi-hop traversal (be's AISYS-0003) is deferred —
-  `be/openapi.json` did not have that route at release time.
+  `ui/swagger.json` did not have that route at release time.
 
 ### Unreleased — AUD-0063: close the analytics resource coverage gap
 

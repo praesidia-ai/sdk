@@ -42,7 +42,7 @@ build locally with `npm run build && npm pack` and install the resulting `.tgz`.
   `.github/workflows/runtime-compatibility.yml` but with **no publish workflow of their own**
   (`sdk/PUBLISHING.md`'s final section) — publishing the root package does not publish these.
 - **Contract verification**: `npm run lint:api-contract` diffs exported symbols against
-  `be/openapi.json` (`sdk/README.md:825-853`); `mcp` runs an independent copy of the same scanner
+  `ui/swagger.json` (`sdk/README.md:825-853`); `mcp` runs an independent copy of the same scanner
   (`CD-0011`, tracked as duplication debt).
 
 ## Verification limits

@@ -53,7 +53,7 @@ package's `publish.yml` exists (`sdk/PUBLISHING.md`'s final section). See each p
 ## Contract-drift gate
 
 `scripts/audit-api-contract.mjs` (`npm run lint:api-contract`) diffs `src/index.ts`'s exported
-symbols against `be/openapi.json` (`sdk/README.md:825-853`). `mcp` runs an independent copy of the
+symbols against `ui/swagger.json` (`sdk/README.md:825-853`). `mcp` runs an independent copy of the
 same scanner (`CD-0011`, tracked as duplication debt, not correctness debt).
 
 ## What ships to npm (when it is published)

@@ -96,7 +96,7 @@ backward-compatible fixes. Promotion to `1.0.0` is a deliberate decision (not au
 features feel "done") gated on: the contract-drift gate having stayed green for a real release
 cycle, and a decision that the exported surface (`src/index.ts`) is one you're prepared to
 support under full SemVer breaking-change discipline. Every exported symbol change is reviewed
-against `be/openapi.json` via `npm run lint:api-contract` before any release, published or not.
+against `ui/swagger.json` via `npm run lint:api-contract` before any release, published or not.
 
 ## Plugins (`plugins/openclaw`, `plugins/openai-agents`, `plugins/nemoclaw-openclaw`) — out of scope here
 
