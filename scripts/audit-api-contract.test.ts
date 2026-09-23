@@ -144,6 +144,74 @@ export class FixtureAgents {
   });
 });
 
+// SDK-0308 — `sdk/src/trust.ts` reaches the PDF + badge routes through
+// `this.publicFetch(<const>, accept)`, and `publicGet(path)` forwards its
+// PARAMETER through `this.publicFetch(path, …)`. The scanner must check the
+// two const-backed sites and must NOT resolve the parameter to another
+// method's local `const path`.
+describe("TS scanner — publicFetch call sites (SDK-0308)", () => {
+  let dir: string;
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  const TRUST_FIXTURE = `
+export class FixtureTrust {
+  async fetchVerifyBundle(agentId: string) {
+    return this.publicGet(\`/trust/passport/\${agentId}/verify\`);
+  }
+  async fetchBadgeSvg(aiSystemId: string): Promise<string> {
+    const badgePath = \`/trust/passport/ai-systems/\${aiSystemId}/badge.svg\`;
+    return (await this.publicFetch(badgePath, 'image/svg+xml')).text();
+  }
+  async fetchPdf(aiSystemId: string) {
+    const path = \`/trust/passport/ai-systems/\${aiSystemId}/passport.pdf\`;
+    return this.publicFetch(path, 'application/pdf');
+  }
+  private async publicGet<T>(path: string): Promise<T> {
+    return (await this.publicFetch(path, 'application/json')).json();
+  }
+}
+`;
+
+  const TRUST_SPEC = {
+    paths: {
+      "/trust/passport/{agentId}/verify": { get: {} },
+      "/trust/passport/ai-systems/{aiSystemId}/badge.svg": { get: {} },
+      "/trust/passport/ai-systems/{aiSystemId}/passport.pdf": { get: {} },
+    },
+  };
+
+  function scan() {
+    dir = mkdtempSync(join(tmpdir(), "sdk-contract-trust-test-"));
+    writeFileSync(join(dir, "trust.ts"), TRUST_FIXTURE);
+    return { sourceRoot: dir, callSites: extractCallSites(dir, "ts") };
+  }
+
+  it("checks the const-backed publicFetch sites and skips publicGet's parameter pass-through", () => {
+    const { sourceRoot, callSites } = scan();
+    expect(callSites.map((s) => [s.line, s.method, s.rawPath])).toEqual([
+      [4, "get", "/trust/passport/${agentId}/verify"],
+      [8, "get", "/trust/passport/ai-systems/${aiSystemId}/badge.svg"],
+      [12, "get", "/trust/passport/ai-systems/${aiSystemId}/passport.pdf"],
+    ]);
+    expect(diffCallSites(callSites, buildOperationIndex(TRUST_SPEC), sourceRoot)).toEqual([]);
+  });
+
+  it("reports a renamed badge route as drift", () => {
+    const { sourceRoot, callSites } = scan();
+    const renamed = JSON.parse(JSON.stringify(TRUST_SPEC));
+    renamed.paths["/trust/passport/ai-systems/{aiSystemId}/badge"] =
+      renamed.paths["/trust/passport/ai-systems/{aiSystemId}/badge.svg"];
+    delete renamed.paths["/trust/passport/ai-systems/{aiSystemId}/badge.svg"];
+
+    const failures = diffCallSites(callSites, buildOperationIndex(renamed), sourceRoot);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain("no matching route");
+    expect(failures[0]).toContain("badge.svg");
+  });
+});
+
 // SCAN2-012/CT-08 — `sdk/src/protected-http.ts:33,42` pass a same-file
 // helper CALL (`this.bindInstallation(request)`), not an object literal, as
 // the POST body argument. `extractBraceLiteral` sees the identifier `this`,

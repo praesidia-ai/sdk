@@ -367,9 +367,15 @@ function resolvePyBodyKeys(argsText, fromIndex, source) {
 
 // ─── TS extraction ────────────────────────────────────────────────────────────
 
-const TS_METHOD_ALIASES = { del: "delete", getBytes: "get", getAllPages: "get", publicGet: "get" };
+const TS_METHOD_ALIASES = {
+  del: "delete",
+  getBytes: "get",
+  getAllPages: "get",
+  publicGet: "get",
+  publicFetch: "get", // SDK-0308 — trust.ts PDF + badge routes
+};
 const TS_METHOD_PATTERN =
-  /\bthis\.(?:client\.)?(get|post|put|patch|delete|del|getBytes|getAllPages|publicGet)\b/g;
+  /\bthis\.(?:client\.)?(get|post|put|patch|delete|del|getBytes|getAllPages|publicGet|publicFetch)\b/g;
 
 /**
  * `this.xBase = \`...\`;` / `const NAME = \`...\`( + \`...\`)*;` /
@@ -381,6 +387,9 @@ const TS_METHOD_PATTERN =
  */
 function buildTsSymbolTable(source) {
   const symbols = new Map();
+  // SDK-0308 — every `const` declaration with its offset, for the
+  // scope-aware bare-identifier lookup in resolveScopedConst.
+  const constDecls = [];
 
   const fieldRe = /\bthis\.(\w+)\s*=\s*`/g;
   for (const m of source.matchAll(fieldRe)) {
@@ -394,14 +403,49 @@ function buildTsSymbolTable(source) {
     const start = m.index + m[0].length - 1;
     const { text } = collectTemplateConcatenation(source, start);
     symbols.set(m[1], text);
+    constDecls.push({ name: m[1], index: m.index, text });
   }
 
   const constStringRe = /\bconst\s+(\w+)\s*=\s*(['"])((?:(?!\2)[^\\]|\\.)*)\2\s*;/g;
   for (const m of source.matchAll(constStringRe)) {
     symbols.set(m[1], m[3]);
+    constDecls.push({ name: m[1], index: m.index, text: m[3] });
   }
 
-  return symbols;
+  constDecls.sort((a, b) => a.index - b.index);
+  return { symbols, constDecls };
+}
+
+/**
+ * SDK-0308 — the `const NAME` visible at `callIndex`: the nearest earlier
+ * declaration whose block still encloses the call, else a module-level one
+ * declared further down. A per-file last-wins lookup resolved a same-named
+ * PARAMETER (`publicGet(path)` → `this.publicFetch(path, …)`) to another
+ * method's local `const path`. Braces are counted naively (inside strings
+ * too) — good enough for this SDK's sources; the per-run site count shows
+ * any regression.
+ */
+function resolveScopedConst(source, constDecls, name, callIndex) {
+  const visible = constDecls.filter(
+    (d) =>
+      d.name === name &&
+      (d.index < callIndex
+        ? braceWalk(source, d.index, callIndex).min >= 0
+        : braceWalk(source, 0, d.index).depth === 0)
+  );
+  const before = visible.filter((d) => d.index < callIndex);
+  return (before.length > 0 ? before[before.length - 1] : visible[0])?.text;
+}
+
+/** Brace depth walking `source[from, to)`: final depth and the lowest depth reached, both relative to `from`. */
+function braceWalk(source, from, to) {
+  let depth = 0;
+  let min = 0;
+  for (let i = from; i < to; i++) {
+    if (source[i] === "{") depth++;
+    else if (source[i] === "}") min = Math.min(min, --depth);
+  }
+  return { depth, min };
 }
 
 /** One or more `` `...` `` segments joined by `+`, starting at a backtick. */
@@ -441,7 +485,7 @@ function extractCallSitesTs(sourceRoot) {
   for (const file of sourceFiles(sourceRoot, [".ts", ".tsx"])) {
     if (!statSync(file).isFile()) continue;
     const source = readFileSync(file, "utf8");
-    const symbols = buildTsSymbolTable(source);
+    const { symbols, constDecls } = buildTsSymbolTable(source);
 
     for (const match of source.matchAll(TS_METHOD_PATTERN)) {
       let i = match.index + match[0].length;
@@ -478,8 +522,12 @@ function extractCallSitesTs(sourceRoot) {
         argEnd = end;
       } else {
         const idMatch = /^(this\.\w+|[A-Za-z_$][\w$]*)/.exec(source.slice(i));
-        if (!idMatch || !symbols.has(idMatch[1])) continue; // unresolvable expression — cannot verify statically, skip rather than guess
-        rawText = symbols.get(idMatch[1]);
+        rawText = !idMatch
+          ? undefined
+          : idMatch[1].startsWith("this.")
+            ? symbols.get(idMatch[1])
+            : resolveScopedConst(source, constDecls, idMatch[1], match.index);
+        if (rawText === undefined) continue; // unresolvable expression (or a parameter) — cannot verify statically, skip rather than guess
         argEnd = i + idMatch[1].length;
       }
 
