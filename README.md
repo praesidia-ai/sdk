@@ -1017,8 +1017,8 @@ this repo's scanner rather than a third, Python-native re-derivation.
   `AiSystemTrustPassportAibomSection`, `AiSystemTrustPassportEmbed`,
   `AiSystemTrustPassportVerifyBundle`, typed from be's
   `ai-system-trust-passport.dto.ts`. No breaking changes — additive only.
-  The `praesidia` (Python) equivalents are not released yet (tracked under
-  the same item); until then this is a TS-only gap.
+  Python parity: `client.trust.fetch_ai_system_passport` /
+  `fetch_ai_system_verify_bundle` / `fetch_ai_system_badge_svg` (SDK-0310).
 
 ### Unreleased — SDK-0302: `by-external-id` desired-state methods (PRAE-228/229)
 
