@@ -173,6 +173,13 @@ export type {
   // SEC-2026-09-12 MCPSDK-04 — caller-supplied trust anchor for fetchAndVerify.
   TrustFetchAndVerifyOptions,
   TrustAnchorJwk,
+  // SDK-0307 — AI System trust passport (BE-0540)
+  AiSystemTrustPassport,
+  AiSystemTrustPassportCredentialSubject,
+  AiSystemTrustPassportSection,
+  AiSystemTrustPassportAibomSection,
+  AiSystemTrustPassportEmbed,
+  AiSystemTrustPassportVerifyBundle,
   // PA01 DX-001 — protectAction (managed MCP Proof Edge)
   ProtectActionTarget,
   McpProtectedActionTarget,

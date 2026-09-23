@@ -877,6 +877,29 @@ writeFileSync('trust-passport.pdf', pdf);
 // Unknown / soft-deleted AI System → PraesidiaApiError (status 404)
 ```
 
+The rest of the **AI System** passport routes are public as well — `PraesidiaTrust`
+never sends an API key on any of them:
+
+```ts
+const passport = await trust.fetchAiSystemPassport(aiSystemId);
+// AiSystemTrustPassport: credentialSubject.{aiSystemName, frameworks, attestations,
+// posture, redTeam, regulatoryClassification, aibom, dataCategories, incidents,
+// models, permissions, evidenceRoot} — each section is { available, counts? }
+// or { available: false, reason } (a gap is never reported as a zero count).
+
+const bundle = await trust.fetchAiSystemVerifyBundle(aiSystemId);
+// { passport, publicKeyJwk, verificationHint, embed: { badgeUrl, verifyUrl, html, markdown } }
+
+const svg = await trust.fetchAiSystemBadgeSvg(aiSystemId); // string, `<svg …>`
+// Unknown / soft-deleted AI System → PraesidiaApiError (404); the verify
+// bundle answers 503 (retryable) when be cannot load the org signing key.
+```
+
+The bundle's `publicKeyJwk` comes from the same unauthenticated response as the
+passport, so it is not a trust anchor on its own. `verifyPassport` /
+`fetchAndVerify` check the **agent** passport envelope only; offline
+verification of an AI System passport is not in the SDK yet.
+
 ## Fail-open / fail-closed
 
 | Scenario | Default behaviour |
@@ -924,6 +947,9 @@ only by `guard.protectAction` — see [above](#guardprotectactionopts--promisepr
 | `PraesidiaAnalytics.*` | `GET /organizations/:orgId/analytics[/…]` | `ANALYTICS_VIEW` / `ANALYTICS_EXPORT` (`advanced/*` needs `ADVANCED_ANALYTICS`) |
 | `PraesidiaTrust.fetch*` | `GET /trust/passport/:agentId[/verify]` | public (no auth) |
 | `PraesidiaTrust.fetchAiSystemPassportPdf` | `GET /trust/passport/ai-systems/:aiSystemId/passport.pdf` | public (no auth) |
+| `PraesidiaTrust.fetchAiSystemPassport` | `GET /trust/passport/ai-systems/:aiSystemId` | public (no auth) |
+| `PraesidiaTrust.fetchAiSystemVerifyBundle` | `GET /trust/passport/ai-systems/:aiSystemId/verify` | public (no auth) |
+| `PraesidiaTrust.fetchAiSystemBadgeSvg` | `GET /trust/passport/ai-systems/:aiSystemId/badge.svg` | public (no auth) |
 
 Authentication: `Authorization: Bearer <apiKey>` (org-scoped API key). The trust
 passport routes are public; `PraesidiaTrust` verifies signatures offline.
@@ -979,6 +1005,20 @@ sibling checkout in `sdk-python`'s own `contract-drift.yml` — CD-0007 reuses
 this repo's scanner rather than a third, Python-native re-derivation.
 
 ## Changelog
+
+### Unreleased — SDK-0307: public AI System passport routes (BE-0540)
+
+- **Added** to `PraesidiaTrust` (`src/trust.ts`): `fetchAiSystemPassport`,
+  `fetchAiSystemVerifyBundle` and `fetchAiSystemBadgeSvg` (SVG as a string) for
+  `GET /trust/passport/ai-systems/:aiSystemId[/verify|/badge.svg]` — public,
+  sent without an `Authorization` header, like `fetchAiSystemPassportPdf`.
+  New exported types (`types.ts`): `AiSystemTrustPassport`,
+  `AiSystemTrustPassportCredentialSubject`, `AiSystemTrustPassportSection`,
+  `AiSystemTrustPassportAibomSection`, `AiSystemTrustPassportEmbed`,
+  `AiSystemTrustPassportVerifyBundle`, typed from be's
+  `ai-system-trust-passport.dto.ts`. No breaking changes — additive only.
+  The `praesidia` (Python) equivalents are not released yet (tracked under
+  the same item); until then this is a TS-only gap.
 
 ### Unreleased — SDK-0302: `by-external-id` desired-state methods (PRAE-228/229)
 

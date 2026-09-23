@@ -2,12 +2,14 @@ import { createHash } from 'node:crypto';
 
 import {
   MAX_BINARY_RESPONSE_BYTES,
+  MAX_JSON_RESPONSE_BYTES,
   buildApiError,
   encodePathSegment,
   normalizeBaseUrl,
   readBoundedErrorResponse,
   readBoundedJsonResponse,
   readBoundedResponseBytes,
+  readBoundedResponseText,
   resolveRequestTimeoutMs,
 } from './client.js';
 import {
@@ -18,6 +20,8 @@ import {
   verifyEs256,
 } from './crypto.js';
 import type {
+  AiSystemTrustPassport,
+  AiSystemTrustPassportVerifyBundle,
   TrustAnchorJwk,
   TrustFetchAndVerifyOptions,
   TrustFetchAndVerifyResult,
@@ -93,6 +97,52 @@ export class PraesidiaTrust {
   ): Promise<TrustPassportVerifyBundle> {
     return this.publicGet<TrustPassportVerifyBundle>(
       `/trust/passport/${encodePathSegment(agentId, 'agentId')}/verify`,
+    );
+  }
+
+  /**
+   * Fetch an AI System's signed trust passport (BE-0540), aggregated over its
+   * member assets. GET /trust/passport/ai-systems/:aiSystemId (public — no
+   * auth). Throws `PraesidiaApiError` (404) for an unknown or soft-deleted AI
+   * System.
+   */
+  async fetchAiSystemPassport(
+    aiSystemId: string,
+  ): Promise<AiSystemTrustPassport> {
+    return this.publicGet<AiSystemTrustPassport>(
+      `/trust/passport/ai-systems/${encodePathSegment(aiSystemId, 'aiSystemId')}`,
+    );
+  }
+
+  /**
+   * Fetch an AI System's verification bundle (passport + org public key JWK +
+   * verification hint + badge embed snippets). GET
+   * /trust/passport/ai-systems/:aiSystemId/verify (public — no auth). The JWK
+   * arrives on the same unauthenticated response as the passport, so it is not
+   * a trust anchor on its own. Throws `PraesidiaApiError` (404 unknown AI
+   * System; 503 when be cannot load the org signing key — retryable).
+   */
+  async fetchAiSystemVerifyBundle(
+    aiSystemId: string,
+  ): Promise<AiSystemTrustPassportVerifyBundle> {
+    return this.publicGet<AiSystemTrustPassportVerifyBundle>(
+      `/trust/passport/ai-systems/${encodePathSegment(aiSystemId, 'aiSystemId')}/verify`,
+    );
+  }
+
+  /**
+   * Fetch an AI System's embeddable SVG trust badge. GET
+   * /trust/passport/ai-systems/:aiSystemId/badge.svg (public — no auth).
+   * Returns the SVG markup as a string. Throws `PraesidiaApiError` (404) for
+   * an unknown or soft-deleted AI System.
+   */
+  async fetchAiSystemBadgeSvg(aiSystemId: string): Promise<string> {
+    const badgePath = `/trust/passport/ai-systems/${encodePathSegment(aiSystemId, 'aiSystemId')}/badge.svg`;
+    return readBoundedResponseText(
+      await this.publicFetch(badgePath, 'image/svg+xml'),
+      MAX_JSON_RESPONSE_BYTES,
+      badgePath,
+      'SVG response body',
     );
   }
 

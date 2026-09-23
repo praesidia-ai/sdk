@@ -14,7 +14,11 @@ import {
   verifyEd25519,
   verifyEs256,
 } from './crypto.js';
-import type { TrustPassport } from './types.js';
+import type {
+  AiSystemTrustPassport,
+  AiSystemTrustPassportVerifyBundle,
+  TrustPassport,
+} from './types.js';
 import { makeFetchMock } from './__tests__/fetch-mock.js';
 
 // ---------------------------------------------------------------------------
@@ -696,5 +700,145 @@ describe('PraesidiaTrust', () => {
     expect(err.requestId).toBe('req-404');
     expect(err.body?.message).toBe('AI System not found');
     expect(err.retryable).toBe(false);
+  });
+
+  // ── SDK-0307: AI System trust passport JSON + badge routes (BE-0540) ──────
+
+  const aiSystemPassport: AiSystemTrustPassport = {
+    '@context': ['https://www.w3.org/2018/credentials/v1'],
+    type: ['VerifiableCredential', 'AiSystemTrustPassport'],
+    id: 'https://api.praesidia.ai/trust/passport/ai-systems/sys-1#2026-09-22T00:00:00.000Z',
+    issuer: 'did:web:praesidia.ai:orgs:org-1',
+    issuanceDate: '2026-09-22T00:00:00.000Z',
+    expirationDate: '2026-09-23T00:00:00.000Z',
+    credentialSubject: {
+      id: 'did:web:praesidia.ai:ai-systems:sys-1',
+      aiSystemName: 'Fraud Triage',
+      posture: { available: true, counts: { verified: 2 }, updatedAt: null },
+      redTeam: { available: false, reason: 'AISYS-0031' },
+      attestations: {
+        activeCount: 2,
+        identityVerified: true,
+        guardrailsActive: true,
+        auditTrailEnabled: true,
+        spendCapConfigured: false,
+      },
+      frameworks: ['EU-AI-Act'],
+      regulatoryClassification: { available: true, counts: { high: 1 } },
+      aibom: { available: true, digest: 'sha256:abc', version: 3 },
+      dataCategories: { available: true, counts: {} },
+      incidents: { available: true, counts: { open: 0 } },
+      models: { available: true, counts: { openai: 1 } },
+      permissions: { available: false, reason: 'AISYS-0040' },
+      evidenceRoot: { available: false, reason: 'AISYS-0041' },
+    },
+    proof: {
+      type: 'Ed25519Signature2020',
+      created: '2026-09-22T00:00:00.000Z',
+      proofPurpose: 'assertionMethod',
+      verificationMethod: 'did:web:praesidia.ai:orgs:org-1#key-1',
+      keyVersion: 1,
+      proofValue: 'c2ln',
+    },
+  };
+
+  function lastCall(): [string, Record<string, string>] {
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+      .calls[0] as [string, RequestInit];
+    return [url, init.headers as Record<string, string>];
+  }
+
+  it('fetchAiSystemPassport returns the typed passport, unauthenticated', async () => {
+    globalThis.fetch = makeFetchMock([{ status: 200, json: aiSystemPassport }]);
+
+    const trust = new PraesidiaTrust({ baseUrl: 'https://api.praesidia.ai' });
+    const passport = await trust.fetchAiSystemPassport('sys 1');
+
+    expect(passport).toEqual(aiSystemPassport);
+    expect(passport.credentialSubject.aibom.digest).toBe('sha256:abc');
+    const [url, headers] = lastCall();
+    expect(url).toBe('https://api.praesidia.ai/trust/passport/ai-systems/sys%201');
+    expect(headers['Authorization']).toBeUndefined();
+    expect(headers['Accept']).toBe('application/json');
+  });
+
+  it('fetchAiSystemVerifyBundle returns passport + JWK + hint + embed, unauthenticated', async () => {
+    const bundle: AiSystemTrustPassportVerifyBundle = {
+      passport: aiSystemPassport,
+      publicKeyJwk: { kty: 'OKP', crv: 'Ed25519', x: 'AAAA' },
+      verificationHint: 'Import publicKeyJwk as an OKP Ed25519 key (alg: EdDSA).',
+      embed: {
+        badgeUrl: 'https://api.praesidia.ai/trust/passport/ai-systems/sys-1/badge.svg',
+        verifyUrl: 'https://api.praesidia.ai/trust/passport/ai-systems/sys-1/verify',
+        html: '<a href="…"><img src="…" /></a>',
+        markdown: '[![…](…)](…)',
+      },
+    };
+    globalThis.fetch = makeFetchMock([{ status: 200, json: bundle }]);
+
+    const trust = new PraesidiaTrust({ baseUrl: 'https://api.praesidia.ai' });
+    expect(await trust.fetchAiSystemVerifyBundle('sys-1')).toEqual(bundle);
+    const [url, headers] = lastCall();
+    expect(url).toBe(
+      'https://api.praesidia.ai/trust/passport/ai-systems/sys-1/verify',
+    );
+    expect(headers['Authorization']).toBeUndefined();
+  });
+
+  it('fetchAiSystemBadgeSvg returns the SVG markup as a string, unauthenticated', async () => {
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="20"><text>EU AI Act · high</text></svg>';
+    globalThis.fetch = makeFetchMock([{ status: 200, text: svg }]);
+
+    const trust = new PraesidiaTrust({ baseUrl: 'https://api.praesidia.ai' });
+    expect(await trust.fetchAiSystemBadgeSvg('sys-1')).toBe(svg);
+    const [url, headers] = lastCall();
+    expect(url).toBe(
+      'https://api.praesidia.ai/trust/passport/ai-systems/sys-1/badge.svg',
+    );
+    expect(headers['Authorization']).toBeUndefined();
+    expect(headers['Accept']).toBe('image/svg+xml');
+  });
+
+  it.each([
+    ['fetchAiSystemPassport', ''],
+    ['fetchAiSystemVerifyBundle', '/verify'],
+    ['fetchAiSystemBadgeSvg', '/badge.svg'],
+  ] as const)('%s raises a typed PraesidiaApiError on 404', async (method, suffix) => {
+    // be's http-exception.filter envelope; message from AiSystemTrustPassportService.
+    globalThis.fetch = makeFetchMock([
+      {
+        status: 404,
+        json: {
+          statusCode: 404,
+          path: `/trust/passport/ai-systems/nope${suffix}`,
+          method: 'GET',
+          requestId: 'req-404',
+          message: 'Trust passport not found',
+        },
+      },
+    ]);
+
+    const err = await new PraesidiaTrust()[method]('nope').catch((e) => e);
+
+    expect(err).toBeInstanceOf(PraesidiaApiError);
+    expect(err.status).toBe(404);
+    expect(err.requestId).toBe('req-404');
+    expect(err.body?.message).toBe('Trust passport not found');
+    expect(err.retryable).toBe(false);
+  });
+
+  it('fetchAiSystemVerifyBundle surfaces be 503 (signing-key lookup failed) as retryable', async () => {
+    globalThis.fetch = makeFetchMock([
+      { status: 503, json: { statusCode: 503, message: 'Service Unavailable' } },
+    ]);
+
+    const err = await new PraesidiaTrust()
+      .fetchAiSystemVerifyBundle('sys-1')
+      .catch((e) => e);
+
+    expect(err).toBeInstanceOf(PraesidiaApiError);
+    expect(err.status).toBe(503);
+    expect(err.retryable).toBe(true);
   });
 });

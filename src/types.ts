@@ -765,6 +765,84 @@ export interface TrustPassportVerifyBundle {
   embed?: Record<string, unknown>;
 }
 
+// ── AI System trust passport (BE-0540) ───────────────────────────────────────
+// Public routes: GET /trust/passport/ai-systems/:aiSystemId[/verify|/badge.svg]
+// Typed from be's `dto/ai-system-trust-passport.dto.ts`.
+
+/**
+ * BE-0540 — one aggregate section of an AI System passport. A section with no
+ * real data source yet is `{ available: false, reason }` (never a fabricated
+ * count); `counts` is omitted when `available` is false.
+ */
+export interface AiSystemTrustPassportSection {
+  available: boolean;
+  /** Present only when `available` is false (names the gap, e.g. `AISYS-0031`). */
+  reason?: string;
+  counts?: Record<string, number>;
+  /** ISO-8601 timestamp of the most recent contributing row. */
+  updatedAt?: string | null;
+}
+
+/** BE-0540 — the AIBOM section also carries the latest snapshot's digest. */
+export interface AiSystemTrustPassportAibomSection
+  extends AiSystemTrustPassportSection {
+  /** SHA-256 digest of the latest AIBOM snapshot document. */
+  digest?: string;
+  version?: number;
+}
+
+/** BE-0540 — the signed credential subject of an AI System passport. */
+export interface AiSystemTrustPassportCredentialSubject {
+  /** AI System DID (did:web). */
+  id: string;
+  aiSystemName: string;
+  posture: AiSystemTrustPassportSection;
+  redTeam: AiSystemTrustPassportSection;
+  attestations: TrustPassportAttestations;
+  /** Compliance frameworks applicable to the org (org-wide). */
+  frameworks: string[];
+  regulatoryClassification: AiSystemTrustPassportSection;
+  aibom: AiSystemTrustPassportAibomSection;
+  dataCategories: AiSystemTrustPassportSection;
+  incidents: AiSystemTrustPassportSection;
+  models: AiSystemTrustPassportSection;
+  permissions: AiSystemTrustPassportSection;
+  evidenceRoot: AiSystemTrustPassportSection;
+}
+
+/**
+ * BE-0540 — the signed AI System trust passport (W3C VC shape,
+ * `type: ['VerifiableCredential', 'AiSystemTrustPassport']`), aggregated over
+ * the system's member assets. Same proof envelope as the agent passport.
+ */
+export interface AiSystemTrustPassport {
+  '@context': string[];
+  type: string[];
+  id: string;
+  issuer: string;
+  issuanceDate: string;
+  expirationDate: string;
+  credentialSubject: AiSystemTrustPassportCredentialSubject;
+  proof: TrustPassportProof;
+}
+
+/** BE-0540 — ready-to-paste badge embed snippets. */
+export interface AiSystemTrustPassportEmbed {
+  badgeUrl: string;
+  verifyUrl: string;
+  html: string;
+  markdown: string;
+}
+
+/** BE-0540 — the bundle returned by `/trust/passport/ai-systems/:id/verify`. */
+export interface AiSystemTrustPassportVerifyBundle {
+  passport: AiSystemTrustPassport;
+  /** Public key JWK (OKP/Ed25519 or EC/P-256) served by the SAME public route. */
+  publicKeyJwk: Record<string, unknown>;
+  verificationHint: string;
+  embed: AiSystemTrustPassportEmbed;
+}
+
 /**
  * H3-02f — reasons a local passport verification can fail.
  *

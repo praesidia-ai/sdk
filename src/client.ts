@@ -86,7 +86,7 @@ export async function readBoundedResponseBytes(
   return result;
 }
 
-async function readBoundedResponseText(
+export async function readBoundedResponseText(
   response: Response,
   maxBytes: number,
   path: string,
