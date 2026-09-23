@@ -180,6 +180,7 @@ export type {
   AiSystemTrustPassportAibomSection,
   AiSystemTrustPassportEmbed,
   AiSystemTrustPassportVerifyBundle,
+  AiSystemTrustFetchAndVerifyResult,
   // PA01 DX-001 — protectAction (managed MCP Proof Edge)
   ProtectActionTarget,
   McpProtectedActionTarget,

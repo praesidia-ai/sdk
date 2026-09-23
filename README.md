@@ -896,9 +896,24 @@ const svg = await trust.fetchAiSystemBadgeSvg(aiSystemId); // string, `<svg …>
 ```
 
 The bundle's `publicKeyJwk` comes from the same unauthenticated response as the
-passport, so it is not a trust anchor on its own. `verifyPassport` /
-`fetchAndVerify` check the **agent** passport envelope only; offline
-verification of an AI System passport is not in the SDK yet.
+passport, so it is not a trust anchor on its own. Verify an AI System passport
+offline with `verifyAiSystemPassport` / `fetchAndVerifyAiSystem` — same proof,
+signature, expiry and trust-anchor rules as the agent methods above (be signs
+both passports through one path):
+
+```ts
+const { verified, reason, passport } = await trust.fetchAndVerifyAiSystem(aiSystemId, {
+  trustedKeys: [issuerJwkFromYourDidDocument], // or expectedFingerprint
+});
+// No anchor → verified: false, reason: 'unpinned_key' (signatureValid stays truthful)
+
+const offline = trust.verifyAiSystemPassport(passportHandedToYou, myTrustedJwk);
+```
+
+The two envelopes are not interchangeable: `verifyPassport` returns
+`malformed-passport` for an AI System passport and `verifyAiSystemPassport`
+returns it for an agent passport. The AI System check also enforces be's section
+contract — a gap (`available: false`) carries a `reason` and never `counts`.
 
 ## Fail-open / fail-closed
 
@@ -949,6 +964,7 @@ only by `guard.protectAction` — see [above](#guardprotectactionopts--promisepr
 | `PraesidiaTrust.fetchAiSystemPassportPdf` | `GET /trust/passport/ai-systems/:aiSystemId/passport.pdf` | public (no auth) |
 | `PraesidiaTrust.fetchAiSystemPassport` | `GET /trust/passport/ai-systems/:aiSystemId` | public (no auth) |
 | `PraesidiaTrust.fetchAiSystemVerifyBundle` | `GET /trust/passport/ai-systems/:aiSystemId/verify` | public (no auth) |
+| `PraesidiaTrust.fetchAndVerifyAiSystem` | `GET /trust/passport/ai-systems/:aiSystemId/verify` + offline verify | public (no auth) |
 | `PraesidiaTrust.fetchAiSystemBadgeSvg` | `GET /trust/passport/ai-systems/:aiSystemId/badge.svg` | public (no auth) |
 
 Authentication: `Authorization: Bearer <apiKey>` (org-scoped API key). The trust

@@ -842,3 +842,256 @@ describe('PraesidiaTrust', () => {
     expect(err.retryable).toBe(true);
   });
 });
+
+// ── SDK-0309: OFFLINE verification of AI System passports (BE-0540) ─────────
+// Fixture mirrors be's AiSystemTrustPassportService.getPassport: the unsigned
+// doc (proof omitted) goes through TrustPassportService.signCredentialDocument
+// — canonicalJson(unsigned) signed by the org's active key, proof.created =
+// issuanceDate, verificationMethod = `${orgDid}#key-${keyVersion}`.
+
+function buildUnsignedAiSystemPassport(): Omit<AiSystemTrustPassport, 'proof'> {
+  const issuedAt = '2026-09-22T10:00:00.000Z';
+  return {
+    '@context': [
+      'https://www.w3.org/2018/credentials/v1',
+      'https://praesidia.ai/credentials/trust-passport/v1',
+    ],
+    type: ['VerifiableCredential', 'AiSystemTrustPassport'],
+    id: `https://api.praesidia.ai/trust/passport/ai-systems/sys-1#${issuedAt}`,
+    issuer: 'did:web:praesidia.ai:orgs:org-1',
+    issuanceDate: issuedAt,
+    expirationDate: '2999-09-23T10:00:00.000Z',
+    credentialSubject: {
+      id: 'did:web:praesidia.ai:ai-systems:sys-1',
+      aiSystemName: 'Fraud Triage',
+      posture: {
+        available: true,
+        counts: { total: 2, verified: 1, unverified: 1 },
+        updatedAt: '2026-10-01T00:00:00.000Z',
+      },
+      redTeam: { available: true, counts: { completedRuns: 3 }, updatedAt: null },
+      attestations: {
+        activeCount: 2,
+        identityVerified: true,
+        guardrailsActive: true,
+        auditTrailEnabled: true,
+        spendCapConfigured: false,
+      },
+      frameworks: ['EU-AI-Act', 'GDPR'],
+      regulatoryClassification: {
+        available: true,
+        counts: { total: 1, HIGH: 1 },
+        updatedAt: '2026-09-20T08:00:00.000Z',
+      },
+      aibom: {
+        available: true,
+        counts: { componentCount: 14 },
+        updatedAt: '2026-09-21T08:00:00.000Z',
+        digest: 'sha256:9f2c',
+        version: 3,
+      },
+      dataCategories: { available: true, counts: { total: 4 } },
+      incidents: { available: true, counts: { total: 0 } },
+      models: { available: true, counts: { total: 1, openai: 1 } },
+      permissions: { available: false, reason: 'AISYS-0031' },
+      evidenceRoot: { available: false, reason: 'AISYS-0031' },
+    },
+  };
+}
+
+function signAiSystemPassport(
+  unsigned: Omit<AiSystemTrustPassport, 'proof'>,
+  algorithm: 'Ed25519' | 'ES256',
+) {
+  const { publicKey, privateKey } =
+    algorithm === 'Ed25519'
+      ? generateKeyPairSync('ed25519')
+      : generateKeyPairSync('ec', { namedCurve: 'P-256' });
+  const message = canonicalJson(unsigned);
+  const signature =
+    algorithm === 'Ed25519'
+      ? nodeSign(null, Buffer.from(message), privateKey)
+      : canonicalP256Signature(message, privateKey);
+  const passport: AiSystemTrustPassport = {
+    ...unsigned,
+    proof: {
+      type:
+        algorithm === 'Ed25519'
+          ? 'Ed25519Signature2020'
+          : 'EcdsaSecp256r1Signature2019',
+      created: unsigned.issuanceDate,
+      proofPurpose: 'assertionMethod',
+      verificationMethod: `${unsigned.issuer}#key-2`,
+      keyVersion: 2,
+      proofValue: signature.toString('base64'),
+    },
+  };
+  const publicKeyJwk = publicKey.export({ format: 'jwk' }) as Record<
+    string,
+    unknown
+  >;
+  return { passport, publicKeyJwk };
+}
+
+describe('PraesidiaTrust — AI System passport offline verify (SDK-0309)', () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  function mockAiSystemBundle(
+    passport: AiSystemTrustPassport,
+    publicKeyJwk: Record<string, unknown>,
+  ) {
+    globalThis.fetch = makeFetchMock([
+      {
+        status: 200,
+        json: {
+          passport,
+          publicKeyJwk,
+          verificationHint: 'Import publicKeyJwk…',
+          embed: { badgeUrl: 'b', verifyUrl: 'v', html: 'h', markdown: 'm' },
+        },
+      },
+    ]);
+    return new PraesidiaTrust({ baseUrl: 'https://api.praesidia.ai' });
+  }
+
+  it.each(['Ed25519', 'ES256'] as const)(
+    'verifyAiSystemPassport verifies a be-signed %s passport under the pinned key',
+    (algorithm) => {
+      const { passport, publicKeyJwk } = signAiSystemPassport(
+        buildUnsignedAiSystemPassport(),
+        algorithm,
+      );
+      expect(
+        new PraesidiaTrust().verifyAiSystemPassport(passport, publicKeyJwk),
+      ).toEqual({ verified: true, signatureValid: true, expired: false, reason: 'ok' });
+    },
+  );
+
+  it.each(['Ed25519', 'ES256'] as const)(
+    'fetchAndVerifyAiSystem (%s) verifies with a trustedKeys anchor and GETs the public route',
+    async (algorithm) => {
+      const { passport, publicKeyJwk } = signAiSystemPassport(
+        buildUnsignedAiSystemPassport(),
+        algorithm,
+      );
+      const trust = mockAiSystemBundle(passport, publicKeyJwk);
+
+      const result = await trust.fetchAndVerifyAiSystem('sys 1', {
+        trustedKeys: [publicKeyJwk],
+      });
+
+      expect(result).toMatchObject({ verified: true, signatureValid: true, reason: 'ok' });
+      expect(result.passport.credentialSubject.aiSystemName).toBe('Fraud Triage');
+      expect(result.publicKeyJwk).toEqual(publicKeyJwk);
+      const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+        .calls[0] as [string, RequestInit];
+      expect(url).toBe('https://api.praesidia.ai/trust/passport/ai-systems/sys%201/verify');
+      expect((init.headers as Record<string, string>)['Authorization']).toBeUndefined();
+    },
+  );
+
+  it('fetchAndVerifyAiSystem without an anchor reports unpinned_key, signature truthful', async () => {
+    const { passport, publicKeyJwk } = signAiSystemPassport(
+      buildUnsignedAiSystemPassport(),
+      'Ed25519',
+    );
+    const result = await mockAiSystemBundle(passport, publicKeyJwk)
+      .fetchAndVerifyAiSystem('sys-1');
+    expect(result).toMatchObject({
+      verified: false,
+      signatureValid: true,
+      expired: false,
+      reason: 'unpinned_key',
+    });
+  });
+
+  it('fetchAndVerifyAiSystem pins by fingerprint and rejects a foreign anchor', async () => {
+    const { passport, publicKeyJwk } = signAiSystemPassport(
+      buildUnsignedAiSystemPassport(),
+      'ES256',
+    );
+    const fingerprint = jwkThumbprint(publicKeyJwk)!;
+    expect(
+      (await mockAiSystemBundle(passport, publicKeyJwk).fetchAndVerifyAiSystem(
+        'sys-1',
+        { expectedFingerprint: fingerprint },
+      )).reason,
+    ).toBe('ok');
+    const { publicKeyJwk: foreign } = signAiSystemPassport(
+      buildUnsignedAiSystemPassport(),
+      'ES256',
+    );
+    expect(
+      (await mockAiSystemBundle(passport, publicKeyJwk).fetchAndVerifyAiSystem(
+        'sys-1',
+        { trustedKeys: [foreign] },
+      )).reason,
+    ).toBe('untrusted_key');
+  });
+
+  it.each(['Ed25519', 'ES256'] as const)(
+    'a tampered %s credential subject is signature-mismatch (offline and pinned fetch)',
+    async (algorithm) => {
+      const { passport, publicKeyJwk } = signAiSystemPassport(
+        buildUnsignedAiSystemPassport(),
+        algorithm,
+      );
+      const tampered: AiSystemTrustPassport = {
+        ...passport,
+        credentialSubject: {
+          ...passport.credentialSubject,
+          incidents: { available: true, counts: { total: 7 } },
+        },
+      };
+      const trust = new PraesidiaTrust();
+      expect(trust.verifyAiSystemPassport(tampered, publicKeyJwk)).toMatchObject({
+        verified: false,
+        signatureValid: false,
+        reason: 'signature-mismatch',
+      });
+      const fetched = await mockAiSystemBundle(tampered, publicKeyJwk)
+        .fetchAndVerifyAiSystem('sys-1', { trustedKeys: [publicKeyJwk] });
+      expect(fetched.verified).toBe(false);
+      expect(fetched.signatureValid).toBe(false);
+    },
+  );
+
+  it('keeps the agent and AI System envelopes distinct (no cross-type acceptance)', () => {
+    const trust = new PraesidiaTrust();
+    const ai = signAiSystemPassport(buildUnsignedAiSystemPassport(), 'Ed25519');
+    expect(
+      trust.verifyPassport(ai.passport as unknown as TrustPassport, ai.publicKeyJwk)
+        .reason,
+    ).toBe('malformed-passport');
+    const agent = makeKeypairAndPassport();
+    expect(
+      trust.verifyAiSystemPassport(
+        agent.passport as unknown as AiSystemTrustPassport,
+        agent.publicKeyJwk,
+      ).reason,
+    ).toBe('malformed-passport');
+  });
+
+  it.each([
+    ['a gap carrying counts', { permissions: { available: false, reason: 'AISYS-0031', counts: { total: 0 } } }],
+    ['a gap without a reason', { evidenceRoot: { available: false } }],
+    ['a fractional count', { incidents: { available: true, counts: { total: 0.5 } } }],
+    ['a missing section', { models: undefined }],
+    ['a non-canonical updatedAt', { posture: { available: true, updatedAt: '2026-10-01' } }],
+  ])('rejects a signed but malformed AI System subject: %s', (_label, patch) => {
+    const unsigned = buildUnsignedAiSystemPassport();
+    const { passport, publicKeyJwk } = signAiSystemPassport(
+      {
+        ...unsigned,
+        credentialSubject: { ...unsigned.credentialSubject, ...patch },
+      } as Omit<AiSystemTrustPassport, 'proof'>,
+      'Ed25519',
+    );
+    expect(
+      new PraesidiaTrust().verifyAiSystemPassport(passport, publicKeyJwk).reason,
+    ).toBe('malformed-passport');
+  });
+});

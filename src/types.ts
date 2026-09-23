@@ -919,6 +919,13 @@ export interface TrustFetchAndVerifyResult extends TrustVerificationResult {
   didDocumentUrl: string;
 }
 
+/** SDK-0309 — result of `PraesidiaTrust.fetchAndVerifyAiSystem`. */
+export interface AiSystemTrustFetchAndVerifyResult
+  extends TrustVerificationResult {
+  passport: AiSystemTrustPassport;
+  publicKeyJwk: Record<string, unknown>;
+}
+
 // ---------------------------------------------------------------------------
 // FINDING-2 — parity types for the four resource groups the Python SDK had
 // and the TS SDK was missing: agent CRUD, workflows, connections, audit.

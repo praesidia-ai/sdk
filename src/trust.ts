@@ -20,7 +20,9 @@ import {
   verifyEs256,
 } from './crypto.js';
 import type {
+  AiSystemTrustFetchAndVerifyResult,
   AiSystemTrustPassport,
+  AiSystemTrustPassportSection,
   AiSystemTrustPassportVerifyBundle,
   TrustAnchorJwk,
   TrustFetchAndVerifyOptions,
@@ -178,8 +180,44 @@ export class PraesidiaTrust {
     passport: TrustPassport,
     publicKeyJwk: Record<string, unknown>,
   ): TrustVerificationResult {
+    return this.verifyCredential(
+      passport,
+      publicKeyJwk,
+      isPassportEnvelopeWellFormed,
+    );
+  }
+
+  /**
+   * OFFLINE-verify an AI System passport (BE-0540) against a JWK. Same proof,
+   * canonicalization, signature and expiry rules as {@link verifyPassport}
+   * (be signs both through one path); only the envelope check differs — it
+   * requires `type` to include `AiSystemTrustPassport` and the AI System
+   * credential subject. An agent passport is `malformed-passport` here, and
+   * an AI System passport is `malformed-passport` in `verifyPassport`.
+   * Never throws.
+   */
+  verifyAiSystemPassport(
+    passport: AiSystemTrustPassport,
+    publicKeyJwk: Record<string, unknown>,
+  ): TrustVerificationResult {
+    return this.verifyCredential(
+      passport,
+      publicKeyJwk,
+      isAiSystemPassportEnvelopeWellFormed,
+    );
+  }
+
+  private verifyCredential<P extends SignedTrustCredential>(
+    passport: P,
+    publicKeyJwk: Record<string, unknown>,
+    isEnvelopeWellFormed: (passport: P) => boolean,
+  ): TrustVerificationResult {
     try {
-      return this.verifyPassportUnchecked(passport, publicKeyJwk);
+      return this.verifyCredentialUnchecked(
+        passport,
+        publicKeyJwk,
+        isEnvelopeWellFormed,
+      );
     } catch {
       return {
         verified: false,
@@ -190,9 +228,10 @@ export class PraesidiaTrust {
     }
   }
 
-  private verifyPassportUnchecked(
-    passport: TrustPassport,
+  private verifyCredentialUnchecked<P extends SignedTrustCredential>(
+    passport: P,
     publicKeyJwk: Record<string, unknown>,
+    isEnvelopeWellFormed: (passport: P) => boolean,
   ): TrustVerificationResult {
     const proof = passport?.proof;
     if (!proof || typeof proof.proofValue !== 'string') {
@@ -203,7 +242,7 @@ export class PraesidiaTrust {
         reason: 'missing-proof',
       };
     }
-    if (!isPassportEnvelopeWellFormed(passport)) {
+    if (!isEnvelopeWellFormed(passport)) {
       return {
         verified: false,
         signatureValid: false,
@@ -304,9 +343,9 @@ export class PraesidiaTrust {
   ): Promise<TrustFetchAndVerifyResult> {
     const bundle = await this.fetchVerifyBundle(agentId);
     const result = this.verifyAgainstAnchor(
-      bundle.passport,
       bundle.publicKeyJwk,
       options,
+      (jwk) => this.verifyPassport(bundle.passport, jwk),
     );
     return {
       ...result,
@@ -317,17 +356,44 @@ export class PraesidiaTrust {
   }
 
   /**
-   * Verify `passport` against the caller's anchor, falling back to a truthful
-   * but explicitly unpinned result when no anchor was supplied.
+   * {@link fetchAndVerify} for an AI System passport: GET
+   * /trust/passport/ai-systems/:aiSystemId/verify (public), then
+   * {@link verifyAiSystemPassport} under the same trust-anchor rules
+   * (MCPSDK-04) — no anchor → `verified: false, reason: 'unpinned_key'`;
+   * `trustedKeys` without the signing key → `untrusted_key`;
+   * `expectedFingerprint` differing from the served key →
+   * `fingerprint_mismatch`.
+   */
+  async fetchAndVerifyAiSystem(
+    aiSystemId: string,
+    options?: TrustFetchAndVerifyOptions,
+  ): Promise<AiSystemTrustFetchAndVerifyResult> {
+    const bundle = await this.fetchAiSystemVerifyBundle(aiSystemId);
+    const result = this.verifyAgainstAnchor(
+      bundle.publicKeyJwk,
+      options,
+      (jwk) => this.verifyAiSystemPassport(bundle.passport, jwk),
+    );
+    return {
+      ...result,
+      passport: bundle.passport,
+      publicKeyJwk: bundle.publicKeyJwk,
+    };
+  }
+
+  /**
+   * Verify a passport (via `verify`) against the caller's anchor, falling
+   * back to a truthful but explicitly unpinned result when no anchor was
+   * supplied.
    *
    * `servedKeyJwk` is the key that arrived with the passport; it is only ever
    * used to compute an honest `signatureValid`, or after its fingerprint has
    * been pinned by the caller.
    */
   private verifyAgainstAnchor(
-    passport: TrustPassport,
     servedKeyJwk: Record<string, unknown>,
-    options?: TrustFetchAndVerifyOptions,
+    options: TrustFetchAndVerifyOptions | undefined,
+    verify: (jwk: Record<string, unknown>) => TrustVerificationResult,
   ): TrustVerificationResult {
     const anchors = normalizeTrustedKeys(options?.trustedKeys);
     const expectedFingerprint = options?.expectedFingerprint;
@@ -339,26 +405,26 @@ export class PraesidiaTrust {
       // A concrete failure (signature-mismatch, expired, ...) is kept because
       // it is strictly more informative; only an otherwise-'ok' check is
       // downgraded to 'unpinned_key'.
-      const served = this.verifyPassport(passport, servedKeyJwk);
+      const served = verify(servedKeyJwk);
       return served.reason === 'ok'
         ? { ...served, verified: false, reason: 'unpinned_key' }
         : { ...served, verified: false };
     }
 
     if (hasFingerprint && !jwkMatchesFingerprint(servedKeyJwk, expectedFingerprint)) {
-      const served = this.verifyPassport(passport, servedKeyJwk);
+      const served = verify(servedKeyJwk);
       return { ...served, verified: false, reason: 'fingerprint_mismatch' };
     }
 
     if (!anchors) {
       // Fingerprint-only anchor, and the served key matched it.
-      return this.verifyPassport(passport, servedKeyJwk);
+      return verify(servedKeyJwk);
     }
 
     // Key anchor: the passport must verify under one of the caller's keys.
     let underTrustedKey: TrustVerificationResult | undefined;
     for (const anchor of anchors) {
-      const result = this.verifyPassport(passport, anchor);
+      const result = verify(anchor);
       if (result.verified) return result;
       // Signature is good under a trusted key but something else failed
       // (expired / invalid expiration) — that reason is more useful than
@@ -401,7 +467,18 @@ export class PraesidiaTrust {
 
 type PassportVerifier = (message: Uint8Array, signature: string) => boolean;
 
-function isPassportEnvelopeWellFormed(passport: TrustPassport): boolean {
+/** Both passport kinds share be's `signCredentialDocument` proof envelope. */
+type SignedTrustCredential = TrustPassport | AiSystemTrustPassport;
+
+/**
+ * VC + proof envelope common to both passport kinds, plus the subject `id`
+ * and `attestations` block they share. `credentialType` is the specific VC
+ * type that must be present (`TrustPassport` / `AiSystemTrustPassport`).
+ */
+function isCredentialEnvelopeWellFormed(
+  passport: SignedTrustCredential,
+  credentialType: string,
+): boolean {
   const subject = passport.credentialSubject;
   const proof = passport.proof;
   return (
@@ -409,7 +486,7 @@ function isPassportEnvelopeWellFormed(passport: TrustPassport): boolean {
     passport['@context'].includes('https://www.w3.org/2018/credentials/v1') &&
     Array.isArray(passport.type) &&
     passport.type.includes('VerifiableCredential') &&
-    passport.type.includes('TrustPassport') &&
+    passport.type.includes(credentialType) &&
     isNonEmptyString(passport.id) &&
     isNonEmptyString(passport.issuer) &&
     isIsoInstant(passport.issuanceDate) &&
@@ -417,22 +494,6 @@ function isPassportEnvelopeWellFormed(passport: TrustPassport): boolean {
     !!subject &&
     typeof subject === 'object' &&
     isNonEmptyString(subject.id) &&
-    isNonEmptyString(subject.agentName) &&
-    isNonEmptyString(subject.trustLevel) &&
-    Number.isFinite(subject.trustScore) &&
-    subject.trustScore >= 0 &&
-    subject.trustScore <= 100 &&
-    Array.isArray(subject.compliance) &&
-    subject.compliance.every(isNonEmptyString) &&
-    !!subject.posture &&
-    typeof subject.posture === 'object' &&
-    isNonEmptyString(subject.posture.status) &&
-    isNullableIsoInstant(subject.posture.expiresAt) &&
-    !!subject.redTeam &&
-    typeof subject.redTeam === 'object' &&
-    Number.isInteger(subject.redTeam.completedRuns) &&
-    subject.redTeam.completedRuns >= 0 &&
-    isNullableIsoInstant(subject.redTeam.lastTestedAt) &&
     !!subject.attestations &&
     typeof subject.attestations === 'object' &&
     Number.isInteger(subject.attestations.activeCount) &&
@@ -448,6 +509,83 @@ function isPassportEnvelopeWellFormed(passport: TrustPassport): boolean {
     proof.keyVersion > 0 &&
     proof.verificationMethod === `${passport.issuer}#key-${proof.keyVersion}`
   );
+}
+
+function isPassportEnvelopeWellFormed(passport: TrustPassport): boolean {
+  const subject = passport.credentialSubject;
+  return (
+    isCredentialEnvelopeWellFormed(passport, 'TrustPassport') &&
+    isNonEmptyString(subject.agentName) &&
+    isNonEmptyString(subject.trustLevel) &&
+    Number.isFinite(subject.trustScore) &&
+    subject.trustScore >= 0 &&
+    subject.trustScore <= 100 &&
+    Array.isArray(subject.compliance) &&
+    subject.compliance.every(isNonEmptyString) &&
+    !!subject.posture &&
+    typeof subject.posture === 'object' &&
+    isNonEmptyString(subject.posture.status) &&
+    isNullableIsoInstant(subject.posture.expiresAt) &&
+    !!subject.redTeam &&
+    typeof subject.redTeam === 'object' &&
+    Number.isInteger(subject.redTeam.completedRuns) &&
+    subject.redTeam.completedRuns >= 0 &&
+    isNullableIsoInstant(subject.redTeam.lastTestedAt)
+  );
+}
+
+const AI_SYSTEM_SECTIONS = [
+  'posture',
+  'redTeam',
+  'regulatoryClassification',
+  'aibom',
+  'dataCategories',
+  'incidents',
+  'models',
+  'permissions',
+  'evidenceRoot',
+] as const;
+
+function isAiSystemPassportEnvelopeWellFormed(
+  passport: AiSystemTrustPassport,
+): boolean {
+  const subject = passport.credentialSubject;
+  return (
+    isCredentialEnvelopeWellFormed(passport, 'AiSystemTrustPassport') &&
+    isNonEmptyString(subject.aiSystemName) &&
+    Array.isArray(subject.frameworks) &&
+    subject.frameworks.every(isNonEmptyString) &&
+    AI_SYSTEM_SECTIONS.every((name) => isAiSystemSectionWellFormed(subject[name])) &&
+    (subject.aibom.digest === undefined || isNonEmptyString(subject.aibom.digest)) &&
+    (subject.aibom.version === undefined || isNonNegativeInteger(subject.aibom.version))
+  );
+}
+
+/**
+ * be's section contract: `{ available: true, counts?, updatedAt? }` or
+ * `{ available: false, reason }` — `reason` only on a gap, and a gap never
+ * carries counts (never a fabricated zero).
+ */
+function isAiSystemSectionWellFormed(
+  section: AiSystemTrustPassportSection,
+): boolean {
+  if (!section || typeof section !== 'object') return false;
+  const { available, reason, counts, updatedAt } = section;
+  if (typeof available !== 'boolean') return false;
+  return (
+    (available ? reason === undefined : isNonEmptyString(reason)) &&
+    (counts === undefined ||
+      (available &&
+        !!counts &&
+        typeof counts === 'object' &&
+        !Array.isArray(counts) &&
+        Object.values(counts).every(isNonNegativeInteger))) &&
+    (updatedAt === undefined || isNullableIsoInstant(updatedAt))
+  );
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 0;
 }
 
 function isNonEmptyString(value: unknown): value is string {
