@@ -105,8 +105,8 @@ export class PraesidiaTrust {
   /**
    * Fetch an AI System's signed trust passport (BE-0540), aggregated over its
    * member assets. GET /trust/passport/ai-systems/:aiSystemId (public — no
-   * auth). Throws `PraesidiaApiError` (404) for an unknown or soft-deleted AI
-   * System.
+   * auth). Throws `PraesidiaApiError` (404) if the AI System is unpublished
+   * (`passportVisibility` PRIVATE, the default), unknown or soft-deleted.
    */
   async fetchAiSystemPassport(
     aiSystemId: string,
@@ -118,11 +118,11 @@ export class PraesidiaTrust {
 
   /**
    * Fetch an AI System's verification bundle (passport + org public key JWK +
-   * verification hint + badge embed snippets). GET
-   * /trust/passport/ai-systems/:aiSystemId/verify (public — no auth). The JWK
-   * arrives on the same unauthenticated response as the passport, so it is not
-   * a trust anchor on its own. Throws `PraesidiaApiError` (404 unknown AI
-   * System; 503 when be cannot load the org signing key — retryable).
+   * verification hint + badge embed snippets). Public, no auth: GET
+   * /trust/passport/ai-systems/:aiSystemId/verify. Its JWK rides the same
+   * unauthenticated response: no trust anchor on its own. `PraesidiaApiError`
+   * 404: unknown or soft-deleted, or unpublished (`passportVisibility` PRIVATE,
+   * the default); 503 (retryable) if be cannot load the org signing key.
    */
   async fetchAiSystemVerifyBundle(
     aiSystemId: string,
@@ -133,10 +133,10 @@ export class PraesidiaTrust {
   }
 
   /**
-   * Fetch an AI System's embeddable SVG trust badge. GET
-   * /trust/passport/ai-systems/:aiSystemId/badge.svg (public — no auth).
-   * Returns the SVG markup as a string. Throws `PraesidiaApiError` (404) for
-   * an unknown or soft-deleted AI System.
+   * Fetch an AI System's embeddable SVG trust badge (public — no auth). GET
+   * /trust/passport/ai-systems/:aiSystemId/badge.svg; returns the SVG markup as
+   * a string. Throws `PraesidiaApiError` (404) if the AI System is unpublished
+   * (`passportVisibility` PRIVATE, the default), unknown or soft-deleted.
    */
   async fetchAiSystemBadgeSvg(aiSystemId: string): Promise<string> {
     const badgePath = `/trust/passport/ai-systems/${encodePathSegment(aiSystemId, 'aiSystemId')}/badge.svg`;
@@ -152,8 +152,8 @@ export class PraesidiaTrust {
    * Download the human-readable PDF rendering of an AI System's signed trust
    * passport (BE-0541). GET /trust/passport/ai-systems/:aiSystemId/passport.pdf
    * (public — no auth). Returns the raw PDF bytes; in Node write them with
-   * `fs.writeFileSync(path, bytes)`. Throws `PraesidiaApiError` (404) for an
-   * unknown or soft-deleted AI System.
+   * `fs.writeFileSync(path, bytes)`. `PraesidiaApiError` 404 if unpublished
+   * (`passportVisibility` PRIVATE, the default), unknown or soft-deleted.
    */
   async fetchAiSystemPassportPdf(aiSystemId: string): Promise<Uint8Array> {
     const path = `/trust/passport/ai-systems/${encodePathSegment(aiSystemId, 'aiSystemId')}/passport.pdf`;

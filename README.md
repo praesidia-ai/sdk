@@ -874,7 +874,8 @@ import { writeFileSync } from 'node:fs';
 
 const pdf = await trust.fetchAiSystemPassportPdf(aiSystemId); // Uint8Array, starts with %PDF-
 writeFileSync('trust-passport.pdf', pdf);
-// Unknown / soft-deleted AI System → PraesidiaApiError (status 404)
+// Unpublished (passportVisibility PRIVATE, the default), unknown or
+// soft-deleted AI System → PraesidiaApiError (status 404)
 ```
 
 The rest of the **AI System** passport routes are public as well — `PraesidiaTrust`
@@ -891,9 +892,18 @@ const bundle = await trust.fetchAiSystemVerifyBundle(aiSystemId);
 // { passport, publicKeyJwk, verificationHint, embed: { badgeUrl, verifyUrl, html, markdown } }
 
 const svg = await trust.fetchAiSystemBadgeSvg(aiSystemId); // string, `<svg …>`
-// Unknown / soft-deleted AI System → PraesidiaApiError (404); the verify
-// bundle answers 503 (retryable) when be cannot load the org signing key.
+// Unpublished (passportVisibility PRIVATE, the default), unknown or
+// soft-deleted AI System → PraesidiaApiError (404); the verify bundle
+// answers 503 (retryable) when be cannot load the org signing key.
 ```
+
+These routes serve a passport only once its owner publishes it: every AI
+System starts with `passportVisibility` `PRIVATE` (existing systems included),
+and an unpublished one gets the same 404 as an id that does not exist. An org
+member with `ai_systems.update` publishes or withdraws it with
+`PATCH /organizations/:orgId/ai-systems/:id` — from this SDK, the API-keyed
+`PraesidiaAiSystems.update(aiSystemId, { passportVisibility: 'PUBLIC' })`, not
+`PraesidiaTrust`.
 
 The bundle's `publicKeyJwk` comes from the same unauthenticated response as the
 passport, so it is not a trust anchor on its own. Verify an AI System passport
