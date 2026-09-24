@@ -35,6 +35,9 @@ export type {
 } from './proof-types.js';
 export { PraesidiaAnalytics } from './analytics.js';
 export { PraesidiaClient, CHAIN_ID_HEADER } from './client.js';
+// SDK-0312: tag OpenAI-wire gateway calls with an MCP server id (GW-0776).
+export { gatewayFetch, MCP_SERVER_ID_HEADER } from './gateway.js';
+export type { GatewayFetchOptions } from './gateway.js';
 // FINDING-4 — retry policy config type.
 export type { RetryConfig } from './retry.js';
 export {
@@ -54,6 +57,7 @@ export {
   GuardrailBlockedError,
   PraesidiaApiError,
   PraesidiaConfigError,
+  InvalidMcpServerIdError,
   // PA01 DX-001 — protectAction error taxonomy
   ProtectedActionDeniedError,
   UnsupportedProtectedActionTargetError,

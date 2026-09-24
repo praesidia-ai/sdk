@@ -467,6 +467,37 @@ only bounded metadata before publishing to its queue. The real collector
 acceptance command is `node ../infra/scripts/verify-telemetry-interoperability.mjs`
 after building this SDK and preparing the sibling Python environment.
 
+## Gateway calls tagged with an MCP server id (SDK-0312)
+
+The SDK has no OpenAI-wire client of its own. Point the OpenAI (or Anthropic) SDK at the
+Praesidia gateway, then pass it `gatewayFetch` to name the MCP server each call is made for.
+The gateway reports the egress it observes against that server, and be records it only when
+your key's org owns that server. The gateway strips the header before forwarding upstream.
+
+```typescript
+import OpenAI from 'openai';
+import { gatewayFetch, MCP_SERVER_ID_HEADER } from '@praesidia/sdk';
+
+const openai = new OpenAI({
+  baseURL: 'https://gateway.praesidia.ai/openai/v1',
+  apiKey: process.env.PRAESIDIA_API_KEY, // your pra_ key
+  fetch: gatewayFetch({ mcpServerId: '018f4f1a-6b1e-7c3a-9d2e-abcdef123456' }), // per client
+});
+
+// Per call: this header wins over the client's mcpServerId.
+await openai.chat.completions.create(body, {
+  headers: { [MCP_SERVER_ID_HEADER]: otherMcpServerId },
+});
+```
+
+- The header is `x-praesidia-mcp-server-id`. With no id on the client or the call, no header
+  is sent.
+- An id must be one canonical hyphenated UUID (`8-4-4-4-12` hex, either case), the same
+  shape rule the gateway applies. A bad client id throws `InvalidMcpServerIdError` from
+  `gatewayFetch()`. A bad or duplicated per-call id rejects the call before it is sent. The
+  gateway would otherwise answer 400 `invalid_mcp_server_id`.
+- `gatewayFetch({ fetch })` wraps your own `fetch`. The default is the global one.
+
 ## Agent memory (H2-06e)
 
 `PraesidiaMemory` wraps the org-scoped memory API. Writes are PII-redacted +
@@ -953,6 +984,9 @@ try {
 `ProtectedActionDeniedError` and `UnsupportedProtectedActionTargetError` (PA01 DX-001) are thrown
 only by `guard.protectAction` — see [above](#guardprotectactionopts--promiseprotectactionresult-pa01-dx-001).
 
+`InvalidMcpServerIdError` (a `PraesidiaConfigError`) is thrown only by `gatewayFetch` — see
+[Gateway calls tagged with an MCP server id](#gateway-calls-tagged-with-an-mcp-server-id-sdk-0312).
+
 ## Praesidia API endpoints used
 
 | Operation | Endpoint | Required scope |
@@ -1031,6 +1065,14 @@ sibling checkout in `sdk-python`'s own `contract-drift.yml` — CD-0007 reuses
 this repo's scanner rather than a third, Python-native re-derivation.
 
 ## Changelog
+
+### Unreleased — SDK-0312: tag gateway calls with an MCP server id (GW-0776)
+
+- **Added** `gatewayFetch(options?)`, `MCP_SERVER_ID_HEADER`, `GatewayFetchOptions`
+  (`src/gateway.ts`) and `InvalidMcpServerIdError` (`src/errors.ts`). `gatewayFetch` is a
+  `fetch` for OpenAI-wire SDKs pointed at the gateway. It sends `x-praesidia-mcp-server-id`
+  from `mcpServerId` or from a per-call header, which wins. No breaking changes: additive only.
+  Python parity is tracked as SDK-0313.
 
 ### Unreleased — SDK-0307: public AI System passport routes (BE-0540)
 

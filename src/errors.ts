@@ -107,6 +107,18 @@ export class PraesidiaConfigError extends Error {
 }
 
 /**
+ * SDK-0312: thrown by `gatewayFetch` before sending when an MCP server id is not one
+ * canonical hyphenated UUID, the rule the gateway answers with 400 `invalid_mcp_server_id`.
+ */
+export class InvalidMcpServerIdError extends PraesidiaConfigError {
+  constructor() {
+    super('x-praesidia-mcp-server-id must be one canonical hyphenated UUID (8-4-4-4-12 hex)');
+    this.name = 'InvalidMcpServerIdError';
+    Object.setPrototypeOf(this, InvalidMcpServerIdError.prototype);
+  }
+}
+
+/**
  * PA01 DX-001 — thrown by `guard.protectAction()` when the managed MCP Proof
  * Edge (or an upstream policy/RBAC gate on the same route) denies the
  * dispatch: no/expired/invalid/replayed Permit, a commitment mismatch, or a
