@@ -1066,6 +1066,14 @@ this repo's scanner rather than a third, Python-native re-derivation.
 
 ## Changelog
 
+### Unreleased — SDK-0314: `AI_ASSET_TYPES` adds `GUARDRAIL`
+
+- **Fixed** `AI_ASSET_TYPES` (`types.ts`, 23 → 24: adds `GUARDRAIL`) to match `ui/swagger.json`'s
+  `AiAsset.assetType` enum (be BE-0338). Before this, `listAssets`/`createAsset`/
+  `putAssetByExternalId`/`traverse` rejected `'GUARDRAIL'` with a `PraesidiaConfigError` before
+  sending the request. `ASSET_RELATIONSHIP_TYPES` re-checked against the same swagger: already in
+  sync (13 values). No breaking changes — widened valid-value set only.
+
 ### Unreleased — SDK-0312: tag gateway calls with an MCP server id (GW-0776)
 
 - **Added** `gatewayFetch(options?)`, `MCP_SERVER_ID_HEADER`, `GatewayFetchOptions`

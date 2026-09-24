@@ -1416,13 +1416,14 @@ export interface UpdateAiSystemOwnersInput {
   complianceOwnerId?: string | null;
 }
 
-/** `entities/ai-asset.entity.ts`'s `AI_ASSET_TYPES` (23 values, SDK-0007 synced with DB-0300's
- * widened enum; kept in sync via `ai-systems.spec.ts`'s openapi contract test). */
+/** `entities/ai-asset.entity.ts`'s `AI_ASSET_TYPES` (24 values, SDK-0007 synced with DB-0300's
+ * widened enum, SDK-0314 adds BE-0338's `GUARDRAIL`; kept in sync via `ai-systems.spec.ts`'s
+ * openapi contract test). */
 export const AI_ASSET_TYPES = [
   'APPLICATION', 'AGENT', 'MODEL', 'MODEL_ENDPOINT', 'MCP_SERVER', 'MCP_TOOL', 'A2A_ENDPOINT',
   'API', 'DATA_SOURCE', 'DATASET', 'VECTOR_STORE', 'RAG_INDEX', 'PROMPT', 'SKILL', 'VENDOR',
   'IDENTITY', 'CREDENTIAL', 'REPOSITORY', 'CLOUD_RESOURCE', 'WORKFLOW', 'TOOL', 'API_ENDPOINT',
-  'DATA_SCOPE',
+  'DATA_SCOPE', 'GUARDRAIL',
 ] as const;
 export type AiAssetType = (typeof AI_ASSET_TYPES)[number];
 
