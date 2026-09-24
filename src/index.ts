@@ -61,6 +61,9 @@ export {
   // PA01 DX-001 — protectAction error taxonomy
   ProtectedActionDeniedError,
   UnsupportedProtectedActionTargetError,
+  // SDK-0300 — interaction hooks
+  InteractionDeniedError,
+  InteractionDecisionUnavailableError,
 } from './errors.js';
 // PA01 D2/D18 — RFC 8785 JCS canonicalization (byte-compared against the
 // shared golden fixtures in jcs-canonical.spec.ts).
@@ -198,6 +201,9 @@ export type {
 export type { JsonValue } from './jcs-canonical.js';
 
 export { PraesidiaProtectedHttp, verifyProtectedHttpResult, PROTECTED_HTTP_RUNTIMES } from './protected-http.js';
+// SDK-0300 — advisory in-runtime interaction hooks (be BE-1486 decision route)
+export { PraesidiaInteractionHooks, INTERACTION_TYPES, INTERACTION_VERDICTS, DEFAULT_FAIL_MODES } from './interaction-hooks.js';
+export type { InteractionType, InteractionVerdict, InteractionAction, InteractionDecision, InteractionHookResult, InteractionHooksConfig, InteractionHookClass, FailMode, ToolCallRequest, ExecRequest, FsAccessMode, FsAccessRequest, BrowserActionRequest } from './interaction-hooks.js';
 export type { ProtectedHttpRequest, ProtectedHttpCheckpoint, ProtectedHttpResult, RuntimeCheckpoint, TrustedHttpTarget, ProtectedHttpRuntime } from './protected-http.js';
 export { PraesidiaRuntimeTool } from './runtime-tool.js';
 export { FileRuntimeAttemptStore } from './runtime-attempt-store.js';

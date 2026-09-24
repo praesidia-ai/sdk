@@ -956,6 +956,68 @@ The two envelopes are not interchangeable: `verifyPassport` returns
 returns it for an agent passport. The AI System check also enforces be's section
 contract — a gap (`available: false`) carries a `reason` and never `counts`.
 
+## Interaction hooks — advisory in-runtime guard (SDK-0300)
+
+Shell commands, code runs, file access, browser actions and tool calls run on **your** compute.
+Praesidia does not operate or intercept that runtime. `PraesidiaInteractionHooks` is an
+**advisory in-runtime guard**: before the action, your code asks Praesidia for a decision
+and the SDK enforces that decision in your process. An agent that does not load the SDK, or
+skips a hook, is not governed by it. For enforcement Praesidia sits in the path of, route the
+action through a governed MCP server (`guard.protectAction`) instead.
+
+```typescript
+import { spawnSync } from 'node:child_process';
+import { PraesidiaInteractionHooks } from '@praesidia/sdk';
+
+const hooks = new PraesidiaInteractionHooks({
+  apiKey: process.env.PRAESIDIA_API_KEY, // org key with agents:invoke
+  orgId: process.env.PRAESIDIA_ORG_ID,
+  agentId: process.env.PRAESIDIA_AGENT_ID, // required: the agent tool policies decide
+  requestTimeoutMs: 5000, // how long a hook waits before its fail mode applies
+});
+
+await hooks.beforeExec({ command: 'git status', cwd: '/srv/repo' }); // throws on deny
+spawnSync('git', ['status'], { cwd: '/srv/repo' });
+```
+
+| Hook | Asks as | Default on outage |
+|---|---|---|
+| `beforeToolCall({ toolName, arguments? })` | `model_to_tool.<toolName>` | fail-open |
+| `beforeExec({ command, args?, cwd?, runtime? })` | `agent_to_shell.exec` (`runtime: 'code'` → `agent_to_code_execution.exec`) | **fail-closed** |
+| `beforeFsAccess({ path, mode })` | `agent_to_filesystem.<mode>` | fail-open for `read` / `list`, **fail-closed** for `write` / `delete` |
+| `beforeBrowserAction({ action, url?, arguments? })` | `agent_to_browser.<action>` | fail-open |
+| `beforeInteraction(type, { name, arguments? }, { failMode? })` | `<type>.<name>`, any of `INTERACTION_TYPES` | **fail-closed** |
+
+Every hook resolves to `{ decision }` on `allow`, throws `InteractionDeniedError` on `deny`,
+and on `require_approval` blocks: it re-asks every `approvalPollIntervalMs` (default 2 s),
+echoing `approvalId`, until a human approves (resolves) or rejects / the approval expires
+(throws). After `approvalTimeoutMs` (default 10 min) it throws with
+`reasonCode: 'approval_wait_timeout'`. `onApprovalRequired(decision)` fires once when the wait
+starts, so you can tell someone which approval to act on.
+
+**Fail mode.** An outage is a network error, a timeout, a 408 / 429 / 5xx, or a malformed
+response. A fail-closed hook then throws `InteractionDecisionUnavailableError`; a fail-open
+hook resolves to `{ decision: null, failOpenError }`. Any other 4xx (bad key, unknown agent,
+feature not enabled) always throws `PraesidiaApiError`, on every hook. The defaults fail closed
+where a skipped check can do irreversible local damage with no other Praesidia control in the
+path (shell / code execution, filesystem writes), and fail open for read-only and
+lower-impact checks so a Praesidia outage does not stop every agent. Override per class with
+`failMode: { toolCall, exec, fsRead, fsWrite, browser }` (`'open' | 'closed'`). An outage while
+waiting for an approval never turns into an allow: the hook keeps waiting, then times out.
+
+**Cache.** A verdict is reused for its `ttlSeconds` (be sends 30, or 0 for approvals and
+daily-limited rules) for the identical request, in memory, per hooks instance (at most 1000
+entries). Cached verdicts are valid only under the `policyFingerprint` that produced them: a
+response with a new fingerprint evicts them all. A policy change therefore takes effect within
+`ttlSeconds`.
+
+In `observe` governance mode be answers `allow` and records the would-be decision; in `off` it
+answers `allow`. `decide(type, action, approvalId?)` is the raw call (no cache, no wait, no fail
+mode). Action names must be dot-separated `[A-Za-z0-9_-]` segments (be's rule); anything else
+throws `PraesidiaConfigError` before a request is sent.
+
+Python parity: the `praesidia` Python SDK does not ship these hooks yet (SDK-0301).
+
 ## Fail-open / fail-closed
 
 | Scenario | Default behaviour |
@@ -965,6 +1027,9 @@ contract — a gap (`available: false`) carries a `reason` and never `counts`.
 | Network error reaching Praesidia | Degrades to local rules, emits `console.warn` |
 | `strict: true` + network error | Throws `PraesidiaApiError` |
 | `failOpen: true` | Silently degrades (no `console.warn`) |
+
+These rows are `PraesidiaGuard`'s. Interaction hooks have their own per-hook defaults: see
+[Interaction hooks](#interaction-hooks--advisory-in-runtime-guard-sdk-0300).
 
 ## Error types
 
@@ -984,6 +1049,11 @@ try {
 `ProtectedActionDeniedError` and `UnsupportedProtectedActionTargetError` (PA01 DX-001) are thrown
 only by `guard.protectAction` — see [above](#guardprotectactionopts--promiseprotectactionresult-pa01-dx-001).
 
+`InteractionDeniedError` (`interactionType`, `actionName`, `reasonCode`, `decision`) and
+`InteractionDecisionUnavailableError` (`cause` = the outage) are thrown only by
+`PraesidiaInteractionHooks` — see
+[Interaction hooks](#interaction-hooks--advisory-in-runtime-guard-sdk-0300).
+
 `InvalidMcpServerIdError` (a `PraesidiaConfigError`) is thrown only by `gatewayFetch` — see
 [Gateway calls tagged with an MCP server id](#gateway-calls-tagged-with-an-mcp-server-id-sdk-0312).
 
@@ -994,6 +1064,7 @@ only by `guard.protectAction` — see [above](#guardprotectactionopts--promisepr
 | `checkInput` / `checkOutput` | `POST /organizations/:orgId/guardrails/validate` | `agents:invoke` or `*` |
 | `logTask` | `POST /organizations/:orgId/tasks` | `agents:invoke` or `*` |
 | `protectAction` (PA01 DX-001) | `POST /organizations/:orgId/mcp-servers/:id/tools/:toolName/call` | `MCP_SERVERS_UPDATE` (`mcp:manage` key scope) |
+| `PraesidiaInteractionHooks.*` (SDK-0300) | `POST /organizations/:orgId/interaction-decisions` | `agents:invoke` (`AGENT_POLICIES` feature) |
 | `requestReport` | `POST /organizations/:orgId/compliance/eu-ai-act/reports` | `COMPLIANCE_MANAGE` |
 | `getReportStatus` / `getReportJson` / `getReportPdf` | `GET /organizations/:orgId/compliance/eu-ai-act/reports/:id[/json\|/pdf]` | `COMPLIANCE_VIEW` |
 | `PraesidiaTelemetry.emit*` | `POST /telemetry/otlp/v1/traces` | `telemetry:ingest` or `*` |
@@ -1065,6 +1136,16 @@ sibling checkout in `sdk-python`'s own `contract-drift.yml` — CD-0007 reuses
 this repo's scanner rather than a third, Python-native re-derivation.
 
 ## Changelog
+
+### Unreleased — SDK-0300: interaction hooks, an advisory in-runtime guard (BE-1486)
+
+- **Added** `PraesidiaInteractionHooks` (`beforeToolCall`, `beforeExec`, `beforeFsAccess`,
+  `beforeBrowserAction`, `beforeInteraction`, `decide`), `INTERACTION_TYPES`,
+  `INTERACTION_VERDICTS`, `DEFAULT_FAIL_MODES` and their types (`src/interaction-hooks.ts`), plus
+  `InteractionDeniedError` / `InteractionDecisionUnavailableError` (`src/errors.ts`). Calls be's
+  `POST /organizations/:orgId/interaction-decisions`; replays be's recorded fixture
+  `test-fixtures/interaction-decision-v1.json`. Additive only, no breaking change (semver minor).
+  Not yet in the Python SDK (SDK-0301).
 
 ### Unreleased — SDK-0314: `AI_ASSET_TYPES` adds `GUARDRAIL`
 

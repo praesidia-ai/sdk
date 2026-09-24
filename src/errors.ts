@@ -181,3 +181,54 @@ export class UnsupportedProtectedActionTargetError extends Error {
     Object.setPrototypeOf(this, UnsupportedProtectedActionTargetError.prototype);
   }
 }
+
+/**
+ * SDK-0300 — thrown by an interaction hook (`PraesidiaInteractionHooks`) when
+ * Praesidia's decision is `deny`, or when a `require_approval` wait ends
+ * without an approval (`reasonCode` `approval_rejected` / `approval_expired` /
+ * `approval_cancelled` from be, or `approval_wait_timeout` from the SDK).
+ * `decision` is be's last response (still `require_approval` on a timeout).
+ */
+export class InteractionDeniedError extends Error {
+  readonly interactionType: string;
+  readonly actionName: string;
+  readonly reasonCode: string;
+  readonly decision: import('./interaction-hooks.js').InteractionDecision;
+
+  constructor(
+    interactionType: string,
+    actionName: string,
+    reasonCode: string,
+    decision: import('./interaction-hooks.js').InteractionDecision,
+  ) {
+    super(`Praesidia denied ${interactionType}.${actionName}: ${reasonCode}`);
+    this.name = 'InteractionDeniedError';
+    this.interactionType = interactionType;
+    this.actionName = actionName;
+    this.reasonCode = reasonCode;
+    this.decision = decision;
+    Object.setPrototypeOf(this, InteractionDeniedError.prototype);
+  }
+}
+
+/**
+ * SDK-0300 — thrown by a fail-closed interaction hook when no decision could
+ * be obtained (network error, timeout, 408/429/5xx, or a malformed response).
+ * `cause` is the underlying error. A fail-open hook returns instead.
+ */
+export class InteractionDecisionUnavailableError extends Error {
+  readonly interactionType: string;
+  readonly actionName: string;
+
+  constructor(interactionType: string, actionName: string, cause: unknown) {
+    super(
+      `Praesidia decision unavailable for ${interactionType}.${actionName} (fail-closed): ` +
+        (cause instanceof Error ? cause.message : String(cause)),
+      { cause },
+    );
+    this.name = 'InteractionDecisionUnavailableError';
+    this.interactionType = interactionType;
+    this.actionName = actionName;
+    Object.setPrototypeOf(this, InteractionDecisionUnavailableError.prototype);
+  }
+}

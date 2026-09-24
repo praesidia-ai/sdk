@@ -1,0 +1,219 @@
+import { readFileSync } from 'node:fs';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  DEFAULT_FAIL_MODES,
+  INTERACTION_TYPES,
+  INTERACTION_VERDICTS,
+  PraesidiaInteractionHooks,
+  type InteractionDecision,
+  type InteractionHookResult,
+  type InteractionHooksConfig,
+  type InteractionType,
+} from './interaction-hooks.js';
+import {
+  InteractionDecisionUnavailableError,
+  InteractionDeniedError,
+  PraesidiaApiError,
+  PraesidiaConfigError,
+} from './errors.js';
+import { makeFetchMock, mockResponse, type MockResponseInit } from './__tests__/fetch-mock.js';
+
+// Byte-identical copy of be/test-fixtures/interaction-decision-v1.json (BE-1486).
+interface FixtureCase { name: string; request: Record<string, unknown>; response: InteractionDecision }
+const fixture = JSON.parse(
+  readFileSync(new URL('../test-fixtures/interaction-decision-v1.json', import.meta.url), 'utf8'),
+) as { orgId: string; verdicts: string[]; interactionTypes: string[]; cases: FixtureCase[] };
+const byName = (name: string): FixtureCase => fixture.cases.find((c) => c.name === name)!;
+const AGENT = byName('allow_by_policy').request['agentId'] as string;
+const URL_ = `https://api.example/organizations/${fixture.orgId}/interaction-decisions`;
+const ALLOW = byName('allow_by_policy').response;
+const DENY = byName('deny_by_policy').response;
+const PENDING = byName('require_approval_minted').response;
+const CONSUMED = byName('approval_granted_consumed').response;
+
+function hooks(extra: Partial<InteractionHooksConfig> = {}): PraesidiaInteractionHooks {
+  return new PraesidiaInteractionHooks({
+    apiKey: 'pk_test',
+    orgId: fixture.orgId,
+    agentId: AGENT,
+    baseUrl: 'https://api.example',
+    approvalPollIntervalMs: 1,
+    ...extra,
+  });
+}
+function stub(responses: MockResponseInit[]) {
+  const f = makeFetchMock(responses);
+  vi.stubGlobal('fetch', f);
+  return f;
+}
+const sentBody = (f: ReturnType<typeof vi.fn>, i: number): string => String(f.mock.calls[i]?.[1]?.body);
+
+type Hook = (h: PraesidiaInteractionHooks) => Promise<InteractionHookResult>;
+// `fail` is the README-documented default, stated here, not read from DEFAULT_FAIL_MODES.
+const HOOKS: { hook: string; fail: 'open' | 'closed'; type: InteractionType; call: Hook }[] = [
+  { hook: 'beforeToolCall', fail: 'open', type: 'model_to_tool', call: (h) => h.beforeToolCall({ toolName: 'search.web', arguments: { q: 'x' } }) },
+  { hook: 'beforeExec', fail: 'closed', type: 'agent_to_shell', call: (h) => h.beforeExec({ command: 'rm -rf /srv' }) },
+  { hook: 'beforeFsAccess(read)', fail: 'open', type: 'agent_to_filesystem', call: (h) => h.beforeFsAccess({ path: '/srv/reports/q3.csv', mode: 'read' }) },
+  { hook: 'beforeFsAccess(write)', fail: 'closed', type: 'agent_to_filesystem', call: (h) => h.beforeFsAccess({ path: '/srv/x', mode: 'write' }) },
+  { hook: 'beforeBrowserAction', fail: 'open', type: 'agent_to_browser', call: (h) => h.beforeBrowserAction({ action: 'navigate', url: 'https://example.com' }) },
+];
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe('interaction-decision contract (BE-1486 fixture)', () => {
+  it('enums equal the recorded fixture', () => {
+    expect([...INTERACTION_TYPES]).toEqual(fixture.interactionTypes);
+    expect([...INTERACTION_VERDICTS]).toEqual(fixture.verdicts);
+  });
+
+  it.each(fixture.cases.map((c) => [c.name, c] as const))('%s: decide() sends the recorded request and returns the recorded response', async (_n, c) => {
+    const f = stub([{ json: c.response }]);
+    const { interactionType, action, approvalId } = c.request as { interactionType: InteractionType; action: { name: string; arguments?: Record<string, never> }; approvalId?: string };
+    await expect(hooks().decide(interactionType, action, approvalId)).resolves.toEqual(c.response);
+    expect(String(f.mock.calls[0]?.[0])).toBe(URL_);
+    expect(f.mock.calls[0]?.[1]?.method).toBe('POST');
+    expect(sentBody(f, 0)).toBe(JSON.stringify(c.request));
+  });
+
+  it.each([
+    ['fsAccess read', 'allow_by_policy', (h: PraesidiaInteractionHooks) => h.beforeFsAccess({ path: '/srv/reports/q3.csv', mode: 'read' })],
+    ['exec', 'deny_by_policy', (h: PraesidiaInteractionHooks) => h.beforeExec({ command: 'rm -rf /srv' })],
+    ['browser', 'deny_no_policy_matched', (h: PraesidiaInteractionHooks) => h.beforeBrowserAction({ action: 'navigate', url: 'https://example.com' })],
+  ] as const)('%s hook body is byte-identical to fixture %s', async (_h, name, call) => {
+    const f = stub([{ json: byName(name).response }]);
+    await call(hooks()).catch(() => undefined);
+    expect(sentBody(f, 0)).toBe(JSON.stringify(byName(name).request));
+  });
+});
+
+describe.each(HOOKS)('$hook', ({ fail, type, call }) => {
+  it('allow passes through with the decision', async () => {
+    const f = stub([{ json: ALLOW }]);
+    await expect(call(hooks())).resolves.toEqual({ decision: ALLOW });
+    expect(JSON.parse(sentBody(f, 0)).interactionType).toBe(type);
+  });
+
+  it('deny throws InteractionDeniedError', async () => {
+    stub([{ json: DENY }]);
+    const err = await call(hooks()).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InteractionDeniedError);
+    expect(err).toMatchObject({ interactionType: type, reasonCode: 'denied_by_policy', decision: DENY });
+  });
+
+  it('require_approval blocks until the approval resolves, echoing approvalId', async () => {
+    let approved = false;
+    const f = vi.fn(async () => mockResponse({ json: approved ? CONSUMED : PENDING }));
+    vi.stubGlobal('fetch', f);
+    const onApprovalRequired = vi.fn();
+    let settled = false;
+    const pending = call(hooks({ onApprovalRequired })).finally(() => { settled = true; });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(settled).toBe(false);
+    expect(onApprovalRequired).toHaveBeenCalledWith(PENDING);
+    approved = true;
+    await expect(pending).resolves.toEqual({ decision: CONSUMED });
+    expect(JSON.parse(sentBody(f, f.mock.calls.length - 1)).approvalId).toBe(PENDING.approvalId);
+  });
+
+  it(`decision-API outage → documented fail-${fail}`, async () => {
+    const outage = new TypeError('fetch failed');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(outage));
+    const result = call(hooks());
+    if (fail === 'closed') {
+      await expect(result).rejects.toBeInstanceOf(InteractionDecisionUnavailableError);
+    } else {
+      await expect(result).resolves.toEqual({ decision: null, failOpenError: outage });
+    }
+  });
+});
+
+describe('fail modes', () => {
+  it('defaults: fail-closed for exec and fs writes only', () => {
+    expect(DEFAULT_FAIL_MODES).toEqual({ toolCall: 'open', exec: 'closed', fsRead: 'open', fsWrite: 'closed', browser: 'open' });
+  });
+
+  it.each([[{ status: 503, text: 'down' }], [{ status: 429, text: 'slow' }], [{ json: { verdict: 'maybe' } }], [{ text: 'not json' }]])(
+    'fail-closed exec treats %j as an outage', async (res) => {
+      stub([res]);
+      await expect(hooks().beforeExec({ command: 'ls' })).rejects.toBeInstanceOf(InteractionDecisionUnavailableError);
+    });
+
+  it('a caller error (401) throws even on a fail-open hook', async () => {
+    stub([{ status: 401, text: 'bad key' }]);
+    await expect(hooks().beforeFsAccess({ path: '/a', mode: 'read' })).rejects.toBeInstanceOf(PraesidiaApiError);
+  });
+
+  it('failMode override flips a class', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('down')));
+    await expect(hooks({ failMode: { exec: 'open' } }).beforeExec({ command: 'ls' })).resolves.toMatchObject({ decision: null });
+    await expect(hooks({ failMode: { browser: 'closed' } }).beforeBrowserAction({ action: 'click' })).rejects.toBeInstanceOf(InteractionDecisionUnavailableError);
+  });
+
+  it('beforeInteraction defaults to fail-closed', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('down')));
+    await expect(hooks().beforeInteraction('agent_to_email', { name: 'send' })).rejects.toBeInstanceOf(InteractionDecisionUnavailableError);
+  });
+
+  it('an outage while waiting for approval never allows, even fail-open', async () => {
+    const f = vi.fn().mockResolvedValueOnce(mockResponse({ json: PENDING })).mockRejectedValue(new TypeError('down'));
+    vi.stubGlobal('fetch', f);
+    const err = await hooks({ approvalTimeoutMs: 20 }).beforeBrowserAction({ action: 'click' }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ name: 'InteractionDeniedError', reasonCode: 'approval_wait_timeout' });
+  });
+});
+
+describe('approval outcomes (fixture)', () => {
+  const email = byName('require_approval_minted').request as { action: { name: string; arguments: Record<string, string> } };
+  it('granted: the re-POST is the recorded approval_granted_consumed request', async () => {
+    const f = stub([{ json: PENDING }, { json: CONSUMED }]);
+    await expect(hooks().beforeInteraction('agent_to_email', email.action)).resolves.toEqual({ decision: CONSUMED });
+    expect(sentBody(f, 1)).toBe(JSON.stringify(byName('approval_granted_consumed').request));
+  });
+  it('rejected: throws approval_rejected', async () => {
+    stub([{ json: PENDING }, { json: byName('approval_rejected').response }]);
+    await expect(hooks().beforeInteraction('agent_to_email', email.action)).rejects.toMatchObject({ reasonCode: 'approval_rejected' });
+  });
+});
+
+describe('decision cache', () => {
+  const read = (h: PraesidiaInteractionHooks, path = '/a') => h.beforeFsAccess({ path, mode: 'read' });
+  it('reuses a verdict for ttlSeconds, including a cached deny', async () => {
+    const f = stub([{ json: ALLOW }]);
+    const h = hooks();
+    await read(h);
+    await read(h);
+    expect(f).toHaveBeenCalledTimes(1);
+    const g = stub([{ json: DENY }]);
+    const h2 = hooks();
+    await expect(read(h2)).rejects.toBeInstanceOf(InteractionDeniedError);
+    await expect(read(h2)).rejects.toBeInstanceOf(InteractionDeniedError);
+    expect(g).toHaveBeenCalledTimes(1);
+  });
+  it('ttlSeconds 0 is never cached', async () => {
+    const f = stub([{ json: { ...ALLOW, ttlSeconds: 0 } }]);
+    const h = hooks();
+    await read(h);
+    await read(h);
+    expect(f).toHaveBeenCalledTimes(2);
+  });
+  it('a new policy fingerprint evicts every cached verdict', async () => {
+    const f = stub([{ json: ALLOW }, { json: { ...ALLOW, policyFingerprint: 'f2' } }, { json: ALLOW }]);
+    const h = hooks();
+    await read(h, '/a');
+    await read(h, '/b');
+    await read(h, '/a');
+    expect(f).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('validation', () => {
+  it('rejects a bad action name before any request', async () => {
+    const f = stub([{ json: ALLOW }]);
+    await expect(hooks().beforeToolCall({ toolName: 'github/create issue' })).rejects.toBeInstanceOf(PraesidiaConfigError);
+    expect(f).not.toHaveBeenCalled();
+  });
+  it('requires apiKey, orgId and agentId; rejects a bad failMode', () => {
+    expect(() => new PraesidiaInteractionHooks({ apiKey: 'pk_test', orgId: fixture.orgId, agentId: '' })).toThrow(PraesidiaConfigError);
+    expect(() => hooks({ failMode: { exec: 'maybe' as never } })).toThrow(PraesidiaConfigError);
+  });
+});
