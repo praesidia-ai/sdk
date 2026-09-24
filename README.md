@@ -1016,7 +1016,9 @@ answers `allow`. `decide(type, action, approvalId?)` is the raw call (no cache, 
 mode). Action names must be dot-separated `[A-Za-z0-9_-]` segments (be's rule); anything else
 throws `PraesidiaConfigError` before a request is sent.
 
-Python parity: the `praesidia` Python SDK does not ship these hooks yet (SDK-0301).
+Python parity: the `praesidia` Python SDK ships the same hooks (`PraesidiaInteractionHooks` and
+`AsyncPraesidiaInteractionHooks`, SDK-0301) with the same fail-mode defaults, verdicts and fixture.
+Python also has a `guarded()` tool-wrapping helper that this SDK does not have yet.
 
 ## Fail-open / fail-closed
 
@@ -1145,7 +1147,7 @@ this repo's scanner rather than a third, Python-native re-derivation.
   `InteractionDeniedError` / `InteractionDecisionUnavailableError` (`src/errors.ts`). Calls be's
   `POST /organizations/:orgId/interaction-decisions`; replays be's recorded fixture
   `test-fixtures/interaction-decision-v1.json`. Additive only, no breaking change (semver minor).
-  Not yet in the Python SDK (SDK-0301).
+  The Python SDK ships the same hooks (SDK-0301).
 
 ### Unreleased — SDK-0314: `AI_ASSET_TYPES` adds `GUARDRAIL`
 
