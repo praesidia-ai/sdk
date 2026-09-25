@@ -13,6 +13,8 @@ import type {
   BeginTaskOptions,
   CheckOptions,
   CheckResult,
+  DegradedInfo,
+  GuardFailureMode,
   CompleteTaskOptions,
   GuardConfig,
   GuardedResult,
@@ -26,6 +28,12 @@ import type {
   ToolCallContext,
   ToolCallRecord,
 } from './types.js';
+
+const FAILURE_MODES: readonly GuardFailureMode[] = [
+  'fail_closed',
+  'local_rules',
+  'fail_open',
+];
 
 /** Q4-02 — request headers the SDK forwards on a task-scoped MCP tool call. */
 const TASK_ID_HEADER = 'X-Praesidia-Task-Id';
@@ -118,11 +126,13 @@ function buildTaskInput(task: {
  *   - Input blocks ALWAYS throw GuardrailBlockedError before the wrapped call.
  *   - Output blocks are returned for inspection by default; strict guards and
  *     guardOutput({ throwOnBlock: true }) throw GuardrailBlockedError.
- *   - Network errors to Praesidia: by default (failOpen=false, strict=false)
- *     they are logged to console.warn and treated as a local pass so the
- *     caller's agent is not disrupted by infrastructure failures.
- *   - failOpen=true  → same as default (silent degradation).
- *   - strict=true    → network errors throw PraesidiaApiError.
+ *   - Network errors to Praesidia follow `failureMode` (SDK-0335):
+ *     `local_rules` (default) serves local rules + console.warn, `fail_open`
+ *     serves local rules silently, `fail_closed` throws. Legacy mapping:
+ *     failOpen=true → fail_open, else strict=true → fail_closed.
+ *   - `maxDegradedMs` bounds a degraded episode: past it, both degrading
+ *     modes fail closed until one call succeeds. `onDegraded` fires once per
+ *     episode; locally-served results carry `degraded: true`.
  */
 export class PraesidiaGuard {
   /** SCAN2-013/CT-10 — true private field; see `PraesidiaClient.#apiKey`'s doc comment. */
@@ -133,7 +143,12 @@ export class PraesidiaGuard {
   private readonly connectionId: string | undefined;
   private readonly baseUrl: string;
   private readonly strict: boolean;
-  private readonly failOpen: boolean;
+  private readonly failureMode: GuardFailureMode;
+  private readonly maxDegradedMs: number | undefined;
+  private readonly onDegraded: ((info: DegradedInfo) => void) | undefined;
+  /** SDK-0335 — epoch ms of the current degraded episode's first failure. */
+  private degradedSince: number | undefined;
+  private degradedEscalated = false;
   private readonly client: PraesidiaClient | undefined;
 
   constructor(config: GuardConfig = {}) {
@@ -149,7 +164,20 @@ export class PraesidiaGuard {
     this.baseUrl =
       config.baseUrl ?? process.env['PRAESIDIA_BASE_URL'] ?? DEFAULT_BASE_URL;
     this.strict = config.strict ?? false;
-    this.failOpen = config.failOpen ?? false;
+    this.failureMode =
+      config.failureMode ??
+      (config.failOpen ? 'fail_open' : this.strict ? 'fail_closed' : 'local_rules');
+    if (!FAILURE_MODES.includes(this.failureMode)) {
+      throw new PraesidiaConfigError(
+        `failureMode must be one of ${FAILURE_MODES.join(', ')}`,
+      );
+    }
+    const max = config.maxDegradedMs;
+    if (max !== undefined && !(Number.isFinite(max) && max >= 0)) {
+      throw new PraesidiaConfigError('maxDegradedMs must be a finite number >= 0');
+    }
+    this.maxDegradedMs = max;
+    this.onDegraded = config.onDegraded;
 
     if (this.#apiKey && this.orgId) {
       this.client = new PraesidiaClient(
@@ -462,6 +490,7 @@ export class PraesidiaGuard {
         ),
         chainId ? { [CHAIN_ID_HEADER]: chainId } : undefined,
       );
+      this.degradedSince = undefined;
       return res.id;
     } catch (err) {
       return this.handleNetworkError(err, 'logTask');
@@ -753,6 +782,7 @@ export class PraesidiaGuard {
         opts.chainId ? { [CHAIN_ID_HEADER]: opts.chainId } : undefined,
       );
 
+      this.degradedSince = undefined;
       return {
         passed: result.passed,
         triggered: result.triggered ?? [],
@@ -762,22 +792,41 @@ export class PraesidiaGuard {
       };
     } catch (err) {
       this.handleNetworkError<void>(err, 'guardrails/validate');
-      return runLocalRules(content);
+      return { ...runLocalRules(content), degraded: true };
     }
   }
 
   /**
-   * Handle a network/API error according to the fail-open / strict config.
-   * Returns undefined when the error should be swallowed.
-   * Throws when strict=true unless failOpen explicitly overrides it.
+   * SDK-0335 — handle a control-plane error according to `failureMode`, open
+   * or continue the degraded episode, and enforce `maxDegradedMs`.
+   * Returns undefined when the error should be swallowed; otherwise rethrows.
    */
   private handleNetworkError<T>(err: unknown, operation: string): T {
-    if (this.failOpen) {
-      return undefined as T;
+    const now = Date.now();
+    if (this.degradedSince === undefined) {
+      this.degradedSince = now;
+      this.degradedEscalated = false;
+      try {
+        this.onDegraded?.({ operation, since: now, mode: this.failureMode });
+      } catch {
+        // an alerting hook must never change the governance outcome
+      }
     }
-    if (this.strict) {
+    if (this.failureMode === 'fail_closed') throw err;
+    if (
+      this.maxDegradedMs !== undefined &&
+      now - this.degradedSince > this.maxDegradedMs
+    ) {
+      if (!this.degradedEscalated) {
+        this.degradedEscalated = true;
+        console.error(
+          `[praesidia/sdk] control plane unreachable for more than ${this.maxDegradedMs}ms ` +
+            '(maxDegradedMs); failing closed until a call succeeds',
+        );
+      }
       throw err;
     }
+    if (this.failureMode === 'fail_open') return undefined as T;
     console.warn(
       `[praesidia/sdk] ${operation} failed (degrading gracefully):`,
       err,

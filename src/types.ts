@@ -51,6 +51,42 @@ export interface GuardConfig {
    * Overrides `strict` for network errors. Defaults to false.
    */
   failOpen?: boolean;
+  /**
+   * SDK-0335 — what a guardrail check does when the control plane cannot be
+   * reached (any error from `guardrails/validate`; also governs `logTask`):
+   *   - `fail_closed` — rethrow the error.
+   *   - `local_rules` — serve the bundled local rules, `console.warn`.
+   *   - `fail_open`   — serve the bundled local rules silently.
+   * Locally-served results carry `local: true, degraded: true`. When unset,
+   * mapped from the legacy flags: `failOpen` → `fail_open`, else `strict` →
+   * `fail_closed`, else `local_rules` (today's default).
+   */
+  failureMode?: GuardFailureMode;
+  /**
+   * SDK-0335 — bound on a degraded episode. Once the control plane has been
+   * unreachable for longer than this many ms, `local_rules` / `fail_open`
+   * escalate to `fail_closed` until one call succeeds. Unset = unbounded.
+   */
+  maxDegradedMs?: number;
+  /**
+   * SDK-0335 — called once at the start of each degraded episode (the first
+   * failure after a success, or since construction). Wire it to alerting.
+   * Exceptions it throws are swallowed.
+   */
+  onDegraded?: (info: DegradedInfo) => void;
+}
+
+/** SDK-0335 — behaviour when the Praesidia control plane is unreachable. */
+export type GuardFailureMode = 'fail_closed' | 'local_rules' | 'fail_open';
+
+/** SDK-0335 — payload for `GuardConfig.onDegraded`. */
+export interface DegradedInfo {
+  /** Operation whose failure opened the episode, e.g. `guardrails/validate`. */
+  operation: string;
+  /** Episode start, epoch milliseconds. */
+  since: number;
+  /** The configured (resolved) failure mode. */
+  mode: GuardFailureMode;
 }
 
 /**
@@ -108,6 +144,9 @@ export interface CheckResult {
   /** Set to true when the result was produced by local rule-based checks
    *  (no API key / no connectivity). */
   local?: boolean;
+  /** SDK-0335 — true when the control plane was unreachable and this result
+   *  was served by local rules instead (always paired with `local: true`). */
+  degraded?: boolean;
 }
 
 /**

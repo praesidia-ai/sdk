@@ -152,6 +152,10 @@ const guard = new PraesidiaGuard({
   requestTimeoutMs: 30_000, // falls back to PRAESIDIA_REQUEST_TIMEOUT_MS
   strict:  false, // true → throw on network errors (default: false = degrade gracefully)
   failOpen: false, // true → silently swallow network errors (default: false = warn + local fallback)
+  // SDK-0335 — explicit control-plane failure policy (see "Fail-open / fail-closed")
+  failureMode: 'local_rules', // 'fail_closed' | 'local_rules' | 'fail_open'; unset = mapped from strict/failOpen
+  maxDegradedMs: 300_000,     // optional bound: past it, degrading modes fail closed until a call succeeds
+  onDegraded: ({ operation, since, mode }) => alert(operation, since, mode), // once per degraded episode
 });
 ```
 
@@ -1080,6 +1084,30 @@ Python also has a `guarded()` tool-wrapping helper that this SDK does not have y
 | Network error reaching Praesidia | Degrades to local rules, emits `console.warn` |
 | `strict: true` + network error | Throws `PraesidiaApiError` |
 | `failOpen: true` | Silently degrades (no `console.warn`) |
+
+### Control-plane failure mode (SDK-0335)
+
+A "network error" here is any error from `guardrails/validate` (and `logTask`): unreachable host,
+timeout or non-2xx response.
+
+| `failureMode` | On a control-plane error | Legacy flags that map to it (when `failureMode` is unset) |
+|---|---|---|
+| `fail_closed` | Rethrows (`PraesidiaApiError` for HTTP errors) | `strict: true` (and `failOpen` not set) |
+| `local_rules` | Serves the bundled local rules, `console.warn` | neither flag (**today's default**) |
+| `fail_open` | Serves the bundled local rules silently | `failOpen: true` (wins over `strict`) |
+
+- Results served locally because the control plane failed carry `local: true, degraded: true`.
+  Offline mode (no API key / org id) is `local: true` without `degraded`.
+- `maxDegradedMs` bounds a degraded episode. Once the control plane has been failing for longer
+  than this, `local_rules` and `fail_open` throw like `fail_closed` (with one `console.error`)
+  until a call succeeds. **Unset = unbounded**: an outage of any length degrades to local rules.
+- `onDegraded({ operation, since, mode })` fires once when an episode starts (`since` is epoch
+  ms) and again only after a successful call has ended it. Errors it throws are swallowed.
+- `strict` still controls output-block throwing and missing-config errors independently of
+  `failureMode`. The default stays `local_rules`; switching it to `fail_closed` would be a
+  breaking change and is not made here.
+- Python parity gap: the `praesidia` Python SDK does not have `failureMode`, `maxDegradedMs` or
+  `onDegraded` yet.
 
 These rows are `PraesidiaGuard`'s. Interaction hooks have their own per-hook defaults: see
 [Interaction hooks](#interaction-hooks--advisory-in-runtime-guard-sdk-0300).

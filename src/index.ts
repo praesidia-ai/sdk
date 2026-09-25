@@ -79,6 +79,9 @@ export {
 } from './types.js';
 export type {
   GuardConfig,
+  // SDK-0335 — bounded degradation when the control plane is unreachable
+  GuardFailureMode,
+  DegradedInfo,
   RunOptions,
   // AUDIT-SDK-02 — task type accepted by POST /organizations/:orgId/tasks
   AgentTaskType,
