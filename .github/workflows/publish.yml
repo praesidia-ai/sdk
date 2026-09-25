@@ -56,6 +56,19 @@ jobs:
       - name: Verify publish artifact
         run: npm pack --dry-run
 
+      # SDK-0338 — CycloneDX SBOM of the production dependency tree (same
+      # `npm run sbom` shape as be). Not in package.json `files`, so it is
+      # never packed; it ships as a workflow artifact of the release run.
+      - name: Generate SBOM (CycloneDX)
+        run: npm run sbom
+
+      - name: Upload SBOM as workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          if-no-files-found: error
+
       - name: Publish to npm
         run: npm publish --access public --provenance
         env:

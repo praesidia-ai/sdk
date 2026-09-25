@@ -15,6 +15,9 @@ plugins/*/node_modules/
 # installs for CI + Docker `npm ci`), including inside plugins/*/ — do not
 # add it here or to the rule above.
 
+# release SBOM (npm run sbom; uploaded by publish.yml, never committed)
+/sbom.cdx.json
+
 # test / coverage
 /coverage
 /.nyc_output
