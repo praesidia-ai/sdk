@@ -54,20 +54,27 @@ Copy `.env.example` to `.env` and fill in each variable. Never commit `.env`.
 
 | Variable | What it is | Where to get it |
 |---|---|---|
-| `PRAESIDIA_API_KEY` | Organization API key with scopes **`agents:invoke`** (decision + outcome) and **`audit:read`** (receipt + audit package) | App: Configure -> Integrations -> API keys (`/configure/integrations/api-keys`). The key is shown once. |
+| `PRAESIDIA_API_KEY` | Organization API key with scopes **`ai-systems:write`** (step 1, asset graph), **`agents:invoke`** (decision + outcome) and **`audit:read`** (receipt + audit package) | App: Configure -> Integrations -> API keys (`/configure/integrations/api-keys`). The key is shown once. |
 | `PRAESIDIA_ORG_ID` | Your organization id (UUID) | Shown in the app; see the SDK credentials docs (docs.praesidia.ai, DOCS-0713) |
 | `PRAESIDIA_AGENT_ID` | The id of the agent that performs refunds | Manage -> Agents (`/manage/agents`), in the agent's details |
 | `PRAESIDIA_BASE_URL` | Optional; default `https://api.praesidia.ai` | Your Praesidia API URL |
-| `PRAESIDIA_INVENTORY_API_KEY` | Optional; used only for step 1 | A personal API key of a user with the `ai_systems.create` permission (see below) |
+| `PRAESIDIA_INVENTORY_API_KEY` | Optional; leave empty. Overrides `PRAESIDIA_API_KEY` for step 1 only, for a server older than the `ai-systems:write` scope (see below) | A personal API key of a user with the `ai_systems.create` permission |
 | `STRIPE_SECRET_KEY` | Stripe **test-mode** secret key, `sk_test_...` | Stripe Dashboard -> Developers -> API keys, with test mode on |
 | `STRIPE_CHARGE_ID` | A test charge (`ch_...`) or payment intent (`pi_...`) of exactly EUR 8,250 (a larger one could take a second, separately approved refund) | Create one in test mode, e.g. a PaymentIntent for `825000` `eur` confirmed with `pm_card_visa` |
 | `AUDIT_PACKAGE_FILE` | Optional; default `./audit-package.zip` | |
 
-**Step 1 and org keys.** The asset-graph `by-external-id` routes declare no API-key
-scope. Praesidia therefore answers 403 to every organization API key on them. When
-that happens, `refund.mjs` prints `graph: mapping skipped (403)` and continues, because
-the mapping is inventory and not the control. To run step 1, set
-`PRAESIDIA_INVENTORY_API_KEY` to a personal key.
+**Step 1 and the key's scopes.** Step 1 calls three asset-graph routes:
+`PUT .../ai-assets/by-external-id/:externalId` (twice) and
+`PUT .../asset-relationships/by-external-id/:externalId`. They take the
+`ai-systems:write` scope, and the organization needs the AI Systems feature. A key
+without that scope gets a 403. `refund.mjs` then prints
+`graph: mapping skipped (403). The API key lacks the ai-systems:write scope` and
+continues, because the mapping is inventory and not the control. Steps 2 to 6 use
+`agents:invoke` (`POST .../interaction-decisions`, `POST .../interaction-decisions/outcome`)
+and `audit:read` (`GET .../audit/decisions/:decisionId/receipt`, `POST .../audit/packages`,
+`GET .../audit/packages/:id`, `GET .../audit/packages/:id/download`). On a server that
+predates `ai-systems:write`, set `PRAESIDIA_INVENTORY_API_KEY` to a personal key for
+step 1.
 
 ## The policy to paste
 

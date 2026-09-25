@@ -24,8 +24,11 @@ export const VALID_ENV = Object.freeze({
   STRIPE_CHARGE_ID: 'ch_placeholder',
 });
 
-/** Answers each decision POST with the next verdict in `verdicts`; records every call. */
-export function fakeFetch(verdicts, stripeStatus = 200) {
+/**
+ * Answers each decision POST with the next verdict in `verdicts`; records every call.
+ * `graphStatus` 403 is a key without `ai-systems:write` on the by-external-id routes.
+ */
+export function fakeFetch(verdicts, stripeStatus = 200, graphStatus = 403) {
   const calls = [];
   const json = (body, status = 200) =>
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -38,8 +41,11 @@ export function fakeFetch(verdicts, stripeStatus = 200) {
         ? json({ id: 're_fake', object: 'refund', status: 'succeeded' })
         : json({ error: { message: 'refused by fake Stripe' } }, stripeStatus);
     }
-    // be's desired-state routes carry no @RequireKeyScope, so an org key gets 403 there.
-    if (pathname.includes('/by-external-id/')) return json({ statusCode: 403, message: 'Forbidden' }, 403);
+    if (pathname.includes('/by-external-id/')) {
+      if (graphStatus !== 200) return json({ statusCode: graphStatus, message: 'Forbidden' }, graphStatus);
+      const externalId = decodeURIComponent(pathname.split('/').pop());
+      return json({ id: ID(7), externalId, created: true, changed: true, updatedAt: '', resource: {} });
+    }
     if (pathname.endsWith('/interaction-decisions')) {
       // 'observe' = an allow without an approval, as an org still in observe mode answers.
       const next = verdicts.shift() ?? 'deny';

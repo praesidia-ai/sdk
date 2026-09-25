@@ -30,6 +30,7 @@ export function parseEnv(env) {
       orgId: env.PRAESIDIA_ORG_ID,
       agentId: env.PRAESIDIA_AGENT_ID,
       baseUrl: env.PRAESIDIA_BASE_URL || undefined,
+      // Optional override for servers older than ai-systems:write (be BE-1636).
       inventoryApiKey: env.PRAESIDIA_INVENTORY_API_KEY || env.PRAESIDIA_API_KEY,
       stripeKey: env.STRIPE_SECRET_KEY,
       charge: env.STRIPE_CHARGE_ID,
@@ -55,7 +56,7 @@ async function mapAgentToStripe(sdk, c, log) {
     log(`graph: agent -> Stripe edge ${edge.created ? 'created' : edge.changed ? 'updated' : 'unchanged'}`);
   } catch (err) {
     if (!(err instanceof sdk.PraesidiaApiError && err.status === 403)) throw err;
-    log('graph: mapping skipped (403). Org API keys cannot reach the by-external-id routes; set PRAESIDIA_INVENTORY_API_KEY (README.md)');
+    log('graph: mapping skipped (403). The API key lacks the ai-systems:write scope; add it to the key (README.md)');
   }
 }
 
