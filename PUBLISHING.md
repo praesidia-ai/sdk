@@ -46,17 +46,18 @@ npm version <patch|minor|major>   # e.g. `npm version minor` -> bumps package.js
 
 # 2. Push the commit AND the tag. This is the action that is otherwise irreversible below.
 git push origin main
-git push origin <the new tag, e.g. v0.3.1>
+git push origin <the new tag, e.g. v0.4.0>
 
 # 3. Watch the Actions run: https://github.com/praesidia-ai/sdk/actions/workflows/publish.yml
-#    It re-runs build + typecheck:spec + vitest + `npm pack --dry-run` + `npm publish
+#    It re-runs build + typecheck:spec + `npm test` + `npm pack --dry-run` + the packed-install
+#    smoke (`npm run smoke:packed`) + SBOM + `npm publish
 #    --access public --provenance` — an artifact that fails the repo's own gates never reaches
 #    the registry.
 ```
 
 If you are cutting the very first release and the manifest's version was never pushed as a tag
 before, `npm version` will complain about an existing local tag mismatch — in that case just tag
-the current commit directly instead of bumping: `git tag v0.3.1 && git push origin v0.3.1`.
+the current commit directly instead of bumping: `git tag v0.4.0 && git push origin v0.4.0`.
 
 ## After publishing — verify it actually landed
 

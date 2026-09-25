@@ -51,10 +51,15 @@ jobs:
 
       - run: npm run build
       - run: npm run typecheck:spec
-      - run: npx vitest run
+      # SDK-0343 — the full suite (vitest + plugin tests, as `npm test` runs in
+      # CI) and the packed-install smoke (SDK-0330) gate this tag's tarball.
+      - run: npm test
 
       - name: Verify publish artifact
         run: npm pack --dry-run
+
+      - name: Packed-install smoke
+        run: npm run smoke:packed
 
       # SDK-0338 — CycloneDX SBOM of the production dependency tree (same
       # `npm run sbom` shape as be). Not in package.json `files`, so it is

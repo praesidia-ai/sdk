@@ -25,7 +25,7 @@ for (const [name, integrity] of Object.entries({
 })) assert.equal(lock.packages[`node_modules/${name}`].integrity, integrity, `${name} tarball identity changed`);
 assert.equal((await pkg('openclaw')).version, '2026.9.2');
 assert.equal((await pkg('@openai/agents')).version, '0.17.0');
-assert.equal((await pkg('@praesidia/sdk')).version, '0.3.1');
+assert.equal((await pkg('@praesidia/sdk')).version, '0.4.0');
 const { FileRuntimeAttemptStore, PraesidiaProtectedHttp, jcsCommitment } = await load('@praesidia/sdk/dist/index.js');
 const { RunContext } = await load('@openai/agents/dist/index.mjs');
 const { createPraesidiaTool } = await load('@praesidia/openai-agents/index.js');
@@ -231,7 +231,7 @@ try {
   const result = { schemaVersion: 1, verifiedAt: new Date().toISOString(),
     scope: 'pinned real plugin/framework interfaces and synthetic HTTP authority; no model or deployed backend',
     platform: process.platform, architecture: process.arch, node: process.version,
-    versions: { sdk: '0.3.1', openclaw: '2026.9.2', openaiAgents: '0.17.0' },
+    versions: { sdk: '0.4.0', openclaw: '2026.9.2', openaiAgents: '0.17.0' },
     checks, targetEffects: effects.length, resumeCalls,
     persistenceScope: 'owned single-host POSIX attempt markers across fresh factories/store instances; native contexts are synthetic',
     sourceSha256: createHash('sha256').update(await readFile(new URL(import.meta.url))).digest('hex') };

@@ -32,7 +32,7 @@ jobs:
           (cd plugins/openai-agents && npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/praesidia-runtime")
           cd "$RUNNER_TEMP/praesidia-runtime"
           npm init -y
-          npm install --ignore-scripts --no-audit --no-fund openclaw@2026.9.2 @openai/agents@0.17.0 ./praesidia-sdk-0.3.1.tgz ./praesidia-openclaw-0.1.1.tgz ./praesidia-openai-agents-0.1.0.tgz
+          npm install --ignore-scripts --no-audit --no-fund openclaw@2026.9.2 @openai/agents@0.17.0 ./praesidia-sdk-0.4.0.tgz ./praesidia-openclaw-0.1.1.tgz ./praesidia-openai-agents-0.1.0.tgz
       - name: Exercise actual hook runner and native FunctionTool
         run: node scripts/verify-runtime-adapters.mjs --runtime-dir "$RUNNER_TEMP/praesidia-runtime" --output "$RUNNER_TEMP/praesidia-runtime/result.json"
       - name: Inspect the installed OpenClaw plugin through its CLI

@@ -20,7 +20,7 @@ reviewed package supplied by your deployment operator, or build this checkout
 with `npm run build` and `npm pack` and install the resulting local `.tgz` file.
 A successful local build does not publish a registry release.
 
-## Managed runtime tools (source version 0.3.1)
+## Managed runtime tools (source version 0.4.0)
 
 `PraesidiaRuntimeTool` prepares an exact registered HTTP request, pauses for a
 distinct Praesidia reviewer, and recovers its checkpoint using the host's stable

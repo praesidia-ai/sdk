@@ -209,7 +209,7 @@ export class PraesidiaTelemetry {
 }
 
 /** Version stamped on the SDK's OTLP instrumentation scope. */
-const SDK_SCOPE_VERSION = '0.3.1';
+const SDK_SCOPE_VERSION = '0.4.0';
 
 /** Build an OTLP string KeyValue attribute. */
 function strAttr(key: string, value: string): OtlpKeyValue {

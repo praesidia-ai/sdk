@@ -1,6 +1,6 @@
 # Protected tools across runtimes
 
-`PraesidiaRuntimeTool` in the candidate TypeScript SDK 0.3.1 adapts a registered protected HTTP target to a host runtime. The target, runtime and tool name come from operator configuration. The host supplies a stable session ID and actual logical tool-call ID. Arguments cannot supply a credential, target URL or approval verdict.
+`PraesidiaRuntimeTool` in the candidate TypeScript SDK 0.4.0 adapts a registered protected HTTP target to a host runtime. The target, runtime and tool name come from operator configuration. The host supplies a stable session ID and actual logical tool-call ID. Arguments cannot supply a credential, target URL or approval verdict.
 
 ```ts
 import { PraesidiaProtectedHttp, PraesidiaRuntimeTool, FileRuntimeAttemptStore } from '@praesidia/sdk';

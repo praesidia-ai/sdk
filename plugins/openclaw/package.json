@@ -24,11 +24,11 @@
     }
   },
   "dependencies": {
-    "@praesidia/sdk": "^0.3.1"
+    "@praesidia/sdk": "^0.4.0"
   },
   "peerDependencies": {
     "openclaw": "2026.9.2",
-    "@praesidia/sdk": "^0.3.1"
+    "@praesidia/sdk": "^0.4.0"
   },
   "engines": {
     "node": ">=24.15.0"

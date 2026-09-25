@@ -1,6 +1,6 @@
 # OpenAI Agents with Praesidia
 
-This separately packaged adapter supports `@openai/agents` **0.17.0** and the candidate `@praesidia/sdk` **0.3.1**. Install locally built/operator-provided artifacts until their registry release is verified. Build/pack the SDK, install its tarball and the pinned framework in this directory, then pack this adapter.
+This separately packaged adapter supports `@openai/agents` **0.17.0** and the candidate `@praesidia/sdk` **0.4.0**. Install locally built/operator-provided artifacts until their registry release is verified. Build/pack the SDK, install its tarball and the pinned framework in this directory, then pack this adapter.
 
 ```js
 import { Agent, run } from '@openai/agents';

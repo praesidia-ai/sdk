@@ -24,7 +24,7 @@ npm ci
 npm run build
 npm pack
 cd plugins/openclaw
-npm install ../../praesidia-sdk-0.3.1.tgz openclaw@2026.9.2
+npm install ../../praesidia-sdk-0.4.0.tgz openclaw@2026.9.2
 openclaw plugins install --link . --force
 openclaw plugins enable praesidia
 ```
