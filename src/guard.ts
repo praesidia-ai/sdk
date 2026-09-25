@@ -488,6 +488,7 @@ export class PraesidiaGuard {
           task.type ?? 'MESSAGE',
           buildTaskInput(task),
           chainId,
+          task,
         ),
         chainId ? { [CHAIN_ID_HEADER]: chainId } : undefined,
       );
@@ -510,9 +511,13 @@ export class PraesidiaGuard {
     type: AgentTaskType,
     input: Record<string, unknown>,
     chainId?: string | null,
+    delegation: Pick<TaskRecord, 'parentTaskId' | 'delegationConstraints'> = {},
   ): Record<string, unknown> {
     const body: Record<string, unknown> = { connectionId, type, input };
     if (chainId && isUuid(chainId)) body.chainId = chainId;
+    // SDK-0332 — forwarded verbatim; absent → body unchanged.
+    if (delegation.parentTaskId !== undefined) body.parentTaskId = delegation.parentTaskId;
+    if (delegation.delegationConstraints !== undefined) body.delegationConstraints = delegation.delegationConstraints;
     return body;
   }
 

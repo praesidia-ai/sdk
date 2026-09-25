@@ -340,6 +340,34 @@ describe('PraesidiaGuard', () => {
       expect(body.output).toBeUndefined();
     });
 
+    it('logTask forwards parentTaskId + delegationConstraints verbatim as top-level DTO fields (SDK-0332)', async () => {
+      globalThis.fetch = makeFetchMock([{ ok: true, status: 201, body: TASK_CREATED }]);
+      const delegationConstraints = {
+        notAfter: '2026-10-01T00:00:00Z',
+        tools: ['model_to_tool.refunds.*'],
+        environments: ['production' as const],
+        maxDataClass: 'financial' as const,
+        maxAmount: { argPath: 'payment.amount', currency: 'EUR', maxMinor: 5000 },
+        onExceed: 'require_approval' as const,
+      };
+      await new PraesidiaGuard(config).logTask({
+        input: 'hi',
+        parentTaskId: '00000000-0000-4000-8000-0000000000a1',
+        delegationConstraints,
+      });
+      const body = JSON.parse(((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit])[1].body as string);
+      expect(body.parentTaskId).toBe('00000000-0000-4000-8000-0000000000a1');
+      expect(body.delegationConstraints).toEqual(delegationConstraints);
+      expect(body.input).toEqual({ message: 'hi' });
+    });
+
+    it('logTask without delegation fields sends a byte-identical body (SDK-0332)', async () => {
+      globalThis.fetch = makeFetchMock([{ ok: true, status: 201, body: TASK_CREATED }]);
+      await new PraesidiaGuard(config).logTask({ input: 'hi' });
+      const init = ((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit])[1];
+      expect(init.body).toBe('{"connectionId":"00000000-0000-4000-8000-000000000c01","type":"MESSAGE","input":{"message":"hi"}}');
+    });
+
     it('logTask skips (no 400) when no connectionId is resolvable (AUDIT-SDK-02)', async () => {
       globalThis.fetch = makeFetchMock([
         { ok: true, status: 201, body: TASK_CREATED },

@@ -226,6 +226,30 @@ export interface TaskRecord {
    * mints a fresh chainId).
    */
   chainId?: string;
+  /** SDK-0332 — parent task UUID: makes this a delegated sub-task (`CreateAgentTaskDto.parentTaskId`). */
+  parentTaskId?: string;
+  /**
+   * SDK-0332 — delegation envelope, sent verbatim. Root task: stored as-is;
+   * delegated task: intersected with the parent's, and any widening is denied (403).
+   */
+  delegationConstraints?: DelegationConstraints;
+}
+
+/** be BE-1596 `DelegationConstraints`: every axis optional; an absent axis does not narrow. */
+export interface DelegationConstraints {
+  /** ISO-8601, inclusive. */
+  notAfter?: string;
+  actions?: string[];
+  resources?: { type: string; id: string }[];
+  /** Tool-policy globs (`.` segments, `*`, `**`). */
+  tools?: string[];
+  models?: string[];
+  environments?: AiSystemEnvironment[];
+  maxDataClass?: 'pii' | 'phi' | 'financial' | 'secret' | 'public' | 'unclassified';
+  /** Inclusive ceiling in minor units on the tool-call arg at `argPath` (e.g. `payment.amount`). */
+  maxAmount?: { argPath: string; currency: string; maxMinor: number };
+  maxDepth?: number;
+  onExceed?: 'deny' | 'require_approval';
 }
 
 // ── A2A chain trace + JIT capability tokens (Q3-02 / Q4-02) ──────────────────

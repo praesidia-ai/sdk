@@ -17,6 +17,7 @@ import {
   PraesidiaConfigError,
 } from './errors.js';
 import { jcsCommitment } from './jcs-canonical.js';
+import { toolCallContextFromTask } from './guard.js';
 import { makeFetchMock, mockResponse, type MockResponseInit } from './__tests__/fetch-mock.js';
 
 // Byte-identical copy of be/test-fixtures/interaction-decision-v1.json (BE-1486).
@@ -256,6 +257,31 @@ describe('decision cache', () => {
     await read(h, '/b');
     await read(h, '/a');
     expect(f).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('task envelope (BE-1609, SDK-0332)', () => {
+  const TASK = '00000000-0000-4000-8000-0000000000a1';
+  it('taskId from the task context rides every decision body, after approvalId', async () => {
+    const f = stub([{ json: PENDING }, { json: CONSUMED }]);
+    const ctx = toolCallContextFromTask({ id: TASK, chainId: null, capabilityToken: undefined, serverAgentId: AGENT });
+    await hooks({ taskId: ctx.taskId }).beforeToolCall({ toolName: 'search.web' });
+    expect(JSON.parse(sentBody(f, 0))).toEqual({ interactionType: 'model_to_tool', agentId: AGENT, action: { name: 'search.web' }, taskId: TASK });
+    expect(sentBody(f, 1)).toBe(JSON.stringify({ interactionType: 'model_to_tool', agentId: AGENT, action: { name: 'search.web' }, approvalId: PENDING.approvalId, taskId: TASK }));
+  });
+  it('no taskId → no taskId key', async () => {
+    const f = stub([{ json: ALLOW }]);
+    await hooks().decide('model_to_tool', { name: 'search.web' });
+    expect(sentBody(f, 0)).toBe(JSON.stringify({ interactionType: 'model_to_tool', agentId: AGENT, action: { name: 'search.web' } }));
+  });
+  it('rejects a non-UUID taskId at construction', () => {
+    expect(() => hooks({ taskId: 'task-1' })).toThrow(PraesidiaConfigError);
+  });
+  it('surfaces constrainedBy on a delegation deny', async () => {
+    stub([{ json: { ...DENY, reasonCode: 'delegation_tool_not_allowed', constrainedBy: 'delegation' } }]);
+    const err = await hooks({ taskId: TASK }).beforeToolCall({ toolName: 'search.web' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InteractionDeniedError);
+    expect((err as InteractionDeniedError).decision.constrainedBy).toBe('delegation');
   });
 });
 

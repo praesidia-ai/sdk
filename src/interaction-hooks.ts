@@ -55,6 +55,8 @@ export interface InteractionDecision {
   ttlSeconds: number;
   enforcementMode: 'off' | 'observe' | 'enforce';
   decisionId: string;
+  /** BE-1609 — the layer that denied or required approval; null/absent = nothing constrained it. */
+  constrainedBy?: 'org_policy' | 'delegation' | 'assurance' | null;
 }
 
 export type FailMode = 'open' | 'closed';
@@ -121,15 +123,23 @@ export interface InteractionHooksConfig
   approvalTimeoutMs?: number;
   /** Called once when a hook starts waiting, e.g. to tell a human which approval to act on. */
   onApprovalRequired?: (decision: InteractionDecision) => void;
+  /**
+   * BE-1609 — the agent task (UUID) these interactions run under, e.g.
+   * `toolCallContextFromTask(task).taskId`; its delegation envelope narrows
+   * every verdict. Use one hooks instance per task.
+   */
+  taskId?: string;
 }
 
 const ACTION_NAME = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/;
 const FS_READ_MODES: ReadonlySet<string> = new Set(['read', 'list']);
 const MAX_CACHE_ENTRIES = 1000;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export class PraesidiaInteractionHooks {
   readonly organizationId: string;
   readonly agentId: string;
+  readonly taskId?: string;
   private readonly client: PraesidiaClient;
   private readonly path: string;
   private readonly failModes: Record<InteractionHookClass, FailMode>;
@@ -157,6 +167,8 @@ export class PraesidiaInteractionHooks {
     this.pollMs = positiveInt(config.approvalPollIntervalMs ?? 2000, 'approvalPollIntervalMs');
     this.approvalTimeoutMs = positiveInt(config.approvalTimeoutMs ?? 600_000, 'approvalTimeoutMs');
     this.onApprovalRequired = config.onApprovalRequired;
+    if (config.taskId !== undefined && !UUID.test(config.taskId)) throw new PraesidiaConfigError('taskId must be a UUID');
+    this.taskId = config.taskId;
     this.organizationId = orgId;
     this.agentId = agentId;
     // Not retried: every POST writes a Decision Record and may mint an approval.
@@ -216,6 +228,7 @@ export class PraesidiaInteractionHooks {
       agentId: this.agentId,
       action: wireAction,
       ...(approvalId === undefined ? {} : { approvalId }),
+      ...(this.taskId === undefined ? {} : { taskId: this.taskId }),
     }));
   }
 

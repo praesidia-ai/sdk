@@ -210,6 +210,12 @@ is a `CreateAgentTaskDto`: a `connectionId` (UUID, from `task.connectionId` or t
 DTO fields). When no `connectionId` is resolvable the submit is skipped (returns `undefined`),
 or throws in `strict` mode.
 
+Delegation (SDK-0332, BE-1597): `parentTaskId` makes the task a delegated sub-task, and
+`delegationConstraints` (`DelegationConstraints`, every axis optional: `notAfter`, `actions`,
+`resources`, `tools`, `models`, `environments`, `maxDataClass`, `maxAmount`, `maxDepth`,
+`onExceed`) is sent verbatim. The server intersects it with the parent's envelope, so it can
+only narrow. A widening is refused with a 403.
+
 ### `guard.trackToolCall(call)` → `Promise<void>`
 
 **Evidence grade D (best-effort observation, NOT enforcement).** Record a tool call as a
@@ -1090,6 +1096,15 @@ echoing `approvalId`, until a human approves (resolves) or rejects / the approva
 `reasonCode: 'approval_wait_timeout'`. `onApprovalRequired(decision)` fires once when the wait
 starts, so you can tell someone which approval to act on.
 
+**Task envelope (BE-1609).** Pass `taskId` (UUID) to the constructor, e.g.
+`new PraesidiaInteractionHooks({ taskId: toolCallContextFromTask(task).taskId })`, and every
+decision is also checked against that task's delegation envelope and the agent's assurance
+policy. Use one hooks instance per task. `decision.constrainedBy` names the layer that denied
+or asked for approval: `org_policy`, `delegation` or `assurance`. It is `null` when nothing
+constrained the decision. If the server cannot read the task's delegation chain, the decision
+is a deny with `delegation_chain_unavailable`; if it cannot evaluate assurance, a deny with
+`assurance_evaluation_error`.
+
 **Reporting the outcome.** When an `allow` came from a consumed approval
 (`decision.reasonCode === 'approval_consumed'`), report what happened once:
 
@@ -1280,6 +1295,13 @@ sibling checkout in `sdk-python`'s own `contract-drift.yml` — CD-0007 reuses
 this repo's scanner rather than a third, Python-native re-derivation.
 
 ## Changelog
+
+### Unreleased — SDK-0332: delegation envelope + task-scoped interaction decisions (BE-1597, BE-1609)
+
+- **Added** optional `parentTaskId` and `delegationConstraints` on `TaskRecord` (`logTask`);
+  the `DelegationConstraints` type; optional `taskId` on `InteractionHooksConfig`, and
+  optional nullable `constrainedBy` on `InteractionDecision`. If you omit them, the request
+  bodies are unchanged. Additive, minor bump.
 
 ### Unreleased — SDK-0326: Decision Receipts + audit packages (BE-1581, BE-1629)
 

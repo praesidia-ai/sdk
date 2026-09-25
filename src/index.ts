@@ -89,6 +89,7 @@ export type {
   CheckResult,
   GuardedResult,
   TaskRecord,
+  DelegationConstraints,
   ToolCallRecord,
   ToolCallContext,
   PolledTaskRow,
