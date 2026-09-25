@@ -212,6 +212,35 @@ export class FixtureTrust {
   });
 });
 
+// SDK-0322 — `ai-systems.ts` builds `this.systemsBase` from a constructor-local
+// `orgBase`; one substitution pass left `${orgBase}` unresolved, so every
+// `${this.systemsBase}/...` site was silently dropped (only 3 of ~36 checked).
+describe("TS scanner resolves a base built from another base (SDK-0322)", () => {
+  let dir: string;
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("checks `${this.systemsBase}/:id/retire` and reports a renamed route", () => {
+    dir = mkdtempSync(join(tmpdir(), "sdk-contract-nested-base-test-"));
+    writeFileSync(
+      join(dir, "ai-systems.ts"),
+      `export class F {
+  constructor(orgId: string) {
+    const orgBase = \`/organizations/\${orgId}\`;
+    this.systemsBase = \`\${orgBase}/ai-systems\`;
+  }
+  retire(id: string) { return this.client.post(\`\${this.systemsBase}/\${id}/retire\`, {}); }
+}
+`,
+    );
+    const callSites = extractCallSites(dir, "ts");
+    expect(callSites.map((s) => s.rawPath)).toEqual(["/organizations/${orgId}/ai-systems/${id}/retire"]);
+    const spec = { paths: { "/organizations/{orgId}/ai-systems/{id}/archive": { post: {} } } };
+    expect(diffCallSites(callSites, buildOperationIndex(spec), dir)[0]).toContain("no matching route");
+  });
+});
+
 // SCAN2-012/CT-08 — `sdk/src/protected-http.ts:33,42` pass a same-file
 // helper CALL (`this.bindInstallation(request)`), not an object literal, as
 // the POST body argument. `extractBraceLiteral` sees the identifier `this`,

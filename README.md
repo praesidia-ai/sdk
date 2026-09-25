@@ -653,7 +653,13 @@ await aiSystems.createRelationship({
 | `create(data)` | `Promise<AiSystemRecord>` | `POST .../ai-systems` |
 | `update(id, data)` | `Promise<AiSystemRecord>` | `PATCH .../ai-systems/:id` |
 | `updateOwners(id, data)` | `Promise<AiSystemRecord>` | `PATCH .../ai-systems/:id/owners` |
-| `transitionLifecycle(id, status)` | `Promise<AiSystemRecord>` | `PATCH .../ai-systems/:id/lifecycle` |
+| `transitionLifecycle(id, status)` | `Promise<AiSystemRecord>` | `PATCH .../ai-systems/:id/lifecycle` (ungated targets only; `production`/`retired` throw) |
+| `requestLifecycleTransition(id, { toStatus, reason? })` | `Promise<AiSystemLifecycleTransitionRequest>` | `POST .../ai-systems/:id/lifecycle-requests` |
+| `listLifecycleRequests(query?)` | `Promise<AiSystemLifecycleTransitionRequest[]>` | `GET .../ai-systems/lifecycle-requests` (default `status: 'PENDING'`) |
+| `approveLifecycleTransition(requestId, { reason? }?)` | `Promise<AiSystemLifecycleTransitionRequest>` | `POST .../ai-systems/lifecycle-requests/:requestId/approve` |
+| `rejectLifecycleTransition(requestId, { reason? }?)` | `Promise<AiSystemLifecycleTransitionRequest>` | `POST .../ai-systems/lifecycle-requests/:requestId/reject` |
+| `retire(id, { retentionPolicy, reason, retentionUntil? })` | `Promise<RetireAiSystemResult>` | `POST .../ai-systems/:id/retire` (202) |
+| `reapprove(id, { materialChangeId, reason? })` | `Promise<AiSystemRecord>` | `POST .../ai-systems/:id/reapprove` |
 | `archive(id)` | `Promise<AiSystemRecord>` | `POST .../ai-systems/:id/archive` |
 | `restore(id)` | `Promise<AiSystemRecord>` | `POST .../ai-systems/:id/restore` |
 | `delete(id)` | `Promise<void>` | `DELETE .../ai-systems/:id` (soft-delete) |
@@ -680,6 +686,35 @@ await aiSystems.createRelationship({
 | `deleteAssetByExternalId(externalId)` | `Promise<AiAssetDesiredStateResult>` | `DELETE .../ai-assets/by-external-id/:externalId` (archives) |
 | `putRelationshipByExternalId(externalId, data)` | `Promise<AssetRelationshipDesiredStateResult>` | `PUT .../asset-relationships/by-external-id/:externalId` |
 | `deleteRelationshipByExternalId(externalId)` | `Promise<AssetRelationshipDesiredStateResult>` | `DELETE .../asset-relationships/by-external-id/:externalId` (archives) |
+
+**Approval-gated lifecycle (be AISYS-0018).** Moving into `production` or `retired`
+needs an approved request; `transitionLifecycle(id, 'production' | 'retired')` throws
+`PraesidiaConfigError` without sending. File the request with
+`requestLifecycleTransition` (or `retire`, which also records the retention policy),
+then an ORGANIZATION_OWNER approves it. Approval is what applies the move (and, for
+`retired`, revokes attached agents' credentials and archives the system).
+
+```typescript
+// requester (ai_systems.update)
+const req = await aiSystems.requestLifecycleTransition(systemId, { toStatus: 'production', reason: 'Assessment passed' });
+// approver (ORGANIZATION_OWNER), e.g. from the pending queue
+const [pending] = await aiSystems.listLifecycleRequests({ aiSystemId: systemId });
+await aiSystems.approveLifecycleTransition(pending.id, { reason: 'Reviewed' }); // or rejectLifecycleTransition
+
+// retirement (ai_systems.archive): 202 with the request id and blast-radius preview
+const { requestId, preview } = await aiSystems.retire(systemId, {
+  retentionPolicy: 'Audit evidence kept 7 years, then destroyed.',
+  reason: 'Superseded by the v3 claims model.',
+});
+await aiSystems.approveLifecycleTransition(requestId);
+```
+
+Python parity: `sdk-python` ships the same request/approve/reject/retire/reapprove
+methods; `listLifecycleRequests` is TS-only for now (documented gap).
+
+`reapprove(id, { materialChangeId })` clears the re-approval flag a material change
+leaves on a `production` system (ORGANIZATION_OWNER; 409 unless `materialChangeId` is
+the change the flag names now).
 
 `createAsset`/`putAssetByExternalId` accept only a client `source`
 (`AI_ASSET_CLIENT_SOURCES`: `manual` (the default), `api`, `import`). The other
@@ -1154,6 +1189,19 @@ sibling checkout in `sdk-python`'s own `contract-drift.yml` — CD-0007 reuses
 this repo's scanner rather than a third, Python-native re-derivation.
 
 ## Changelog
+
+### Unreleased — SDK-0322: approval-gated lifecycle routes (AISYS-0018)
+
+- **Added** `requestLifecycleTransition`, `listLifecycleRequests`, `approveLifecycleTransition`,
+  `rejectLifecycleTransition`, `retire` and `reapprove` on `PraesidiaAiSystems`, plus their
+  input/response types and `APPROVAL_GATED_LIFECYCLE_TARGETS` / `AI_SYSTEM_LIFECYCLE_REQUEST_STATUSES`.
+  Until now the SDK had no way to reach `production` or `retired`.
+- **Changed** `transitionLifecycle(id, 'production' | 'retired')` now throws `PraesidiaConfigError`
+  (naming the method to use) before sending, instead of the `PraesidiaApiError` 400 the API has
+  returned for those targets since AISYS-0018. The call could never succeed. Code that catches the
+  400 by error class sees a different class now (behavior change, semver minor; the signature is unchanged).
+- **Fixed** `lint:api-contract` resolves a route base built from another base, so it now checks
+  every `PraesidiaAiSystems` route (110 call sites, up from 77).
 
 ### Unreleased — SDK-0320: `memory.erase()` returns the 202 approval request (BE-1565)
 

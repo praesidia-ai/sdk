@@ -17,7 +17,9 @@ import {
   AI_SYSTEM_ASSET_ROLES,
   AI_SYSTEM_CRITICALITIES,
   AI_SYSTEM_ENVIRONMENTS,
+  AI_SYSTEM_LIFECYCLE_REQUEST_STATUSES,
   AI_SYSTEM_LIFECYCLE_STATUSES,
+  APPROVAL_GATED_LIFECYCLE_TARGETS,
   ASSET_GRAPH_DIRECTIONS,
   ASSET_RELATIONSHIP_TYPES,
   type AdoptAiAssetInput,
@@ -26,6 +28,13 @@ import {
   type AiSystemAssetRecord,
   type AiSystemDesiredStateResult,
   type AiSystemLifecycleStatus,
+  type AiSystemLifecycleTransitionRequest,
+  type DecideAiSystemLifecycleTransitionInput,
+  type ListAiSystemLifecycleRequestsQuery,
+  type ReapproveAiSystemInput,
+  type RequestAiSystemLifecycleTransitionInput,
+  type RetireAiSystemInput,
+  type RetireAiSystemResult,
   type AiSystemRecord,
   type AiSystemSummaryResponse,
   type AssetGraphTraversalResponse,
@@ -208,15 +217,117 @@ export class PraesidiaAiSystems {
   /**
    * Transition an AI System's lifecycle status. PATCH .../ai-systems/:id/lifecycle.
    * Throws on an illegal transition (be 400s with the from/to pair).
+   *
+   * `production` and `retired` are approval-gated (be AISYS-0018): be refuses them
+   * here, so this throws PraesidiaConfigError before sending. Use
+   * {@link requestLifecycleTransition} (→ production) or {@link retire} (→ retired),
+   * then {@link approveLifecycleTransition} as an ORGANIZATION_OWNER.
    */
   async transitionLifecycle(
     aiSystemId: string,
     lifecycleStatus: AiSystemLifecycleStatus,
   ): Promise<AiSystemRecord> {
     assertEnum(lifecycleStatus, AI_SYSTEM_LIFECYCLE_STATUSES, 'lifecycleStatus');
+    if ((APPROVAL_GATED_LIFECYCLE_TARGETS as readonly string[]).includes(lifecycleStatus)) {
+      const method = lifecycleStatus === 'retired' ? 'retire' : 'requestLifecycleTransition';
+      throw new PraesidiaConfigError(
+        `lifecycleStatus '${lifecycleStatus}' is approval-gated: use ${method}(), then approveLifecycleTransition()`,
+      );
+    }
     return this.client.patch<AiSystemRecord>(
       `${this.systemsBase}/${encodePathSegment(aiSystemId, 'aiSystemId')}/lifecycle`,
       { lifecycleStatus },
+    );
+  }
+
+  /**
+   * File an approval request for a gated lifecycle move (AISYS-0018).
+   * POST .../ai-systems/:id/lifecycle-requests (AI_SYSTEMS_UPDATE). be 400s an
+   * ungated or illegal target; `retired` goes through {@link retire}, so it throws
+   * PraesidiaConfigError here before sending.
+   */
+  async requestLifecycleTransition(
+    aiSystemId: string,
+    input: RequestAiSystemLifecycleTransitionInput,
+  ): Promise<AiSystemLifecycleTransitionRequest> {
+    assertEnum(input.toStatus, AI_SYSTEM_LIFECYCLE_STATUSES, 'toStatus');
+    if (input.toStatus === 'retired') {
+      throw new PraesidiaConfigError("toStatus 'retired' is requested only via retire()");
+    }
+    return this.client.post<AiSystemLifecycleTransitionRequest>(
+      `${this.systemsBase}/${encodePathSegment(aiSystemId, 'aiSystemId')}/lifecycle-requests`,
+      input,
+    );
+  }
+
+  /**
+   * List lifecycle transition requests (be defaults to the `PENDING` queue).
+   * GET .../ai-systems/lifecycle-requests. Returns the requested page as a bare array.
+   */
+  async listLifecycleRequests(
+    query: ListAiSystemLifecycleRequestsQuery = {},
+  ): Promise<AiSystemLifecycleTransitionRequest[]> {
+    assertPagination(query);
+    assertEnum(query.status, AI_SYSTEM_LIFECYCLE_REQUEST_STATUSES, 'status');
+    const result = await this.client.get<
+      AiSystemLifecycleTransitionRequest[] | Record<string, unknown>
+    >(`${this.systemsBase}/lifecycle-requests${buildQueryString(query)}`);
+    return normalizePagedEnvelope<AiSystemLifecycleTransitionRequest>(result, 'data').data;
+  }
+
+  /**
+   * Approve a pending lifecycle request; this applies the move (and, for `retired`,
+   * the retirement cascade). POST .../ai-systems/lifecycle-requests/:requestId/approve.
+   * The caller must hold the request's `requiredRole` (ORGANIZATION_OWNER).
+   */
+  async approveLifecycleTransition(
+    requestId: string,
+    input: DecideAiSystemLifecycleTransitionInput = {},
+  ): Promise<AiSystemLifecycleTransitionRequest> {
+    return this.client.post<AiSystemLifecycleTransitionRequest>(
+      `${this.systemsBase}/lifecycle-requests/${encodePathSegment(requestId, 'requestId')}/approve`,
+      input,
+    );
+  }
+
+  /** Reject a pending lifecycle request. POST .../ai-systems/lifecycle-requests/:requestId/reject. */
+  async rejectLifecycleTransition(
+    requestId: string,
+    input: DecideAiSystemLifecycleTransitionInput = {},
+  ): Promise<AiSystemLifecycleTransitionRequest> {
+    return this.client.post<AiSystemLifecycleTransitionRequest>(
+      `${this.systemsBase}/lifecycle-requests/${encodePathSegment(requestId, 'requestId')}/reject`,
+      input,
+    );
+  }
+
+  /**
+   * Request retirement (202). POST .../ai-systems/:id/retire (AI_SYSTEMS_ARCHIVE).
+   * Records the retention policy and files the gated `retired` request; it does NOT
+   * retire the system — approving `requestId` does. 409 if one is already pending.
+   */
+  async retire(
+    aiSystemId: string,
+    input: RetireAiSystemInput,
+  ): Promise<RetireAiSystemResult> {
+    return this.client.post<RetireAiSystemResult>(
+      `${this.systemsBase}/${encodePathSegment(aiSystemId, 'aiSystemId')}/retire`,
+      input,
+    );
+  }
+
+  /**
+   * Clear the re-approval flag a material change left on a `production` system
+   * (ORGANIZATION_OWNER). POST .../ai-systems/:id/reapprove. 409 unless
+   * `materialChangeId` is the change the flag names now.
+   */
+  async reapprove(
+    aiSystemId: string,
+    input: ReapproveAiSystemInput,
+  ): Promise<AiSystemRecord> {
+    return this.client.post<AiSystemRecord>(
+      `${this.systemsBase}/${encodePathSegment(aiSystemId, 'aiSystemId')}/reapprove`,
+      input,
     );
   }
 

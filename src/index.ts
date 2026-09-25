@@ -231,8 +231,21 @@ export {
   AI_SYSTEM_ASSET_ROLES,
   ASSET_RELATIONSHIP_TYPES,
   ASSET_GRAPH_DIRECTIONS,
+  // SDK-0322 — AISYS-0018 approval-gated lifecycle
+  APPROVAL_GATED_LIFECYCLE_TARGETS,
+  AI_SYSTEM_LIFECYCLE_REQUEST_STATUSES,
 } from './types.js';
 export type {
+  // SDK-0322 — AISYS-0018 approval-gated lifecycle
+  AiSystemLifecycleRequestStatus,
+  RequestAiSystemLifecycleTransitionInput,
+  DecideAiSystemLifecycleTransitionInput,
+  ListAiSystemLifecycleRequestsQuery,
+  AiSystemLifecycleTransitionRequest,
+  RetireAiSystemInput,
+  AiSystemRetirementPreview,
+  RetireAiSystemResult,
+  ReapproveAiSystemInput,
   AiSystemOwnerType,
   AiSystemCriticality,
   AiSystemEnvironment,

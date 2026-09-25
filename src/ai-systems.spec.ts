@@ -181,6 +181,109 @@ describe('PraesidiaAiSystems', () => {
       ).rejects.toThrow(PraesidiaConfigError);
     });
 
+    // SDK-0322 — AISYS-0018 made production/retired approval-gated; be 400s the PATCH.
+    const lastCall = (): [string, RequestInit] =>
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+
+    it.each([
+      ['production', 'requestLifecycleTransition'],
+      ['retired', 'retire'],
+    ] as const)(
+      'transitionLifecycle(id, %s) fails fast pointing to %s, no request sent (SDK-0322)',
+      async (status, pointer) => {
+        globalThis.fetch = makeFetchMock([]);
+        const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+        await expect(aiSystems.transitionLifecycle('sys-1', status)).rejects.toThrow(
+          new RegExp(`approval-gated.*${pointer}`),
+        );
+        expect(globalThis.fetch).not.toHaveBeenCalled();
+      },
+    );
+
+    it('requestLifecycleTransition POSTs .../ai-systems/:id/lifecycle-requests with the DTO (SDK-0322)', async () => {
+      globalThis.fetch = makeFetchMock([
+        { status: 201, json: { id: 'req-1', toStatus: 'production', status: 'PENDING' } },
+      ]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      const req = await aiSystems.requestLifecycleTransition('sys-1', {
+        toStatus: 'production',
+        reason: 'go live',
+      });
+      const [url, init] = lastCall();
+      expect(url).toMatch(/\/organizations\/org-1\/ai-systems\/sys-1\/lifecycle-requests$/);
+      expect(init.method).toBe('POST');
+      expect(init.body).toBe(JSON.stringify({ toStatus: 'production', reason: 'go live' }));
+      expect(req.id).toBe('req-1');
+    });
+
+    it('requestLifecycleTransition rejects toStatus retired before sending (be 400s it) (SDK-0322)', async () => {
+      globalThis.fetch = makeFetchMock([]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      await expect(
+        aiSystems.requestLifecycleTransition('sys-1', { toStatus: 'retired' }),
+      ).rejects.toThrow(/retire\(\)/);
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it.each(['approve', 'reject'] as const)(
+      '%sLifecycleTransition POSTs the lifecycle-requests/:requestId decision route (SDK-0322)',
+      async (verb) => {
+        globalThis.fetch = makeFetchMock([
+          { status: 201, json: { id: 'req-1', status: verb === 'approve' ? 'APPROVED' : 'REJECTED' } },
+        ]);
+        const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+        const method = verb === 'approve' ? 'approveLifecycleTransition' : 'rejectLifecycleTransition';
+        await aiSystems[method]('req-1', { reason: 'reviewed' });
+        const [url, init] = lastCall();
+        expect(url).toMatch(
+          new RegExp(`/organizations/org-1/ai-systems/lifecycle-requests/req-1/${verb}$`),
+        );
+        expect(init.method).toBe('POST');
+        expect(init.body).toBe(JSON.stringify({ reason: 'reviewed' }));
+      },
+    );
+
+    it('listLifecycleRequests GETs .../ai-systems/lifecycle-requests with filters (SDK-0322)', async () => {
+      globalThis.fetch = makeFetchMock([
+        { json: { data: [{ id: 'req-1' }], meta: { page: 1, limit: 20, total: 1, totalPages: 1 } } },
+      ]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      const rows = await aiSystems.listLifecycleRequests({ status: 'PENDING', aiSystemId: 'sys-1' });
+      const [url, init] = lastCall();
+      expect(url).toMatch(
+        /\/ai-systems\/lifecycle-requests\?status=PENDING&aiSystemId=sys-1$/,
+      );
+      expect(init.method).toBe('GET');
+      expect(rows).toEqual([{ id: 'req-1' }]);
+    });
+
+    it('retire POSTs .../ai-systems/:id/retire and returns the 202 request + preview (SDK-0322)', async () => {
+      globalThis.fetch = makeFetchMock([
+        { status: 202, json: { requestId: 'req-2', preview: { aiSystemId: 'sys-1', dependentCount: 0 } } },
+      ]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      const body = {
+        retentionPolicy: 'Evidence kept 7 years, then destroyed.',
+        reason: 'Superseded by the v3 model.',
+      };
+      const out = await aiSystems.retire('sys-1', body);
+      const [url, init] = lastCall();
+      expect(url).toMatch(/\/organizations\/org-1\/ai-systems\/sys-1\/retire$/);
+      expect(init.method).toBe('POST');
+      expect(init.body).toBe(JSON.stringify(body));
+      expect(out.requestId).toBe('req-2');
+    });
+
+    it('reapprove POSTs .../ai-systems/:id/reapprove with materialChangeId (SDK-0322)', async () => {
+      globalThis.fetch = makeFetchMock([{ json: { id: 'sys-1' } }]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      await aiSystems.reapprove('sys-1', { materialChangeId: 'chg-1' });
+      const [url, init] = lastCall();
+      expect(url).toMatch(/\/organizations\/org-1\/ai-systems\/sys-1\/reapprove$/);
+      expect(init.method).toBe('POST');
+      expect(init.body).toBe(JSON.stringify({ materialChangeId: 'chg-1' }));
+    });
+
     it('soft-deletes an AI System via DELETE .../ai-systems/:id (SDK-0003)', async () => {
       globalThis.fetch = makeFetchMock([{ ok: true, status: 204 }]);
       const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });

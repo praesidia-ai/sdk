@@ -475,9 +475,16 @@ function collectTemplateConcatenation(source, fromIndex) {
 
 /** Replace `${this.xxx}` / `${xxx}` references with a known symbol's resolved text (one pass — no base references another in this codebase). */
 function substituteTsBases(raw, symbols) {
-  return raw.replace(/\$\{(this\.\w+|\w+)\}/g, (whole, name) =>
-    symbols.has(name) ? symbols.get(name) : whole
-  );
+  // SDK-0322 — repeat until stable (bounded): `${this.systemsBase}/x` resolves to
+  // `${orgBase}/ai-systems/x`, which needs a second pass or the site is dropped.
+  for (let pass = 0; pass < 5; pass++) {
+    const next = raw.replace(/\$\{(this\.\w+|\w+)\}/g, (whole, name) =>
+      symbols.has(name) ? symbols.get(name) : whole
+    );
+    if (next === raw) break;
+    raw = next;
+  }
+  return raw;
 }
 
 function extractCallSitesTs(sourceRoot) {

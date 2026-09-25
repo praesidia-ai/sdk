@@ -1441,6 +1441,97 @@ export interface UpdateAiSystemOwnersInput {
   complianceOwnerId?: string | null;
 }
 
+/**
+ * AISYS-0018 — lifecycle targets `PATCH .../lifecycle` refuses; each needs an approved
+ * transition request (be `ai-system-lifecycle.util.ts` `APPROVAL_GATED_LIFECYCLE_TARGETS`).
+ */
+export const APPROVAL_GATED_LIFECYCLE_TARGETS = ['production', 'retired'] as const;
+
+/** `entities/ai-system-lifecycle-transition-request.entity.ts`'s request statuses. */
+export const AI_SYSTEM_LIFECYCLE_REQUEST_STATUSES = [
+  'PENDING', 'APPROVED', 'REJECTED', 'CANCELLED',
+] as const;
+export type AiSystemLifecycleRequestStatus = (typeof AI_SYSTEM_LIFECYCLE_REQUEST_STATUSES)[number];
+
+/** Body of `requestLifecycleTransition` (`RequestAiSystemLifecycleTransitionDto`). */
+export interface RequestAiSystemLifecycleTransitionInput {
+  toStatus: AiSystemLifecycleStatus;
+  /** Max 2000 chars. */
+  reason?: string;
+}
+
+/** Body of `approve`/`rejectLifecycleTransition` (`DecideAiSystemLifecycleTransitionDto`). */
+export interface DecideAiSystemLifecycleTransitionInput {
+  /** Max 2000 chars. */
+  reason?: string;
+}
+
+/** Query of `listLifecycleRequests` (`ListAiSystemLifecycleRequestsQueryDto`; be defaults `status` to `PENDING`). */
+export interface ListAiSystemLifecycleRequestsQuery {
+  status?: AiSystemLifecycleRequestStatus;
+  aiSystemId?: string;
+  page?: number;
+  limit?: number;
+}
+
+/** `AiSystemLifecycleTransitionRequestResponseDto`. Dates are ISO strings. */
+export interface AiSystemLifecycleTransitionRequest {
+  id: string;
+  organizationId: string;
+  aiSystemId: string;
+  fromStatus: AiSystemLifecycleStatus;
+  toStatus: AiSystemLifecycleStatus;
+  requiredRole: string;
+  requestedBy: string;
+  requestReason?: string | null;
+  status: AiSystemLifecycleRequestStatus;
+  decidedBy?: string | null;
+  decidedAt?: string | null;
+  decisionReason?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Body of `retire` (`RetireAiSystemDto`). */
+export interface RetireAiSystemInput {
+  /** 10–4000 chars: what is kept, for how long, then what happens. */
+  retentionPolicy: string;
+  /** ISO 8601 date. */
+  retentionUntil?: string;
+  /** 10–4000 chars. */
+  reason: string;
+}
+
+/** `AiSystemRetirementPreviewDto` — the blast radius the approver acts on. */
+export interface AiSystemRetirementPreview {
+  aiSystemId: string;
+  lifecycleStatus: string;
+  dependentCount: number;
+  dependents: Array<{ aiSystemId: string; name: string; retiringAssetId: string; dependentAssetId: string }>;
+  agentCount: number;
+  agents: Array<{ assetId: string; agentId: string; name: string }>;
+  agentIds: string[];
+  retentionPolicy?: string | null;
+  retentionUntil?: string | null;
+  retiredAt?: string | null;
+  archivedAt?: string | null;
+}
+
+/** 202 body of `retire` (`RetireAiSystemResponseDto`). */
+export interface RetireAiSystemResult {
+  /** The pending `retired` lifecycle request; approve it to retire the system. */
+  requestId: string;
+  preview: AiSystemRetirementPreview;
+}
+
+/** Body of `reapprove` (`ReapproveAiSystemDto`). */
+export interface ReapproveAiSystemInput {
+  /** UUID of the material change the flag names now (`reapprovalMaterialChangeId`), else 409. */
+  materialChangeId: string;
+  /** Max 2000 chars. */
+  reason?: string;
+}
+
 /** `entities/ai-asset.entity.ts`'s `AI_ASSET_TYPES` (24 values, SDK-0007 synced with DB-0300's
  * widened enum, SDK-0314 adds BE-0338's `GUARDRAIL`; kept in sync via `ai-systems.spec.ts`'s
  * openapi contract test). */
