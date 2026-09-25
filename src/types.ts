@@ -1427,9 +1427,18 @@ export const AI_ASSET_TYPES = [
 ] as const;
 export type AiAssetType = (typeof AI_ASSET_TYPES)[number];
 
-/** `entities/ai-asset.entity.ts`'s `AI_ASSET_SOURCES`. */
-export const AI_ASSET_SOURCES = ['manual', 'runtime_observation', 'discovery_connector', 'api', 'import'] as const;
+/** `entities/ai-asset.entity.ts`'s `AI_ASSET_SOURCES` — every source a stored asset can carry, so
+ * the `listAssets` filter accepts all of them (SDK-0317 adds `entitlement_projection`, DB-0300). */
+export const AI_ASSET_SOURCES = [
+  'manual', 'runtime_observation', 'discovery_connector', 'api', 'import', 'entitlement_projection',
+] as const;
 export type AiAssetSource = (typeof AI_ASSET_SOURCES)[number];
+
+/** `dto/create-ai-asset.dto.ts`'s `CLIENT_SOURCES` (be BE-1529, SDK-0317): the only sources
+ * `createAsset`/`putAssetByExternalId` may send. The other {@link AI_ASSET_SOURCES} are written only
+ * by be's own pipelines, and be answers 400 to a client that sends one. */
+export const AI_ASSET_CLIENT_SOURCES = ['manual', 'api', 'import'] as const satisfies readonly AiAssetSource[];
+export type AiAssetClientSource = (typeof AI_ASSET_CLIENT_SOURCES)[number];
 
 /** `entities/ai-asset.entity.ts`'s `AI_ASSET_DISCOVERY_STATUSES`. */
 export const AI_ASSET_DISCOVERY_STATUSES = ['discovered', 'adopted', 'ignored'] as const;
@@ -1473,7 +1482,8 @@ export type AiAssetRecord = Record<string, unknown>;
 export interface CreateAiAssetInput {
   name: string;
   assetType: AiAssetType;
-  source?: AiAssetSource;
+  /** Defaults to `manual` server-side. */
+  source?: AiAssetClientSource;
   discoveryStatus?: AiAssetDiscoveryStatus;
   environment?: AiSystemEnvironment;
   ownerType?: AiSystemOwnerType;

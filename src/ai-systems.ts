@@ -10,6 +10,7 @@ import {
   type PaginatedEnvelope,
 } from './pagination.js';
 import {
+  AI_ASSET_CLIENT_SOURCES,
   AI_ASSET_DISCOVERY_STATUSES,
   AI_ASSET_SOURCES,
   AI_ASSET_TYPES,
@@ -312,7 +313,7 @@ export class PraesidiaAiSystems {
    */
   async createAsset(data: CreateAiAssetInput): Promise<AiAssetRecord> {
     assertEnum(data.assetType, AI_ASSET_TYPES, 'assetType');
-    assertEnum(data.source, AI_ASSET_SOURCES, 'source');
+    assertEnum(data.source, AI_ASSET_CLIENT_SOURCES, 'source');
     assertEnum(data.discoveryStatus, AI_ASSET_DISCOVERY_STATUSES, 'discoveryStatus');
     return this.client.post<AiAssetRecord>(this.assetsBase, data);
   }
@@ -366,7 +367,7 @@ export class PraesidiaAiSystems {
     data: CreateAiAssetInput,
   ): Promise<AiAssetDesiredStateResult> {
     assertEnum(data.assetType, AI_ASSET_TYPES, 'assetType');
-    assertEnum(data.source, AI_ASSET_SOURCES, 'source');
+    assertEnum(data.source, AI_ASSET_CLIENT_SOURCES, 'source');
     assertEnum(data.discoveryStatus, AI_ASSET_DISCOVERY_STATUSES, 'discoveryStatus');
     return this.client.put<AiAssetDesiredStateResult>(
       `${this.assetsBase}/by-external-id/${encodePathSegment(externalId, 'externalId')}`,

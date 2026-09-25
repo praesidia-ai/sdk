@@ -673,6 +673,12 @@ await aiSystems.createRelationship({
 | `putRelationshipByExternalId(externalId, data)` | `Promise<AssetRelationshipDesiredStateResult>` | `PUT .../asset-relationships/by-external-id/:externalId` |
 | `deleteRelationshipByExternalId(externalId)` | `Promise<AssetRelationshipDesiredStateResult>` | `DELETE .../asset-relationships/by-external-id/:externalId` (archives) |
 
+`createAsset`/`putAssetByExternalId` accept only a client `source`
+(`AI_ASSET_CLIENT_SOURCES`: `manual` (the default), `api`, `import`). The other
+`AI_ASSET_SOURCES` (`runtime_observation`, `discovery_connector`,
+`entitlement_projection`) are written only by the platform's own pipelines.
+`listAssets({ source })` still filters on all of them (be BE-1529, SDK-0317).
+
 Every `list*`/`listAssets`/`listRelationships` also has a `*Page` (full
 pagination envelope) and `*All` (auto-paginating async generator) sibling,
 matching the `listPage`/`listAll` convention above (SCAN2-011).
@@ -1140,6 +1146,18 @@ sibling checkout in `sdk-python`'s own `contract-drift.yml` — CD-0007 reuses
 this repo's scanner rather than a third, Python-native re-derivation.
 
 ## Changelog
+
+### Unreleased — SDK-0317: asset create/put accept only client sources (BE-1529)
+
+- **Changed** `createAsset`/`putAssetByExternalId` now reject `runtime_observation`,
+  `discovery_connector` and `entitlement_projection` with a `PraesidiaConfigError` before
+  sending the request. be 400s all three since BE-1529. `CreateAiAssetInput.source` narrows
+  from `AiAssetSource` to the new `AiAssetClientSource` (`AI_ASSET_CLIENT_SOURCES`:
+  `manual | api | import`). **Breaking at the type level:** code that passed one of those three
+  literals no longer compiles. At runtime it already failed with a 400.
+- **Fixed** `AI_ASSET_SOURCES` adds `entitlement_projection` (5 → 6), matching `ui/swagger.json`'s
+  `AiAsset.source` enum, so `listAssets({ source: 'entitlement_projection' })` is no longer
+  rejected client-side. The Python SDK gets the same change (SDK-0318).
 
 ### Unreleased — SDK-0300: interaction hooks, an advisory in-runtime guard (BE-1486)
 

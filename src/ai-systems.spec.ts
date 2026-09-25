@@ -4,7 +4,12 @@ import { dirname, join, resolve } from 'node:path';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { PraesidiaAiSystems } from './ai-systems.js';
 import { PraesidiaConfigError } from './errors.js';
-import { AI_ASSET_TYPES, ASSET_RELATIONSHIP_TYPES } from './types.js';
+import {
+  AI_ASSET_CLIENT_SOURCES,
+  AI_ASSET_SOURCES,
+  AI_ASSET_TYPES,
+  ASSET_RELATIONSHIP_TYPES,
+} from './types.js';
 import { makeFetchMock } from './__tests__/fetch-mock.js';
 
 // SDK-0303 — spec-path resolution mirrors `scripts/audit-api-contract.mjs`:
@@ -337,6 +342,33 @@ describe('PraesidiaAiSystems', () => {
       ).rejects.toThrow(PraesidiaConfigError);
     });
 
+    it('rejects pipeline-owned sources on createAsset/putAssetByExternalId before sending (SDK-0317, BE-1529)', async () => {
+      globalThis.fetch = makeFetchMock([]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      for (const source of ['runtime_observation', 'discovery_connector', 'entitlement_projection']) {
+        const data = { name: 'x', assetType: 'VENDOR' as const, source: source as never };
+        await expect(aiSystems.createAsset(data)).rejects.toThrow('source must be one of manual, api, import');
+        await expect(aiSystems.putAssetByExternalId('ext-1', data)).rejects.toThrow(PraesidiaConfigError);
+      }
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it('sends client sources on create/put and filters listAssets by any stored source (SDK-0317)', async () => {
+      globalThis.fetch = makeFetchMock([
+        { json: { id: 'asset-3' } },
+        { json: { id: 'asset-3', externalId: 'ext-1', created: false, changed: false, resource: {} } },
+        { json: [] },
+      ]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      await aiSystems.createAsset({ name: 'x', assetType: 'VENDOR', source: 'import' });
+      await aiSystems.putAssetByExternalId('ext-1', { name: 'x', assetType: 'VENDOR', source: 'api' });
+      await aiSystems.listAssets({ source: 'entitlement_projection' });
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      expect(JSON.parse((calls[0]![1] as RequestInit).body as string).source).toBe('import');
+      expect(JSON.parse((calls[1]![1] as RequestInit).body as string).source).toBe('api');
+      expect(calls[2]![0]).toContain('source=entitlement_projection');
+    });
+
     it('archives an AI Asset by externalId via DELETE returning the outcome body (SDK-0302)', async () => {
       globalThis.fetch = makeFetchMock([
         {
@@ -577,7 +609,7 @@ describe('PraesidiaAiSystems', () => {
   });
 
   it.skipIf(!swaggerAvailable)(
-    'AI_ASSET_TYPES/ASSET_RELATIONSHIP_TYPES match ui/swagger.json (SDK-0007)',
+    'AI_ASSET_TYPES/ASSET_RELATIONSHIP_TYPES/AI_ASSET_SOURCES match ui/swagger.json (SDK-0007, SDK-0317)',
     () => {
       // Reads the gate-verified ui/swagger.json (never regenerated here) and
       // fails if it drifts from these tuples again -- see SDK-0007/SDK-0303.
@@ -588,6 +620,11 @@ describe('PraesidiaAiSystems', () => {
         schemas.AssetRelationship.properties.relationshipType.enum;
       expect(new Set(AI_ASSET_TYPES)).toEqual(new Set(openapiAssetTypes));
       expect(new Set(ASSET_RELATIONSHIP_TYPES)).toEqual(new Set(openapiRelationshipTypes));
+      // SDK-0317: the list filter covers every stored source; the create/put subset must stay
+      // inside CreateAiAssetDto's enum (a superset until swagger is re-exported after BE-1529).
+      expect(new Set(AI_ASSET_SOURCES)).toEqual(new Set(schemas.AiAsset.properties.source.enum));
+      const createSources: string[] = schemas.CreateAiAssetDto.properties.source.enum;
+      for (const source of AI_ASSET_CLIENT_SOURCES) expect(createSources).toContain(source);
     },
   );
 });
