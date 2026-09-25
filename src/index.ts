@@ -107,6 +107,13 @@ export type {
   ConnectionStatus,
   ListAuditLogsQuery,
   AuditLogEntry,
+  DecisionReceipt,
+  RequestAuditPackageOptions,
+  AuditPackageStatus,
+  AuditPackageJob,
+  AuditBundleQuery,
+  AuditBundleDownload,
+  AuditBundleWindowClamp,
   // FINDING-1 — analytics parity types
   AnalyticsWindowQuery,
   AnalyticsResult,

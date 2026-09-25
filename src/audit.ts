@@ -6,9 +6,25 @@ import {
 } from './client.js';
 import { PraesidiaConfigError } from './errors.js';
 import { assertBundleDateRange } from './evidence-query.js';
-import type { AuditLogEntry, GuardConfig, ListAuditLogsQuery } from './types.js';
+import type {
+  AuditBundleDownload,
+  AuditBundleQuery,
+  AuditBundleWindowClamp,
+  AuditLogEntry,
+  AuditPackageJob,
+  DecisionReceipt,
+  GuardConfig,
+  ListAuditLogsQuery,
+  RequestAuditPackageOptions,
+} from './types.js';
 
 const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function uuid(value: string, label: string): string {
+  if (!UUID_RE.test(value)) throw new PraesidiaConfigError(`${label} must be a UUID`);
+  return value;
+}
 
 /**
  * PraesidiaAudit — read-back of the organization audit log (FINDING-2 parity
@@ -34,6 +50,7 @@ export class PraesidiaAudit {
   private readonly client: PraesidiaClient;
   private readonly auditBase: string;
   private readonly bundlePath: string;
+  private readonly auditPath: string;
 
   constructor(config: GuardConfig = {}) {
     const apiKey = config.apiKey ?? process.env['PRAESIDIA_API_KEY'];
@@ -55,6 +72,7 @@ export class PraesidiaAudit {
       config.allowInsecureHttp,
     );
     this.auditBase = `/organizations/${encodePathSegment(orgId, 'orgId')}/audit-logs`;
+    this.auditPath = `/organizations/${encodePathSegment(orgId, 'orgId')}/audit`;
     this.bundlePath = `/organizations/${encodePathSegment(orgId, 'orgId')}/audit/bundle`;
   }
 
@@ -136,10 +154,72 @@ export class PraesidiaAudit {
    * Requires audit:read and owner/compliance-officer access with COMPLIANCE_VIEW.
    * Returns at most 128 MiB through the bounded transport. Does not verify it.
    */
-  exportBundle(query: { from: string; to: string }): Promise<Uint8Array> {
+  async exportBundle(query: AuditBundleQuery): Promise<Uint8Array> {
+    return (await this.downloadBundle(query)).bytes;
+  }
+
+  /**
+   * {@link exportBundle} plus the X-Praesidia-* window headers. The server cuts
+   * the range at the last Merkle-rooted hour unless `includeUnrooted`; compare
+   * `effectiveTo` with `requestedTo` (and read `windowClamp`) to see where the
+   * bundle actually ends. Does not verify it: run `praesidia-verify`.
+   */
+  async downloadBundle(query: AuditBundleQuery): Promise<AuditBundleDownload> {
     assertBundleDateRange(query.from, query.to);
     const qs = new URLSearchParams({ from: query.from, to: query.to });
-    return this.client.getBytes(`${this.bundlePath}?${qs}`);
+    if (query.includeUnrooted !== undefined) qs.set('includeUnrooted', String(query.includeUnrooted));
+    const { bytes, headers } = await this.client.getBytesResponse(`${this.bundlePath}?${qs}`);
+    return {
+      bytes,
+      requestedTo: headers.get('X-Praesidia-Requested-To'),
+      effectiveTo: headers.get('X-Praesidia-Effective-To'),
+      windowClamp: headers.get('X-Praesidia-Window-Clamp') as AuditBundleWindowClamp | null,
+    };
+  }
+
+  /** Decision Receipt for one audit row. GET .../audit/:rowId/receipt. 404 when not a Decision Record. */
+  async getReceipt(rowId: string): Promise<DecisionReceipt> {
+    return this.client.get<DecisionReceipt>(`${this.auditPath}/${uuid(rowId, 'rowId')}/receipt`);
+  }
+
+  /**
+   * Decision Receipt by the `decisionId` an interaction decision returned.
+   * GET .../audit/decisions/:decisionId/receipt.
+   */
+  async getDecisionReceipt(decisionId: string): Promise<DecisionReceipt> {
+    return this.client.get<DecisionReceipt>(
+      `${this.auditPath}/decisions/${uuid(decisionId, 'decisionId')}/receipt`,
+    );
+  }
+
+  /**
+   * Queue a multi-artifact audit package (202). POST .../audit/packages.
+   * Poll {@link getPackage} until `status` is `done`, then {@link downloadPackage}.
+   * Not retried: a bare POST is not idempotent.
+   */
+  async requestPackage(options: RequestAuditPackageOptions = {}): Promise<AuditPackageJob> {
+    assertIsoDateRange(options.from, options.to);
+    const body: RequestAuditPackageOptions = {};
+    if (options.from !== undefined) body.from = options.from;
+    if (options.to !== undefined) body.to = options.to;
+    if (options.aiSystemId !== undefined) body.aiSystemId = uuid(options.aiSystemId, 'aiSystemId');
+    return this.client.post<AuditPackageJob>(`${this.auditPath}/packages`, body);
+  }
+
+  /** Status of an audit package export. GET .../audit/packages/:id. */
+  async getPackage(id: string): Promise<AuditPackageJob> {
+    return this.client.get<AuditPackageJob>(`${this.auditPath}/packages/${uuid(id, 'id')}`);
+  }
+
+  /**
+   * Download a finished audit package ZIP (at most 128 MiB).
+   * GET .../audit/packages/:id/download. Throws PraesidiaApiError 409 while
+   * the export is not done, 410 once past its 7-day retention.
+   * A download does not verify the package: run `praesidia-verify` on its
+   * evidence/audit-bundle.zip.
+   */
+  async downloadPackage(id: string): Promise<Uint8Array> {
+    return this.client.getBytes(`${this.auditPath}/packages/${uuid(id, 'id')}/download`);
   }
 
   /** Adopt a rotated credential in-process (zero-downtime swap). */

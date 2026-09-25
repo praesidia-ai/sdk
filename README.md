@@ -785,6 +785,39 @@ for await (const event of audit.stream({ fromDate: '2026-01-01' })) {
 const csv = await audit.export({ format: 'csv', action: 'agent.created' });
 ```
 
+### Decision Receipts and audit packages
+
+```typescript
+// The Decision Record behind one decision (decisionId from an interaction decision),
+// or behind one audit row.
+const receipt = await audit.getDecisionReceipt(decisionId);
+const same = await audit.getReceipt(receipt.rowId);
+
+// Multi-artifact audit package: request (202), poll, download.
+let job = await audit.requestPackage({ from: '2026-09-01T00:00:00Z', to: '2026-09-25T00:00:00Z' });
+while (job.status === 'queued' || job.status === 'running') {
+  await new Promise((r) => setTimeout(r, 5_000));
+  job = await audit.getPackage(job.id);
+}
+if (job.status === 'failed') throw new Error(job.error ?? 'package failed');
+await writeFile('audit-package.zip', await audit.downloadPackage(job.id));
+
+// Signed bundle plus where the server actually cut the range.
+const { bytes, effectiveTo, windowClamp } = await audit.downloadBundle({
+  from: '2026-09-24T00:00:00Z', to: '2026-09-25T10:30:00Z',
+});
+```
+
+Every id must be a UUID (`PraesidiaConfigError` otherwise, before any request).
+`downloadPackage` throws `PraesidiaApiError` with status 409 until the job is
+`done` and 410 after the 7-day retention. The bundle is cut at the end of the
+last Merkle-rooted hour unless `includeUnrooted: true`; `downloadBundle` returns
+the `X-Praesidia-Requested-To` / `-Effective-To` / `-Window-Clamp` headers as
+`requestedTo` / `effectiveTo` / `windowClamp` (`null` if the server omits them).
+`exportBundle` accepts the same `includeUnrooted` and still returns bare bytes.
+**No download verifies anything**: run `praesidia-verify` on the bundle (or the
+package's `evidence/audit-bundle.zip`).
+
 > **No `resourceType` filter, by design.** The backend `FilterAuditDto`
 > whitelists only `search`/`action`/`startDate`/`endDate` under
 > `forbidNonWhitelisted` — a `resourceType` param 400s the whole request.
@@ -1180,6 +1213,9 @@ only by `guard.protectAction` — see [above](#guardprotectactionopts--promisepr
 | `PraesidiaConnections.*` | `GET/POST/PATCH/DELETE /organizations/:orgId/connections[/…]` | `CONNECTIONS_*` (`A2A_COMMUNICATION` feature) |
 | `PraesidiaAiSystems.*` | `GET/POST/PATCH/DELETE /organizations/:orgId/ai-systems\|ai-assets\|asset-relationships[/…]` | `AI_SYSTEMS_*` / `AI_ASSETS_*` (`AI_SYSTEMS` feature) |
 | `PraesidiaAudit.*` | `GET /organizations/:orgId/audit-logs[/export]` | `AUDIT_VIEW` / `AUDIT_EXPORT` |
+| `PraesidiaAudit.getReceipt` / `getDecisionReceipt` | `GET /organizations/:orgId/audit/:rowId/receipt`, `…/audit/decisions/:decisionId/receipt` | `AUDIT_VIEW` |
+| `PraesidiaAudit.requestPackage` / `getPackage` / `downloadPackage` | `POST /organizations/:orgId/audit/packages`, `GET …/packages/:id[/download]` | owner/compliance officer + `COMPLIANCE_VIEW` |
+| `PraesidiaAudit.exportBundle` / `downloadBundle` | `GET /organizations/:orgId/audit/bundle` | owner/compliance officer + `COMPLIANCE_VIEW` |
 | `PraesidiaAnalytics.*` | `GET /organizations/:orgId/analytics[/…]` | `ANALYTICS_VIEW` / `ANALYTICS_EXPORT` (`advanced/*` needs `ADVANCED_ANALYTICS`) |
 | `PraesidiaTrust.fetch*` | `GET /trust/passport/:agentId[/verify]` | public (no auth) |
 | `PraesidiaTrust.fetchAiSystemPassportPdf` | `GET /trust/passport/ai-systems/:aiSystemId/passport.pdf` | public (no auth) |
@@ -1242,6 +1278,14 @@ sibling checkout in `sdk-python`'s own `contract-drift.yml` — CD-0007 reuses
 this repo's scanner rather than a third, Python-native re-derivation.
 
 ## Changelog
+
+### Unreleased — SDK-0326: Decision Receipts + audit packages (BE-1581, BE-1629)
+
+- **Added** `PraesidiaAudit.getReceipt(rowId)`, `getDecisionReceipt(decisionId)`,
+  `requestPackage(options)`, `getPackage(id)`, `downloadPackage(id)`, and
+  `downloadBundle(query)` (bundle bytes + window headers); `PraesidiaClient.getBytesResponse(path)`.
+- **Added** optional `includeUnrooted` on `exportBundle`. Existing signatures unchanged:
+  additive, minor bump.
 
 ### Unreleased — SDK-0322: approval-gated lifecycle routes (AISYS-0018)
 

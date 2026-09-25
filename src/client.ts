@@ -707,6 +707,16 @@ export class PraesidiaClient {
    * retried per the configured (or default) policy.
    */
   async getBytes(path: string): Promise<Uint8Array> {
+    return (await this.getBytesResponse(path)).bytes;
+  }
+
+  /**
+   * {@link getBytes} plus the response headers, for binary routes whose
+   * headers carry meaning (e.g. the audit bundle's X-Praesidia-* window).
+   */
+  async getBytesResponse(
+    path: string,
+  ): Promise<{ bytes: Uint8Array; headers: Headers }> {
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {
       Accept: "application/octet-stream",
@@ -729,11 +739,12 @@ export class PraesidiaClient {
       throw buildApiError(response.status, path, text);
     }
 
-    return readBoundedResponseBytes(
+    const bytes = await readBoundedResponseBytes(
       response,
       MAX_BINARY_RESPONSE_BYTES,
       path,
       "binary response body",
     );
+    return { bytes, headers: response.headers };
   }
 }

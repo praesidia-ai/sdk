@@ -370,12 +370,13 @@ function resolvePyBodyKeys(argsText, fromIndex, source) {
 const TS_METHOD_ALIASES = {
   del: "delete",
   getBytes: "get",
+  getBytesResponse: "get", // SDK-0326 — audit bundle download + window headers
   getAllPages: "get",
   publicGet: "get",
   publicFetch: "get", // SDK-0308 — trust.ts PDF + badge routes
 };
 const TS_METHOD_PATTERN =
-  /\bthis\.(?:client\.)?(get|post|put|patch|delete|del|getBytes|getAllPages|publicGet|publicFetch)\b/g;
+  /\bthis\.(?:client\.)?(get|post|put|patch|delete|del|getBytesResponse|getBytes|getAllPages|publicGet|publicFetch)\b/g;
 
 /**
  * `this.xBase = \`...\`;` / `const NAME = \`...\`( + \`...\`)*;` /

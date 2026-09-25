@@ -1095,6 +1095,113 @@ export interface ListAuditLogsQuery {
 
 export type AuditLogEntry = Record<string, unknown>;
 
+/** Section of a Decision Receipt that may be unavailable on older rows. */
+interface ReceiptAvailability {
+  available: boolean;
+  reason?: string;
+}
+
+/**
+ * be `DecisionReceiptResponseDto` — the Decision Record for one
+ * `POLICY_DECISION`/`POLICY_VIOLATION` audit row (SDK-0326).
+ */
+export interface DecisionReceipt {
+  rowId: string;
+  decisionId: string;
+  action: string;
+  agent: { id?: string | null; actorType: 'agent' | 'user' | 'system' };
+  identity: { userId?: string | null; teamId?: string | null };
+  delegatedAuthority?: { connectionId?: string | null } | null;
+  arguments: Record<string, unknown> | null;
+  authorizationResult: {
+    decision: 'ALLOW' | 'DENY' | 'STEP_UP' | 'OBSERVED';
+    reasonCode: string;
+    enforcementMode: 'off' | 'observe' | 'enforce';
+    policyId?: string | null;
+    ruleId?: string | null;
+  };
+  policyVersion?: string | null;
+  policyFingerprint?: string | null;
+  humanApproval: ReceiptAvailability & {
+    approvalId?: string | null;
+    status?: string | null;
+    approverId?: string | null;
+  };
+  guardrailResults: ReceiptAvailability & {
+    results?: Array<{
+      guardrailId: string;
+      guardrailName: string;
+      category: string;
+      severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+      action: string;
+      reason: string;
+    }>;
+  };
+  model: ReceiptAvailability & { model?: string | null };
+  tool?: { name?: string | null; interactionType?: string | null } | null;
+  timestamp: string;
+  evidenceHash?: string | null;
+  signature: {
+    algorithm?: string | null;
+    keyVersion?: number | null;
+    signedAt?: string | null;
+    valid: boolean;
+    reason: string;
+    chainOk: boolean;
+  };
+  externalAnchor: {
+    status: 'verified_rekor' | 'verified_s3' | 'unverified' | 'failed';
+    anchoredAt?: string;
+    reason?: string;
+  };
+  aiSystemId?: string | null;
+  assetId?: string | null;
+}
+
+/** be `CreateAuditPackageDto`. Omitted `to` = now; omitted `from` = 90 days before `to`. */
+export interface RequestAuditPackageOptions {
+  from?: string;
+  to?: string;
+  aiSystemId?: string;
+}
+
+export type AuditPackageStatus = 'queued' | 'running' | 'done' | 'failed';
+
+/** be `AuditPackageJobDto` — body of `POST audit/packages` (202) and `GET audit/packages/:id`. */
+export interface AuditPackageJob {
+  id: string;
+  status: AuditPackageStatus;
+  /** Set exactly when `status` is `failed`. */
+  error: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+/** `X-Praesidia-Window-Clamp` on the audit bundle response. */
+export type AuditBundleWindowClamp =
+  | 'none'
+  | 'clamped_to_last_rooted_hour'
+  | 'no_rooted_hour'
+  | 'include_unrooted';
+
+export interface AuditBundleQuery {
+  from: string;
+  to: string;
+  /** Keep rows after the last Merkle-rooted hour; such a bundle fails offline verification until rooted. */
+  includeUnrooted?: boolean;
+}
+
+/** Signed audit bundle bytes plus the window headers (null when the server omits them). */
+export interface AuditBundleDownload {
+  bytes: Uint8Array;
+  /** `X-Praesidia-Requested-To`. */
+  requestedTo: string | null;
+  /** `X-Praesidia-Effective-To` — where the bundle is actually cut. */
+  effectiveTo: string | null;
+  /** `X-Praesidia-Window-Clamp`. */
+  windowClamp: AuditBundleWindowClamp | null;
+}
+
 /** Query params accepted by `PraesidiaAnalytics.usage` / advanced endpoints. */
 export interface AnalyticsWindowQuery {
   /** Rolling window in days (1..365, default 30). */

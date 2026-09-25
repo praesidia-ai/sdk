@@ -41,6 +41,8 @@ export interface MockResponseInit {
   text?: string;
   /** Binary body — readable via `response.arrayBuffer()`. */
   bytes?: Uint8Array;
+  /** Extra response headers (merged over the default content-type). */
+  headers?: Record<string, string>;
 }
 
 /** Statuses that must not carry a body (undici's `Response` throws otherwise). */
@@ -71,7 +73,7 @@ export function mockResponse(init: MockResponseInit = {}): Response {
 
   return new Response(body, {
     status,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...init.headers },
   });
 }
 
