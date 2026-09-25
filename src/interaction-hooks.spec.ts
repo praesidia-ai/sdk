@@ -16,6 +16,7 @@ import {
   PraesidiaApiError,
   PraesidiaConfigError,
 } from './errors.js';
+import { jcsCommitment } from './jcs-canonical.js';
 import { makeFetchMock, mockResponse, type MockResponseInit } from './__tests__/fetch-mock.js';
 
 // Byte-identical copy of be/test-fixtures/interaction-decision-v1.json (BE-1486).
@@ -172,6 +173,58 @@ describe('approval outcomes (fixture)', () => {
   it('rejected: throws approval_rejected', async () => {
     stub([{ json: PENDING }, { json: byName('approval_rejected').response }]);
     await expect(hooks().beforeInteraction('agent_to_email', email.action)).rejects.toMatchObject({ reasonCode: 'approval_rejected' });
+  });
+});
+
+describe('reportOutcome (BE-1582)', () => {
+  const OUTCOME_URL = `${URL_}/outcome`;
+  const RECEIPT = { approvalId: CONSUMED.approvalId, decisionId: '66666666-6666-4666-8666-666666666601' };
+  const email = byName('require_approval_minted').request as { action: { name: string; arguments: Record<string, string> } };
+
+  it('a consumed allow surfaces approvalId, and the report carries a commitment, never the raw result', async () => {
+    const f = stub([{ json: PENDING }, { json: CONSUMED }, { json: RECEIPT }]);
+    const h = hooks();
+    const { decision } = await h.beforeInteraction('agent_to_email', email.action);
+    expect(decision?.reasonCode).toBe('approval_consumed');
+    const approvalId = decision!.approvalId!;
+    expect(approvalId).toBe(CONSUMED.approvalId);
+    const result = { messageId: 'msg_secret_123', to: 'cfo@example.com' };
+    await expect(h.reportOutcome({ approvalId, status: 'succeeded', result, targetSystem: 'smtp', targetTransactionId: 'tx-1' }))
+      .resolves.toEqual(RECEIPT);
+    expect(String(f.mock.calls[2]?.[0])).toBe(OUTCOME_URL);
+    expect(f.mock.calls[2]?.[1]?.method).toBe('POST');
+    const body = sentBody(f, 2);
+    expect(JSON.parse(body)).toEqual({
+      agentId: AGENT,
+      approvalId,
+      status: 'succeeded',
+      resultCommitment: jcsCommitment(result),
+      targetSystem: 'smtp',
+      targetTransactionId: 'tx-1',
+    });
+    expect(body).not.toContain('msg_secret_123');
+    expect(body).not.toContain('"result"');
+  });
+
+  it('no result → no resultCommitment', async () => {
+    const f = stub([{ json: RECEIPT }]);
+    await hooks().reportOutcome({ approvalId: RECEIPT.approvalId, status: 'failed_no_effect' });
+    expect(JSON.parse(sentBody(f, 0))).toEqual({ agentId: AGENT, approvalId: RECEIPT.approvalId, status: 'failed_no_effect' });
+  });
+
+  it('409 → typed PraesidiaApiError, one request only', async () => {
+    const f = stub([{ status: 409, json: { message: 'already reported' } }, { json: RECEIPT }]);
+    const err = await hooks().reportOutcome({ approvalId: RECEIPT.approvalId, status: 'succeeded' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PraesidiaApiError);
+    expect(err).toMatchObject({ status: 409 });
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a bad status or missing approvalId before any request', async () => {
+    const f = stub([{ json: RECEIPT }]);
+    await expect(hooks().reportOutcome({ approvalId: RECEIPT.approvalId, status: 'done' as never })).rejects.toBeInstanceOf(PraesidiaConfigError);
+    await expect(hooks().reportOutcome({ approvalId: '', status: 'succeeded' })).rejects.toBeInstanceOf(PraesidiaConfigError);
+    expect(f).not.toHaveBeenCalled();
   });
 });
 

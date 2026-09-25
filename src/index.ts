@@ -205,8 +205,8 @@ export type { JsonValue } from './jcs-canonical.js';
 
 export { PraesidiaProtectedHttp, verifyProtectedHttpResult, PROTECTED_HTTP_RUNTIMES } from './protected-http.js';
 // SDK-0300 — advisory in-runtime interaction hooks (be BE-1486 decision route)
-export { PraesidiaInteractionHooks, INTERACTION_TYPES, INTERACTION_VERDICTS, DEFAULT_FAIL_MODES } from './interaction-hooks.js';
-export type { InteractionType, InteractionVerdict, InteractionAction, InteractionDecision, InteractionHookResult, InteractionHooksConfig, InteractionHookClass, FailMode, ToolCallRequest, ExecRequest, FsAccessMode, FsAccessRequest, BrowserActionRequest } from './interaction-hooks.js';
+export { PraesidiaInteractionHooks, INTERACTION_TYPES, INTERACTION_VERDICTS, INTERACTION_OUTCOME_STATUSES, DEFAULT_FAIL_MODES } from './interaction-hooks.js';
+export type { InteractionType, InteractionVerdict, InteractionAction, InteractionDecision, InteractionHookResult, InteractionHooksConfig, InteractionHookClass, InteractionOutcomeStatus, InteractionOutcomeReport, InteractionOutcomeReceipt, FailMode, ToolCallRequest, ExecRequest, FsAccessMode, FsAccessRequest, BrowserActionRequest } from './interaction-hooks.js';
 export type { ProtectedHttpRequest, ProtectedHttpCheckpoint, ProtectedHttpResult, RuntimeCheckpoint, TrustedHttpTarget, ProtectedHttpRuntime } from './protected-http.js';
 export { PraesidiaRuntimeTool } from './runtime-tool.js';
 export { FileRuntimeAttemptStore } from './runtime-attempt-store.js';

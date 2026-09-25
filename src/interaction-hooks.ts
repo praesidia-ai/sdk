@@ -87,6 +87,30 @@ export interface InteractionHookResult {
   failOpenError?: unknown;
 }
 
+/** be `InteractionOutcomeStatus` (BE-1582). */
+export const INTERACTION_OUTCOME_STATUSES = ['succeeded', 'failed_no_effect', 'partial', 'unknown'] as const;
+export type InteractionOutcomeStatus = (typeof INTERACTION_OUTCOME_STATUSES)[number];
+
+/**
+ * What the agent saw after running an approved interaction. `result` is
+ * committed locally (sha256 of its JCS form) and never sent.
+ */
+export interface InteractionOutcomeReport {
+  /** `decision.approvalId` of an `allow` with reasonCode `approval_consumed`. */
+  approvalId: string;
+  status: InteractionOutcomeStatus;
+  result?: JsonValue;
+  targetSystem?: string;
+  targetTransactionId?: string;
+}
+
+/** be `InteractionOutcomeResponseDto`. */
+export interface InteractionOutcomeReceipt {
+  approvalId: string;
+  /** Decision Record id of the outcome. */
+  decisionId: string;
+}
+
 export interface InteractionHooksConfig
   extends Pick<GuardConfig, 'apiKey' | 'orgId' | 'agentId' | 'baseUrl' | 'requestTimeoutMs'> {
   /** Per-class override of {@link DEFAULT_FAIL_MODES}. */
@@ -192,6 +216,29 @@ export class PraesidiaInteractionHooks {
       action: wireAction,
       ...(approvalId === undefined ? {} : { approvalId }),
     }));
+  }
+
+  /**
+   * Record the result of an approved interaction, once (BE-1582). Any refusal
+   * (unknown, not consumed, not approved, already reported) is a
+   * `PraesidiaApiError` with status 409; it is not retried.
+   */
+  async reportOutcome(report: InteractionOutcomeReport): Promise<InteractionOutcomeReceipt> {
+    const { approvalId, status, result, targetSystem, targetTransactionId } = report;
+    if (typeof approvalId !== 'string' || approvalId.length === 0) {
+      throw new PraesidiaConfigError('approvalId is required');
+    }
+    if (!(INTERACTION_OUTCOME_STATUSES as readonly string[]).includes(status)) {
+      throw new PraesidiaConfigError(`status must be one of ${INTERACTION_OUTCOME_STATUSES.join(', ')}`);
+    }
+    return this.client.post<InteractionOutcomeReceipt>(`${this.path}/outcome`, {
+      agentId: this.agentId,
+      approvalId,
+      status,
+      ...(result === undefined ? {} : { resultCommitment: jcsCommitment(result) }),
+      ...(targetSystem === undefined ? {} : { targetSystem }),
+      ...(targetTransactionId === undefined ? {} : { targetTransactionId }),
+    });
   }
 
   private async guard(

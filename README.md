@@ -1048,6 +1048,24 @@ echoing `approvalId`, until a human approves (resolves) or rejects / the approva
 `reasonCode: 'approval_wait_timeout'`. `onApprovalRequired(decision)` fires once when the wait
 starts, so you can tell someone which approval to act on.
 
+**Reporting the outcome.** When an `allow` came from a consumed approval
+(`decision.reasonCode === 'approval_consumed'`), report what happened once:
+
+```ts
+const { decision } = await hooks.beforeInteraction('agent_to_email', { name: 'send' });
+const sent = await mailer.send(msg);
+await hooks.reportOutcome({
+  approvalId: decision!.approvalId!,
+  status: 'succeeded', // | 'failed_no_effect' | 'partial' | 'unknown'
+  result: sent,        // hashed locally (sha256 of JCS); only resultCommitment is sent
+  targetSystem: 'smtp',
+  targetTransactionId: sent.messageId,
+}); // → { approvalId, decisionId }
+```
+
+`result` never leaves your process. A second report, or one for an approval that was not
+consumed, is refused with a single `PraesidiaApiError` (status 409); it is not retried.
+
 **Fail mode.** An outage is a network error, a timeout, a 408 / 429 / 5xx, or a malformed
 response. A fail-closed hook then throws `InteractionDecisionUnavailableError`; a fail-open
 hook resolves to `{ decision: null, failOpenError }`. Any other 4xx (bad key, unknown agent,
