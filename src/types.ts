@@ -528,12 +528,24 @@ export interface ListMemoriesQuery {
   tag?: string;
 }
 
-/** H2-06d — GDPR Art-17 crypto-shred of a data subject's memories. */
+/**
+ * H2-06d / BE-1565 — request a two-person GDPR Art-17 erasure of a data
+ * subject's memories. Nothing is destroyed at request time.
+ */
 export interface EraseMemoryInput {
-  /** The data-subject identifier whose memories must be crypto-shredded. */
+  /** The data-subject identifier the memories were written under. */
   subjectId: string;
   /** Reason for erasure (recorded on the erasure certificate). */
   reason: string;
+  /**
+   * Optional server-issued subject HMAC (lowercase 64-char hex, e.g. the
+   * `subjectExternalIdHash` from a prior erasure receipt). Omit it and the
+   * server derives it from `subjectId`; if supplied and it does not match,
+   * the API answers 400 `subject_hash_mismatch`.
+   */
+  expectedSubjectHash?: string;
+  /** Acknowledge that the subject may hold memberships in other organizations. */
+  acknowledgeCrossOrg?: boolean;
 }
 
 /** H2-06c — provenance lineage attached to a retrieved memory. */
@@ -575,12 +587,25 @@ export interface MemoryRecord {
   updatedAt: string;
 }
 
-/** H2-06d — result of a subject-scoped crypto-shred. */
+/**
+ * BE-1565 — the 202 `ApprovalRequest` returned by `POST .../memories/erase`.
+ * A PENDING `DATA_SUBJECT_ERASE` ticket: the crypto-shred and the erasure
+ * certificate happen only when a different system admin confirms it.
+ */
 export interface EraseMemoryResult {
-  subjectExternalIdHash: string;
-  memoriesErased: number;
-  dekDestroyed: boolean;
-  certificateId: string | null;
+  id: string;
+  organizationId: string;
+  requesterId: string;
+  approverId?: string;
+  operationType: 'DATA_SUBJECT_ERASE';
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED';
+  description: string;
+  operationDetails?: Record<string, unknown>;
+  decidedAt?: string;
+  consumedAt?: string;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ── OTLP/HTTP GenAI telemetry emit (H1-02 / H1-02e) ──────────────────────────

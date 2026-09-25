@@ -223,10 +223,20 @@ export class PraesidiaMemory {
   }
 
   /**
-   * GDPR Art-17 crypto-shred a data subject's memories (DEK destroy +
-   * certificate). POST .../memories/erase (MEMORY_ERASE).
+   * Request a GDPR Art-17 erasure of a data subject's memories.
+   * POST .../memories/erase (MEMORY_ERASE) → 202 PENDING `DATA_SUBJECT_ERASE`
+   * approval. Nothing is destroyed here: the DEK crypto-shred and erasure
+   * certificate happen only when a different system admin confirms it.
    */
   async erase(input: EraseMemoryInput): Promise<EraseMemoryResult> {
+    if (
+      input.expectedSubjectHash !== undefined &&
+      !/^[a-f0-9]{64}$/.test(input.expectedSubjectHash)
+    ) {
+      throw new PraesidiaConfigError(
+        'expectedSubjectHash must be lowercase 64-character hex',
+      );
+    }
     return this.client.post<EraseMemoryResult>(
       `${this.memoriesBase}/erase`,
       input,

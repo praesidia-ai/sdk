@@ -228,35 +228,75 @@ describe('PraesidiaMemory', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it('erase POSTs the subject + reason to /memories/erase', async () => {
-    globalThis.fetch = makeFetchMock([
-      {
-        ok: true,
-        body: {
-          subjectExternalIdHash: 'hash-abc',
-          memoriesErased: 3,
-          dekDestroyed: true,
-          certificateId: 'cert-1',
-        },
-      },
-    ]);
+  it('erase requests an approval-gated shred and resolves the 202 ApprovalRequest', async () => {
+    const hash = 'a'.repeat(64);
+    const approval = {
+      id: 'appr-1',
+      organizationId: 'org-uuid-123',
+      requesterId: 'user-1',
+      operationType: 'DATA_SUBJECT_ERASE',
+      status: 'PENDING',
+      description: `Erase data subject (hash ${hash})`,
+      expiresAt: '2026-09-26T00:00:00.000Z',
+      createdAt: '2026-09-25T00:00:00.000Z',
+      updatedAt: '2026-09-25T00:00:00.000Z',
+    };
+    globalThis.fetch = makeFetchMock([{ ok: true, status: 202, body: approval }]);
 
     const memory = new PraesidiaMemory(config);
     const res = await memory.erase({
       subjectId: 'subject-9',
       reason: 'GDPR Art-17 request',
+      expectedSubjectHash: hash,
+      acknowledgeCrossOrg: true,
     });
 
-    expect(res.memoriesErased).toBe(3);
-    expect(res.dekDestroyed).toBe(true);
+    expect(res.operationType).toBe('DATA_SUBJECT_ERASE');
+    expect(res.status).toBe('PENDING');
+    expect(res.id).toBe('appr-1');
     const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
       .calls[0] as [string, RequestInit];
     expect(url).toContain('/organizations/org-uuid-123/memories/erase');
     expect(JSON.parse(init.body as string)).toEqual({
       subjectId: 'subject-9',
       reason: 'GDPR Art-17 request',
+      expectedSubjectHash: hash,
+      acknowledgeCrossOrg: true,
     });
   });
+
+  it('erase omits expectedSubjectHash when unset (server derives it)', async () => {
+    globalThis.fetch = makeFetchMock([
+      { ok: true, status: 202, body: { id: 'appr-2', status: 'PENDING' } },
+    ]);
+
+    await new PraesidiaMemory(config).erase({
+      subjectId: 'subject-9',
+      reason: 'GDPR Art-17 request',
+    });
+
+    const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
+      .calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      subjectId: 'subject-9',
+      reason: 'GDPR Art-17 request',
+    });
+  });
+
+  it.each(['A'.repeat(64), 'a'.repeat(63), 'g'.repeat(64), ''])(
+    'erase rejects malformed expectedSubjectHash %j before any request',
+    async (bad) => {
+      globalThis.fetch = vi.fn();
+      await expect(
+        new PraesidiaMemory(config).erase({
+          subjectId: 'subject-9',
+          reason: 'r',
+          expectedSubjectHash: bad,
+        }),
+      ).rejects.toBeInstanceOf(PraesidiaConfigError);
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    },
+  );
 
   it('get url-encodes the memory id', async () => {
     globalThis.fetch = makeFetchMock([{ ok: true, body: MEMORY }]);

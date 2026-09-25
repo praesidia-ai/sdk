@@ -518,7 +518,9 @@ const hits = await memory.search({ query: 'contact preference', topK: 5 });
 const page = await memory.list({ limit: 20, tag: 'crm' });
 // page.meta.page / page.meta.totalPages / page.meta.hasNextPage (nested, not top-level)
 await memory.get(m.id);
-await memory.erase({ subjectId: 'user-42', reason: 'GDPR Art-17 request' });
+// Requests an Art-17 erasure: returns a PENDING DATA_SUBJECT_ERASE approval (202).
+// Nothing is destroyed until a different system admin confirms it.
+const ticket = await memory.erase({ subjectId: 'user-42', reason: 'GDPR Art-17 request' });
 await memory.delete(m.id);
 ```
 
@@ -527,9 +529,15 @@ await memory.delete(m.id);
 | `create(input)` | `Promise<MemoryRecord>` | `POST .../memories` |
 | `list(query?)` | `Promise<{ data: MemoryRecord[]; total: number; meta: {page,limit,total,totalPages,hasNextPage,hasPrevPage} }>` | `GET .../memories` |
 | `search(input)` | `Promise<MemoryRecord[]>` | `POST .../memories/search` |
-| `erase(input)` | `Promise<EraseMemoryResult>` | `POST .../memories/erase` |
+| `erase(input)` | `Promise<EraseMemoryResult>` (202 `ApprovalRequest`, `status: 'PENDING'`) | `POST .../memories/erase` |
 | `get(id)` | `Promise<MemoryRecord>` | `GET .../memories/:id` |
 | `delete(id)` | `Promise<void>` | `DELETE .../memories/:id` |
+
+`erase()` does not crypto-shred anything by itself. The DEK destroy and the erasure certificate
+happen only at the system-admin confirm step (`POST /admin/organizations/:orgId/data-subjects/erase/confirm/:approvalId`).
+`expectedSubjectHash` is optional: leave it out and the server derives it from `subjectId`. If you
+pass one (lowercase 64-char hex), it must match or the API returns 400 `subject_hash_mismatch`. A
+malformed value throws `PraesidiaConfigError` before any request is sent.
 
 ## Agent CRUD (FINDING-2 parity with the Python SDK)
 
@@ -1146,6 +1154,18 @@ sibling checkout in `sdk-python`'s own `contract-drift.yml` — CD-0007 reuses
 this repo's scanner rather than a third, Python-native re-derivation.
 
 ## Changelog
+
+### Unreleased — SDK-0320: `memory.erase()` returns the 202 approval request (BE-1565)
+
+- **Changed** `PraesidiaMemory.erase()` now resolves to the 202 `ApprovalRequest` the API has
+  returned since the erase became approval-gated: `{ id, status: 'PENDING', operationType:
+  'DATA_SUBJECT_ERASE', description, expiresAt, ... }`. **Breaking at the type level:**
+  `EraseMemoryResult` no longer has `subjectExternalIdHash`, `memoriesErased`, `dekDestroyed` or
+  `certificateId`. At runtime those fields were already `undefined`, because nothing is destroyed until a
+  system admin confirms the request (semver major).
+- **Added** `EraseMemoryInput.expectedSubjectHash?` (optional; the server derives it when omitted,
+  and a mismatch returns 400 `subject_hash_mismatch`) and `acknowledgeCrossOrg?`. A malformed hash throws
+  `PraesidiaConfigError` before any request is sent.
 
 ### Unreleased — SDK-0317: asset create/put accept only client sources (BE-1529)
 
