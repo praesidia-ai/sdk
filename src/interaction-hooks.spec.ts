@@ -178,7 +178,7 @@ describe('approval outcomes (fixture)', () => {
 
 describe('reportOutcome (BE-1582)', () => {
   const OUTCOME_URL = `${URL_}/outcome`;
-  const RECEIPT = { approvalId: CONSUMED.approvalId, decisionId: '66666666-6666-4666-8666-666666666601' };
+  const RECEIPT = { approvalId: CONSUMED.approvalId as string, decisionId: '66666666-6666-4666-8666-666666666601' };
   const email = byName('require_approval_minted').request as { action: { name: string; arguments: Record<string, string> } };
 
   it('a consumed allow surfaces approvalId, and the report carries a commitment, never the raw result', async () => {
