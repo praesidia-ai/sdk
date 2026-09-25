@@ -91,9 +91,9 @@ describe('signed bundle export', () => {
     {from:'2026-01-01',to:'2026-04-02'},
     {from:'2026-01-01T00:00:00Z',to:'2026-04-01T00:00:00.001Z'},
     {from:'2026-02-30',to:'2026-03-02'},
-  ])('rejects invalid bundle window %j', query => {
+  ])('rejects invalid bundle window %j', async query => {
     globalThis.fetch = makeFetchMock([]);
-    expect(() => new PraesidiaAudit(config).exportBundle(query)).toThrow(PraesidiaConfigError);
+    await expect(new PraesidiaAudit(config).exportBundle(query)).rejects.toBeInstanceOf(PraesidiaConfigError);
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 

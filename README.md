@@ -98,7 +98,9 @@ integer range; signature fields and redacted `null` payloads remain unchanged.
 `exportBundle` downloads the signed ZIP, while `audit.export()` remains the
 ordinary JSON/CSV log export. Bundle windows must be greater than zero and at
 most 90 days. Dates use `YYYY-MM-DD` (UTC) or an ISO timestamp with an explicit
-timezone and up to three fractional-second digits. Downloads retain the
+timezone and up to three fractional-second digits. An invalid window makes
+`exportBundle`/`downloadBundle` return a promise rejected with
+`PraesidiaConfigError` before any request is sent. Downloads retain the
 transport's 128 MiB cap and finite timeout; oversized exports raise an error.
 
 Retrieval **does not verify** a projection, event stream, or bundle. A
