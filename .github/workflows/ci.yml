@@ -46,6 +46,17 @@ jobs:
       - name: Verify publish artifact
         run: npm pack --dry-run
 
+      # Installs the real tarball into a temp project outside the checkout and
+      # runs examples/refund-authorization/selfcheck.mjs against it (Node >= 20.6 only,
+      # per the example's engines; the script skips that part on Node 18).
+      - name: Select Node 22 for packed-install smoke
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '22'
+
+      - name: Packed-install smoke on Node 22
+        run: npm run smoke:packed
+
       - name: Select declared minimum runtime
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -53,6 +64,9 @@ jobs:
 
       - name: Smoke compiled package on Node 18
         run: node -e "import('./dist/index.js').then(m => console.log('Node 18 OK —', Object.keys(m).length, 'exports'))"
+
+      - name: Packed-install smoke on Node 18
+        run: npm run smoke:packed
 
   image:
     name: Reproducible image smoke
