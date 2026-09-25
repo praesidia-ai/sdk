@@ -13,6 +13,11 @@ export const EXIT = Object.freeze({ OK: 0, FAILED: 1, CONFIG: 2, DENIED: 3 });
 const AMOUNT_EUR = 8250;
 const REQUIRED = ['PRAESIDIA_API_KEY', 'PRAESIDIA_ORG_ID', 'PRAESIDIA_AGENT_ID', 'STRIPE_SECRET_KEY', 'STRIPE_CHARGE_ID'];
 const PACKAGE_WAIT_MS = 300_000;
+const HOUR_MS = 3_600_000;
+// be roots each complete hour at :00 (merkle-root.service.ts, EVERY_HOUR); 80 min bounds the wait.
+const WAIT_ROOTED_MS = 80 * 60_000;
+const ROOT_POLL_MS = 2 * 60_000;
+const KNOWN_CLAMPS = ['none', 'clamped_to_last_rooted_hour', 'no_rooted_hour'];
 
 /** `{ config }`, or `{ error }` when the run must be refused before any call. */
 export function parseEnv(env) {
@@ -35,6 +40,8 @@ export function parseEnv(env) {
       stripeKey: env.STRIPE_SECRET_KEY,
       charge: env.STRIPE_CHARGE_ID,
       packageFile: env.AUDIT_PACKAGE_FILE || './audit-package.zip',
+      platformKeyFile: env.PRAESIDIA_PLATFORM_KEY_FILE || '',
+      platformKeyFingerprint: env.PRAESIDIA_PLATFORM_KEY_FINGERPRINT || '',
     },
   };
 }
@@ -85,8 +92,62 @@ async function refundAtStripe(fetch, c, approvalId) {
   }
 }
 
+/**
+ * The evidence window be wrote into the package's verification.txt (the package job
+ * response carries none): `{ to, requestedTo, clampReason }`, or null. Walks the STORED
+ * local headers be's ZipStreamWriter writes.
+ */
+export function readPackageWindow(zip) {
+  const buf = Buffer.from(zip);
+  for (let at = 0; at + 30 <= buf.length && buf.readUInt32LE(at) === 0x04034b50;) {
+    const size = buf.readUInt32LE(at + 18);
+    const nameEnd = at + 30 + buf.readUInt16LE(at + 26);
+    const dataAt = nameEnd + buf.readUInt16LE(at + 28);
+    if (buf.toString('utf8', at + 30, nameEnd) === 'verification.txt') {
+      const text = buf.toString('utf8', dataAt, dataAt + size);
+      const field = (label) => text.match(new RegExp(`^${label}: (.+)$`, 'm'))?.[1].trim();
+      const to = field('Evidence range')?.split(' .. ')[1];
+      return to ? { to, requestedTo: field('Requested range end'), clampReason: field('Range end clamp') } : null;
+    }
+    if (size === 0xffffffff) return null; // ZIP64 entry: not walked
+    at = dataAt + size;
+  }
+  return null;
+}
+
+/** Only a known clamp reason whose rooted end is after the refund counts as covered. */
+function reportCoverage(window, refundedAt, log) {
+  const at = new Date(refundedAt).toISOString();
+  const known = KNOWN_CLAMPS.includes(window?.clampReason);
+  if (known && Date.parse(window.to) > refundedAt) {
+    log(`refund covered: the package's evidence ends at ${window.to} (clamp ${window.clampReason}), after the refund at ${at}`);
+    return;
+  }
+  const hourEnd = new Date(Math.floor(refundedAt / HOUR_MS) * HOUR_MS + HOUR_MS).toISOString();
+  const seen = !window ? 'range could not be read from its verification.txt'
+    : `ends at ${window.to} (clamp ${window.clampReason}${known ? '' : `: unknown clamp reason ${window.clampReason}`})`;
+  log(`refund not yet covered: the package's evidence ${seen}; the refund was at ${at}. ` +
+    `Its rows are covered once the hour ending ${hourEnd} is Merkle-rooted (hourly, just after that hour closes). ` +
+    'Request a new audit package after then, or pass --wait-rooted next time');
+}
+
+/** --wait-rooted: probe the refund's hour as a bundle until be's rooted end reaches it. */
+async function waitRooted(audit, refundedAt, log, sleep) {
+  const end = Math.floor(refundedAt / HOUR_MS) * HOUR_MS + HOUR_MS;
+  const range = { from: new Date(end - HOUR_MS).toISOString(), to: new Date(end).toISOString(), includeUnrooted: false };
+  log(`--wait-rooted: waiting for the hour ending ${range.to} to be Merkle-rooted (at most ${WAIT_ROOTED_MS / 60_000} min)`);
+  for (let i = 0; i <= WAIT_ROOTED_MS / ROOT_POLL_MS; i++) {
+    if (i > 0) await sleep(ROOT_POLL_MS);
+    const { effectiveTo } = await audit.downloadBundle(range);
+    if (!effectiveTo) return log('--wait-rooted: this server does not report the rooted window; not waiting');
+    if (Date.parse(effectiveTo) >= end) return log(`--wait-rooted: rooted through ${effectiveTo}`);
+  }
+  log(`--wait-rooted: not rooted after ${WAIT_ROOTED_MS / 60_000} min; requesting the package anyway`);
+}
+
 export async function run({
   env = process.env,
+  argv = process.argv.slice(2),
   sdk,
   fetch = globalThis.fetch,
   log = console.log,
@@ -137,10 +198,12 @@ export async function run({
     return EXIT.FAILED;
   }
   log(`refunded: ${refund.id}`);
+  const refundedAt = Date.now(); // after reportOutcome: the refund's decision + outcome rows exist
 
   // Step 6: evidence.
   const audit = new sdk.PraesidiaAudit(praesidia);
   log(`receipt: ${JSON.stringify(await audit.getDecisionReceipt(decision.decisionId), null, 2)}`);
+  if (argv.includes('--wait-rooted')) await waitRooted(audit, refundedAt, log, sleep);
   const deadline = Date.now() + PACKAGE_WAIT_MS;
   let job = await audit.requestPackage({ from: new Date(Date.now() - 86_400_000).toISOString() });
   while (job.status === 'queued' || job.status === 'running') {
@@ -155,8 +218,17 @@ export async function run({
     log(`audit package ${job.id} failed: ${job.error}`);
     return EXIT.FAILED;
   }
-  await writeFile(c.packageFile, await audit.downloadPackage(job.id));
-  log(`audit package: ${c.packageFile}\nverify offline: npx @praesidia/audit-verifier ${c.packageFile} --summary`);
+  const zip = await audit.downloadPackage(job.id);
+  await writeFile(c.packageFile, zip);
+  log(`audit package: ${c.packageFile}`);
+  reportCoverage(readPackageWindow(zip), refundedAt, log);
+  // The verifier embeds no platform key yet (VERIFIER-RELEASE.md section 6); without one a real package fails `signature`.
+  log(`verify offline: npx @praesidia/audit-verifier ${c.packageFile} --platform-key ${c.platformKeyFile || '<platform-key.pem>'} ` +
+    `--platform-key-fingerprint ${c.platformKeyFingerprint || '<sha256hex>'} --summary`);
+  if (!c.platformKeyFile || !c.platformKeyFingerprint) {
+    log('platform key: get the Praesidia platform public key (PEM) and its SHA-256 fingerprint from Praesidia over a channel ' +
+      'independent of this package (none is published yet), then set PRAESIDIA_PLATFORM_KEY_FILE and PRAESIDIA_PLATFORM_KEY_FINGERPRINT');
+  }
   return EXIT.OK;
 }
 

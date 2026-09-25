@@ -15,7 +15,8 @@ workspace link or a checkout. `refund.mjs` does the following:
 5. Reports the result with `reportOutcome({ approvalId, status, result, targetSystem: 'stripe', targetTransactionId })`.
    Only a sha256 commitment of the Stripe response is sent.
 6. Prints `getDecisionReceipt(decisionId)`, requests the audit package, downloads it to
-   `./audit-package.zip` and prints the offline verify command.
+   `./audit-package.zip`, says whether the package covers the refund, and prints the
+   offline verify command.
 
 The script does not use mocks. It refuses to run (exit 2) unless `STRIPE_SECRET_KEY` is an `sk_test_` key.
 
@@ -62,6 +63,8 @@ Copy `.env.example` to `.env` and fill in each variable. Never commit `.env`.
 | `STRIPE_SECRET_KEY` | Stripe **test-mode** secret key, `sk_test_...` | Stripe Dashboard -> Developers -> API keys, with test mode on |
 | `STRIPE_CHARGE_ID` | A test charge (`ch_...`) or payment intent (`pi_...`) of exactly EUR 8,250 (a larger one could take a second, separately approved refund) | Create one in test mode, e.g. a PaymentIntent for `825000` `eur` confirmed with `pm_card_visa` |
 | `AUDIT_PACKAGE_FILE` | Optional; default `./audit-package.zip` | |
+| `PRAESIDIA_PLATFORM_KEY_FILE` | Optional. The Praesidia platform public key (PEM), filled into the printed verify command | From Praesidia, over a channel independent of the package (see below) |
+| `PRAESIDIA_PLATFORM_KEY_FINGERPRINT` | Optional. The SHA-256 of that key's SPKI DER (64 hex characters) | Same channel as the key, never from the package itself |
 
 **Step 1 and the key's scopes.** Step 1 calls three asset-graph routes:
 `PUT .../ai-assets/by-external-id/:externalId` (twice) and
@@ -118,11 +121,38 @@ npm start            # node --env-file=.env refund.mjs
 
 Approve the printed approval id in the app under Monitor -> Governance -> Approvals
 (`/monitor/governance/approvals`). The script then refunds, records the outcome,
-prints the Decision Receipt and writes `./audit-package.zip`. Verify the package offline:
+prints the Decision Receipt and writes `./audit-package.zip`.
+
+**Does the package cover the refund?** Praesidia cuts every audit package at the end of
+the last Merkle-rooted hour, so each row in it carries an inclusion proof. Hours are rooted
+once they close, on the hour. A package requested seconds after the refund therefore ends
+before the refund's own decision and outcome rows. The script reads the cut from the
+package's `verification.txt` (`Evidence range`, `Range end clamp`) and prints one of:
+
+```text
+refund covered: the package's evidence ends at <to> (clamp <reason>), after the refund at <refundedAt>
+refund not yet covered: the package's evidence ends at <to> (clamp <reason>); the refund was at <refundedAt>. Its rows are covered once the hour ending <hourEnd> is Merkle-rooted (hourly, just after that hour closes). Request a new audit package after then, or pass --wait-rooted next time
+```
+
+A clamp reason the script does not know is reported as not yet covered. To wait for the
+root before the package is requested, run `npm start -- --wait-rooted`. The script then
+checks the refund's hour every 2 minutes, for at most 80 minutes, through the signed-bundle
+route (`GET .../audit/bundle`, its `X-Praesidia-Effective-To` header). It never creates a root.
+If the hour is still not rooted, it requests the package anyway and says so.
+
+Verify the package offline:
 
 ```bash
-npx @praesidia/audit-verifier ./audit-package.zip --summary
+npx @praesidia/audit-verifier ./audit-package.zip --platform-key <platform-key.pem> \
+  --platform-key-fingerprint <sha256hex> --summary
 ```
+
+The verifier does not embed a Praesidia platform key yet. Without `--platform-key`, a real
+package prints `FAIL signature` and exits 1. Get the key and its fingerprint from Praesidia
+over a channel independent of the package: no public channel is published yet. Set
+`PRAESIDIA_PLATFORM_KEY_FILE` and `PRAESIDIA_PLATFORM_KEY_FINGERPRINT` and the script prints
+the command filled in. The verifier's sample key is not a Praesidia key. Never use it for a
+real package.
 
 Running it again with the same charge asks for a new approval. After that approval,
 Stripe refuses a second full refund of the same charge. The outcome is recorded as

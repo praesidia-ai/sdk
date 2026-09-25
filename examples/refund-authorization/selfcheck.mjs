@@ -24,11 +24,26 @@ export const VALID_ENV = Object.freeze({
   STRIPE_CHARGE_ID: 'ch_placeholder',
 });
 
+/** A STORED zip as be's ZipStreamWriter writes it (local headers are all refund.mjs reads). */
+export function storedZip(entries) {
+  return Buffer.concat(Object.entries(entries).flatMap(([name, text]) => {
+    const [n, d, h] = [Buffer.from(name), Buffer.from(text), Buffer.alloc(30)];
+    h.writeUInt32LE(0x04034b50, 0);
+    h.writeUInt32LE(d.length, 18);
+    h.writeUInt32LE(d.length, 22);
+    h.writeUInt16LE(n.length, 26);
+    return [h, n, d];
+  }));
+}
+
 /**
  * Answers each decision POST with the next verdict in `verdicts`; records every call.
  * `graphStatus` 403 is a key without `ai-systems:write` on the by-external-id routes.
+ * `pkg.to` / `pkg.clampReason` go into the package's verification.txt; `pkg.effectiveTo`
+ * answers the bundle probes' X-Praesidia-Effective-To in turn (the last one repeats).
  */
-export function fakeFetch(verdicts, stripeStatus = 200, graphStatus = 403) {
+export function fakeFetch(verdicts, stripeStatus = 200, graphStatus = 403, pkg = {}) {
+  const { to = '2026-01-01T00:00:00.000Z', clampReason = 'clamped_to_last_rooted_hour', effectiveTo = [] } = pkg;
   const calls = [];
   const json = (body, status = 200) =>
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -57,7 +72,14 @@ export function fakeFetch(verdicts, stripeStatus = 200, graphStatus = 403) {
     }
     if (pathname.endsWith('/interaction-decisions/outcome')) return json({ approvalId: ID(3), decisionId: ID(5) });
     if (pathname.endsWith('/receipt')) return json({ decisionId: ID(4) });
-    if (pathname.endsWith('/download')) return new Response(new Uint8Array([80, 75, 5, 6]), { status: 200 });
+    if (pathname.endsWith('/download')) {
+      const receipt = `Evidence range: 2025-12-31T00:00:00.000Z .. ${to}\nRequested range end: ${new Date().toISOString()}\nRange end clamp: ${clampReason}\n`;
+      return new Response(storedZip({ 'evidence/audit-bundle.zip': 'PK inner bundle', 'verification.txt': receipt }), { status: 200 });
+    }
+    if (pathname.endsWith('/audit/bundle')) {
+      const eff = effectiveTo.length > 1 ? effectiveTo.shift() : effectiveTo[0];
+      return new Response(new Uint8Array([80, 75, 5, 6]), { status: 200, headers: eff ? { 'X-Praesidia-Effective-To': eff } : {} });
+    }
     if (pathname.includes('/audit/packages')) return json({ id: ID(6), status: 'done', error: null, createdAt: '', completedAt: '' });
     return json({ statusCode: 404 }, 404);
   };
@@ -69,7 +91,7 @@ export async function runWith(sdk, fake, env, extra = {}) {
   const real = globalThis.fetch;
   globalThis.fetch = fake.fetch;
   try {
-    return await run({ env, sdk, log: () => {}, ...extra });
+    return await run({ env, sdk, argv: [], log: () => {}, ...extra });
   } finally {
     globalThis.fetch = real;
   }
@@ -106,7 +128,10 @@ export async function selfcheck(sdk) {
   try {
     const approved = fakeFetch(['require_approval', 'allow']);
     const env = { ...VALID_ENV, AUDIT_PACKAGE_FILE: join(dir, 'audit-package.zip') };
-    assert.equal(await runWith(sdk, approved, env, { approvalPollIntervalMs: 1, sleep: async () => {} }), EXIT.OK);
+    const lines = [];
+    assert.equal(await runWith(sdk, approved, env, { approvalPollIntervalMs: 1, sleep: async () => {}, log: (l) => lines.push(l) }), EXIT.OK);
+    assert.ok(lines.some((l) => l.startsWith('refund not yet covered: ')), 'a package cut before the refund says so');
+    assert.ok(lines.some((l) => l.startsWith('verify offline: ') && l.includes(' --platform-key ')), 'verify command pins a platform key');
     const [refund, ...more] = stripeCalls(approved.calls);
     assert.equal(more.length, 0, 'exactly one Stripe call');
     assert.equal(refund.headers.get('idempotency-key'), ID(3), 'Idempotency-Key is the approval id');

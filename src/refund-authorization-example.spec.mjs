@@ -1,6 +1,9 @@
 // SDK-0328 — examples/refund-authorization against this checkout's src (the
 // example's own selfcheck.mjs runs the same checks against the installed tarball).
-import { describe, expect, it } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as sdk from './index.ts';
 import { EXIT } from '../examples/refund-authorization/refund.mjs';
 import { VALID_ENV, fakeFetch, runWith, selfcheck } from '../examples/refund-authorization/selfcheck.mjs';
@@ -52,6 +55,78 @@ describe('examples/refund-authorization', () => {
     expect(hint).toContain('ai-systems:write');
     expect(hint).not.toMatch(/org api keys/i);
     expect(fake.calls.some((c) => c.url.endsWith('/interaction-decisions'))).toBe(true);
+  });
+
+  // SDK-0341 — the package's verification.txt says where the rooted evidence ends (be
+  // audit-package.service.ts buildVerificationTxt); the job response carries no window.
+  describe('audit package coverage and verify command', () => {
+    let dir;
+    beforeAll(async () => { dir = await mkdtemp(join(tmpdir(), 'refund-spec-')); });
+    afterAll(() => rm(dir, { recursive: true, force: true }));
+    const approvedRun = async (pkg, extra = {}, env = {}) => {
+      const fake = fakeFetch(['allow'], 200, 403, pkg);
+      const lines = [];
+      const code = await runWith(sdk, fake, { ...VALID_ENV, AUDIT_PACKAGE_FILE: join(dir, 'p.zip'), ...env },
+        { log: (l) => lines.push(l), sleep: async () => {}, ...extra });
+      return { code, lines, fake, verify: lines.find((l) => l.startsWith('verify offline: ')) };
+    };
+    const PAST = '2026-01-01T00:00:00.000Z';
+    const FUTURE = '2999-01-01T00:00:00.000Z';
+    const bundles = (calls) => calls.filter((c) => new URL(c.url).pathname.endsWith('/audit/bundle'));
+
+    it('says the refund is not yet covered when the clamp ends before it', async () => {
+      const { code, lines } = await approvedRun({ to: PAST, clampReason: 'clamped_to_last_rooted_hour' });
+      expect(code).toBe(EXIT.OK);
+      const line = lines.find((l) => l.startsWith('refund not yet covered: '));
+      expect(line).toContain(`ends at ${PAST} (clamp clamped_to_last_rooted_hour)`);
+      expect(line).toMatch(/once the hour ending \d{4}-\d\d-\d\dT\d\d:00:00\.000Z is Merkle-rooted/);
+      expect(lines.some((l) => l.startsWith('refund covered: '))).toBe(false);
+    });
+
+    it('says the refund is covered when the rooted window ends after it', async () => {
+      const { lines } = await approvedRun({ to: FUTURE, clampReason: 'none' });
+      expect(lines.find((l) => l.startsWith('refund covered: '))).toContain(`ends at ${FUTURE} (clamp none)`);
+      expect(lines.some((l) => l.startsWith('refund not yet covered: '))).toBe(false);
+    });
+
+    it('treats an unknown clamp reason as not yet covered', async () => {
+      const { lines } = await approvedRun({ to: FUTURE, clampReason: 'clamped_to_unrooted_gap' });
+      expect(lines.find((l) => l.startsWith('refund not yet covered: '))).toContain('unknown clamp reason clamped_to_unrooted_gap');
+    });
+
+    it('prints the verify command with the platform key flags, placeholders unless configured', async () => {
+      const { verify, lines } = await approvedRun();
+      expect(verify).toBe(`verify offline: npx @praesidia/audit-verifier ${join(dir, 'p.zip')} --platform-key <platform-key.pem> --platform-key-fingerprint <sha256hex> --summary`);
+      expect(lines.some((l) => l.startsWith('platform key: '))).toBe(true);
+      const set = await approvedRun({}, {}, { PRAESIDIA_PLATFORM_KEY_FILE: './k.pem', PRAESIDIA_PLATFORM_KEY_FINGERPRINT: 'ab'.repeat(32) });
+      expect(set.verify).toContain(`--platform-key ./k.pem --platform-key-fingerprint ${'ab'.repeat(32)} --summary`);
+      expect(set.lines.some((l) => l.startsWith('platform key: '))).toBe(false);
+    });
+
+    it('--wait-rooted polls the refund hour until it is rooted, then requests the package', async () => {
+      const { lines, fake } = await approvedRun({ to: FUTURE, clampReason: 'none', effectiveTo: [PAST, PAST, FUTURE] }, { argv: ['--wait-rooted'] });
+      const probes = bundles(fake.calls);
+      expect(probes).toHaveLength(3);
+      const q = new URL(probes[0].url).searchParams;
+      expect(Date.parse(q.get('to')) - Date.parse(q.get('from'))).toBe(3_600_000);
+      expect(Date.parse(q.get('to')) % 3_600_000).toBe(0);
+      expect(fake.calls.findIndex((c) => c.method === 'POST' && c.url.endsWith('/audit/packages')))
+        .toBeGreaterThan(fake.calls.indexOf(probes[2]));
+      expect(lines).toContain(`--wait-rooted: rooted through ${FUTURE}`);
+    });
+
+    it('--wait-rooted gives up after a bounded number of polls', async () => {
+      const { code, lines, fake } = await approvedRun({ effectiveTo: [PAST] }, { argv: ['--wait-rooted'] });
+      expect(code).toBe(EXIT.OK);
+      expect(bundles(fake.calls)).toHaveLength(41);
+      expect(lines).toContain('--wait-rooted: not rooted after 80 min; requesting the package anyway');
+      expect(lines.some((l) => l.startsWith('refund not yet covered: '))).toBe(true);
+    });
+
+    it('does not probe bundles without --wait-rooted', async () => {
+      const { fake } = await approvedRun();
+      expect(bundles(fake.calls)).toHaveLength(0);
+    });
   });
 
   it('passes the full offline selfcheck (approval id is the Stripe Idempotency-Key)', async () => {
