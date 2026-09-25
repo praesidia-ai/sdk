@@ -1181,6 +1181,7 @@ export interface AuditPackageJob {
 export type AuditBundleWindowClamp =
   | 'none'
   | 'clamped_to_last_rooted_hour'
+  | 'clamped_to_unrooted_gap'
   | 'no_rooted_hour'
   | 'include_unrooted';
 

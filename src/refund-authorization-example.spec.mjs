@@ -106,8 +106,15 @@ describe('examples/refund-authorization', () => {
     });
 
     it('treats an unknown clamp reason as not yet covered', async () => {
-      const { lines } = await approvedRun({ to: FUTURE, clampReason: 'clamped_to_unrooted_gap' });
-      expect(lines.find((l) => l.startsWith('refund not yet covered: '))).toContain('unknown clamp reason clamped_to_unrooted_gap');
+      const { lines } = await approvedRun({ to: FUTURE, clampReason: 'include_unrooted' });
+      expect(lines.find((l) => l.startsWith('refund not yet covered: '))).toContain('unknown clamp reason include_unrooted');
+    });
+
+    it('knows clamped_to_unrooted_gap (BE-1638): covered after the refund, plainly not yet covered before it', async () => {
+      const after = await approvedRun({ to: FUTURE, clampReason: 'clamped_to_unrooted_gap' });
+      expect(after.lines.find((l) => l.startsWith('refund covered: '))).toContain(`ends at ${FUTURE} (clamp clamped_to_unrooted_gap)`);
+      const before = await approvedRun({ to: PAST, clampReason: 'clamped_to_unrooted_gap' });
+      expect(before.lines.find((l) => l.startsWith('refund not yet covered: '))).toContain(`ends at ${PAST} (clamp clamped_to_unrooted_gap);`);
     });
 
     it('prints the verify command with the platform key flags, placeholders unless configured', async () => {
@@ -117,6 +124,10 @@ describe('examples/refund-authorization', () => {
       const set = await approvedRun({}, {}, { PRAESIDIA_PLATFORM_KEY_FILE: './k.pem', PRAESIDIA_PLATFORM_KEY_FINGERPRINT: 'ab'.repeat(32) });
       expect(set.verify).toContain(`--platform-key ./k.pem --platform-key-fingerprint ${'ab'.repeat(32)} --summary`);
       expect(set.lines.some((l) => l.startsWith('platform key: '))).toBe(false);
+      for (const only of [{ PRAESIDIA_PLATFORM_KEY_FILE: './k.pem' }, { PRAESIDIA_PLATFORM_KEY_FINGERPRINT: 'ab'.repeat(32) }]) {
+        const half = await approvedRun({}, {}, only);
+        expect(half.lines.some((l) => l.startsWith('platform key: '))).toBe(true);
+      }
     });
 
     it('--wait-rooted polls the refund hour until it is rooted, then requests the package', async () => {

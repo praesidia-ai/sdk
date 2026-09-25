@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { PraesidiaAudit } from './audit.js';
 import { PraesidiaApiError, PraesidiaConfigError } from './errors.js';
 import { makeFetchMock } from './__tests__/fetch-mock.js';
+import type { AuditBundleWindowClamp } from './types.js';
 
 const ID = '3f1c2b4a-5d6e-4f70-8a9b-0c1d2e3f4a5b';
 const BASE = 'https://api.test/organizations/org-1/audit';
@@ -139,6 +140,15 @@ describe('PraesidiaAudit receipts + audit packages (SDK-0326)', () => {
     expect(call()[0]).toBe(
       `${BASE}/bundle?from=2026-09-24T00%3A00%3A00Z&to=2026-09-25T10%3A30%3A00Z&includeUnrooted=false`,
     );
+  });
+
+  it('downloadBundle() passes clamped_to_unrooted_gap (BE-1638) through as a typed clamp', async () => {
+    globalThis.fetch = makeFetchMock([
+      { bytes: new Uint8Array([1]), headers: { 'X-Praesidia-Window-Clamp': 'clamped_to_unrooted_gap' } },
+    ]);
+    const expected: AuditBundleWindowClamp = 'clamped_to_unrooted_gap'; // typecheck:spec fails if the union drops it
+    const out = await audit().downloadBundle({ from: '2026-09-24', to: '2026-09-25' });
+    expect(out.windowClamp).toBe(expected);
   });
 
   it('downloadBundle() reports null window fields when an older server omits the headers', async () => {

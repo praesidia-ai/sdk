@@ -17,7 +17,7 @@ const HOUR_MS = 3_600_000;
 // be roots each complete hour at :00 (merkle-root.service.ts, EVERY_HOUR); 80 min bounds the wait.
 const WAIT_ROOTED_MS = 80 * 60_000;
 const ROOT_POLL_MS = 2 * 60_000;
-const KNOWN_CLAMPS = ['none', 'clamped_to_last_rooted_hour', 'no_rooted_hour'];
+const KNOWN_CLAMPS = ['none', 'clamped_to_last_rooted_hour', 'clamped_to_unrooted_gap', 'no_rooted_hour'];
 
 /** `{ config }`, or `{ error }` when the run must be refused before any call. */
 export function parseEnv(env) {
