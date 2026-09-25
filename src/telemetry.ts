@@ -106,6 +106,7 @@ export class PraesidiaTelemetry {
       apiKey,
       config.requestTimeoutMs,
       config.retry,
+      config.allowInsecureHttp,
     );
   }
 

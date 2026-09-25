@@ -70,9 +70,10 @@ export class PraesidiaTrust {
   private readonly baseUrl: string;
   private readonly requestTimeoutMs: number;
 
-  constructor(config: Pick<GuardConfig, 'baseUrl' | 'requestTimeoutMs'> = {}) {
+  constructor(config: Pick<GuardConfig, 'baseUrl' | 'requestTimeoutMs' | 'allowInsecureHttp'> = {}) {
     this.baseUrl = normalizeBaseUrl(
       config.baseUrl ?? process.env['PRAESIDIA_BASE_URL'] ?? DEFAULT_BASE_URL,
+      config.allowInsecureHttp,
     );
     this.requestTimeoutMs = resolveRequestTimeoutMs(config.requestTimeoutMs);
   }

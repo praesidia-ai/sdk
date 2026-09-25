@@ -56,6 +56,7 @@ export class PraesidiaAgents {
       apiKey,
       config.requestTimeoutMs,
       config.retry,
+      config.allowInsecureHttp,
     );
     this.agentsBase = `/organizations/${encodePathSegment(orgId, 'orgId')}/agents`;
   }

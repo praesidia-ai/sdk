@@ -60,6 +60,7 @@ export class PraesidiaWorkflows {
       apiKey,
       config.requestTimeoutMs,
       config.retry,
+      config.allowInsecureHttp,
     );
     this.workflowsBase = `/organizations/${encodePathSegment(orgId, 'orgId')}/workflows`;
   }

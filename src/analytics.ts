@@ -74,6 +74,7 @@ export class PraesidiaAnalytics {
       apiKey,
       config.requestTimeoutMs,
       config.retry,
+      config.allowInsecureHttp,
     );
     this.analyticsBase = `/organizations/${encodePathSegment(orgId, 'orgId')}/analytics`;
   }

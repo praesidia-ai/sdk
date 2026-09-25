@@ -185,6 +185,7 @@ export class PraesidiaGuard {
         this.#apiKey,
         config.requestTimeoutMs,
         config.retry,
+        config.allowInsecureHttp,
       );
     }
   }

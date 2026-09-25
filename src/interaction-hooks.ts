@@ -112,7 +112,7 @@ export interface InteractionOutcomeReceipt {
 }
 
 export interface InteractionHooksConfig
-  extends Pick<GuardConfig, 'apiKey' | 'orgId' | 'agentId' | 'baseUrl' | 'requestTimeoutMs'> {
+  extends Pick<GuardConfig, 'apiKey' | 'orgId' | 'agentId' | 'baseUrl' | 'requestTimeoutMs' | 'allowInsecureHttp'> {
   /** Per-class override of {@link DEFAULT_FAIL_MODES}. */
   failMode?: Partial<Record<InteractionHookClass, FailMode>>;
   /** Re-ask interval while a verdict is `require_approval` (default 2000 ms). */
@@ -165,6 +165,7 @@ export class PraesidiaInteractionHooks {
       apiKey,
       config.requestTimeoutMs,
       false,
+      config.allowInsecureHttp,
     );
     this.path = `/organizations/${encodePathSegment(orgId, 'orgId')}/interaction-decisions`;
   }

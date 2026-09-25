@@ -52,6 +52,7 @@ export class PraesidiaAudit {
       apiKey,
       config.requestTimeoutMs,
       config.retry,
+      config.allowInsecureHttp,
     );
     this.auditBase = `/organizations/${encodePathSegment(orgId, 'orgId')}/audit-logs`;
     this.bundlePath = `/organizations/${encodePathSegment(orgId, 'orgId')}/audit/bundle`;

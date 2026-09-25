@@ -170,7 +170,19 @@ export function resolveRequestTimeoutMs(value?: number): number {
   return resolved;
 }
 
-export function normalizeBaseUrl(value: string): string {
+/** SDK-0339 — loopback hosts where plaintext http: never leaves the machine. */
+function isLoopbackHost(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname === "[::1]" ||
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)
+  );
+}
+
+export function normalizeBaseUrl(
+  value: string,
+  allowInsecureHttp?: boolean,
+): string {
   if (
     typeof value !== "string" ||
     value.length === 0 ||
@@ -198,6 +210,18 @@ export function normalizeBaseUrl(value: string): string {
   ) {
     throw new PraesidiaConfigError(
       "baseUrl/PRAESIDIA_BASE_URL must use HTTP(S) and contain no credentials, query, or fragment",
+    );
+  }
+  // SDK-0339 — the API key and every governed payload ride this URL; refuse
+  // cleartext to a non-loopback host unless the caller opts in explicitly.
+  if (
+    url.protocol === "http:" &&
+    !isLoopbackHost(url.hostname) &&
+    !(allowInsecureHttp ?? process.env["PRAESIDIA_ALLOW_INSECURE_HTTP"] === "1")
+  ) {
+    throw new PraesidiaConfigError(
+      `baseUrl/PRAESIDIA_BASE_URL must use HTTPS for non-loopback host ${url.hostname}; ` +
+        "pass allowInsecureHttp: true (or set PRAESIDIA_ALLOW_INSECURE_HTTP=1) to send credentials in cleartext",
     );
   }
   return url.toString().replace(/\/$/, "");
@@ -313,8 +337,9 @@ export class PraesidiaClient {
     apiKey: string,
     requestTimeoutMs?: number,
     retryConfig?: RetryConfig | false,
+    allowInsecureHttp?: boolean,
   ) {
-    this.baseUrl = normalizeBaseUrl(baseUrl);
+    this.baseUrl = normalizeBaseUrl(baseUrl, allowInsecureHttp);
     this.requestTimeoutMs = resolveRequestTimeoutMs(requestTimeoutMs);
     this.retryConfig = resolveRetryConfig(retryConfig);
     this.assertApiKey(apiKey);

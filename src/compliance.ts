@@ -66,6 +66,7 @@ export class PraesidiaCompliance {
       apiKey,
       config.requestTimeoutMs,
       config.retry,
+      config.allowInsecureHttp,
     );
     this.reportsBase = `/organizations/${this.orgId}/compliance/eu-ai-act/reports`;
   }

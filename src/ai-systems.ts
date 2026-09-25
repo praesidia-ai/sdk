@@ -106,6 +106,7 @@ export class PraesidiaAiSystems {
       apiKey,
       config.requestTimeoutMs,
       config.retry,
+      config.allowInsecureHttp,
     );
     const orgBase = `/organizations/${encodePathSegment(orgId, 'orgId')}`;
     this.systemsBase = `${orgBase}/ai-systems`;

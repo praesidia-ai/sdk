@@ -57,6 +57,7 @@ export class PraesidiaConnections {
       apiKey,
       config.requestTimeoutMs,
       config.retry,
+      config.allowInsecureHttp,
     );
     this.connectionsBase = `/organizations/${encodePathSegment(orgId, 'orgId')}/connections`;
   }

@@ -26,7 +26,7 @@ export class PraesidiaProtectedHttp {
     if (installationId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(installationId)) throw new PraesidiaConfigError('runtimeInstallationId must be a UUID');
     this.runtimeInstallationId = installationId?.toLowerCase();
     // Never transparently repeat dispatch after an ambiguous transport outcome.
-    this.client = new PraesidiaClient(config.baseUrl ?? process.env['PRAESIDIA_BASE_URL'] ?? 'https://api.praesidia.ai', apiKey, config.requestTimeoutMs, false);
+    this.client = new PraesidiaClient(config.baseUrl ?? process.env['PRAESIDIA_BASE_URL'] ?? 'https://api.praesidia.ai', apiKey, config.requestTimeoutMs, false, config.allowInsecureHttp);
     this.base = `/organizations/${encodePathSegment(orgId, 'orgId')}/protected-actions/http`;
   }
   prepare(request: ProtectedHttpRequest & { description: string; expiresInHours?: number }): Promise<ProtectedHttpCheckpoint> {

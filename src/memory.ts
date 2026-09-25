@@ -72,6 +72,7 @@ export class PraesidiaMemory {
       apiKey,
       config.requestTimeoutMs,
       config.retry,
+      config.allowInsecureHttp,
     );
     this.memoriesBase = `/organizations/${this.orgId}/memories`;
   }

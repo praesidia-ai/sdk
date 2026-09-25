@@ -18,7 +18,7 @@ export class PraesidiaProof {
     const apiKey = config.apiKey ?? process.env['PRAESIDIA_API_KEY'];
     const orgId = config.orgId ?? process.env['PRAESIDIA_ORG_ID'];
     if (!apiKey || !orgId) throw new PraesidiaConfigError('PraesidiaProof requires PRAESIDIA_API_KEY and PRAESIDIA_ORG_ID');
-    this.client = new PraesidiaClient(config.baseUrl ?? process.env['PRAESIDIA_BASE_URL'] ?? 'https://api.praesidia.ai', apiKey, config.requestTimeoutMs, config.retry);
+    this.client = new PraesidiaClient(config.baseUrl ?? process.env['PRAESIDIA_BASE_URL'] ?? 'https://api.praesidia.ai', apiKey, config.requestTimeoutMs, config.retry, config.allowInsecureHttp);
     this.proofBase = `/organizations/${encodePathSegment(orgId, 'orgId')}/protected-actions`;
   }
 

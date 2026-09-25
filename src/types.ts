@@ -21,6 +21,13 @@ export interface GuardConfig {
   /** Bind managed HTTP checkpoints to an organization runtime installation. */
   runtimeInstallationId?: string;
   baseUrl?: string;
+  /**
+   * SDK-0339 — permit a plaintext `http:` baseUrl to a non-loopback host
+   * (the API key then travels in cleartext). Loopback (`localhost`,
+   * `127.0.0.0/8`, `[::1]`) never needs it. Defaults to
+   * `PRAESIDIA_ALLOW_INSECURE_HTTP=1`, else false.
+   */
+  allowInsecureHttp?: boolean;
   /** Per-request HTTP deadline in milliseconds (default 30000, max 300000). */
   requestTimeoutMs?: number;
   /**

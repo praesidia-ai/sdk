@@ -149,6 +149,7 @@ const guard = new PraesidiaGuard({
   agentId: 'agent-uuid',              // falls back to PRAESIDIA_AGENT_ID
   connectionId: 'conn-uuid',          // falls back to PRAESIDIA_CONNECTION_ID; required (UUID) to persist audit tasks
   baseUrl: 'https://api.praesidia.ai', // falls back to PRAESIDIA_BASE_URL
+  allowInsecureHttp: false, // SDK-0339: http: is refused for non-loopback hosts unless true (or PRAESIDIA_ALLOW_INSECURE_HTTP=1)
   requestTimeoutMs: 30_000, // falls back to PRAESIDIA_REQUEST_TIMEOUT_MS
   strict:  false, // true → throw on network errors (default: false = degrade gracefully)
   failOpen: false, // true → silently swallow network errors (default: false = warn + local fallback)
@@ -158,6 +159,12 @@ const guard = new PraesidiaGuard({
   onDegraded: ({ operation, since, mode }) => alert(operation, since, mode), // once per degraded episode
 });
 ```
+
+> **Plaintext HTTP (SDK-0339, behaviour change).** Every API client rejects an `http:` `baseUrl` /
+> `PRAESIDIA_BASE_URL` with `PraesidiaConfigError` unless the host is loopback (`localhost`,
+> `127.0.0.0/8`, `[::1]`) or you pass `allowInsecureHttp: true` (env `PRAESIDIA_ALLOW_INSECURE_HTTP=1`).
+> Before, any `http:` host was accepted and the API key was sent in cleartext. `PraesidiaIdentity` keeps its stricter
+> HTTPS-outside-loopback rule and has no opt-in.
 
 ### `guard.run(fn, opts)` → `Promise<GuardedResult<T>>`
 
