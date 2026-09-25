@@ -1106,8 +1106,8 @@ timeout or non-2xx response.
 - `strict` still controls output-block throwing and missing-config errors independently of
   `failureMode`. The default stays `local_rules`; switching it to `fail_closed` would be a
   breaking change and is not made here.
-- Python parity gap: the `praesidia` Python SDK does not have `failureMode`, `maxDegradedMs` or
-  `onDegraded` yet.
+- Python parity: the `praesidia` Python SDK has the same options as `failure_mode`,
+  `max_degraded_ms` and `on_degraded` (SDK-0336).
 
 These rows are `PraesidiaGuard`'s. Interaction hooks have their own per-hook defaults: see
 [Interaction hooks](#interaction-hooks--advisory-in-runtime-guard-sdk-0300).
