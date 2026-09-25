@@ -3,7 +3,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as sdk from './index.ts';
 import { EXIT } from '../examples/refund-authorization/refund.mjs';
 import { VALID_ENV, fakeFetch, runWith, selfcheck } from '../examples/refund-authorization/selfcheck.mjs';
@@ -72,6 +72,14 @@ describe('examples/refund-authorization', () => {
     };
     const PAST = '2026-01-01T00:00:00.000Z';
     const FUTURE = '2999-01-01T00:00:00.000Z';
+    // A frozen clock pins refundedAt, so the boundaries below are exact. be cuts rows at
+    // `signedAt < to` and clamps effectiveTo to min(to, rooted end): a rooted hour answers
+    // effectiveTo === its end, never later.
+    const NOW = Date.parse('2026-09-25T10:17:00.000Z');
+    const HOUR = 3_600_000;
+    const HOUR_END = new Date(Math.floor(NOW / HOUR) * HOUR + HOUR).toISOString(); // as refund.mjs computes it
+    const frozen = () => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(NOW); };
+    afterEach(() => vi.useRealTimers());
     const bundles = (calls) => calls.filter((c) => new URL(c.url).pathname.endsWith('/audit/bundle'));
 
     it('says the refund is not yet covered when the clamp ends before it', async () => {
@@ -89,6 +97,14 @@ describe('examples/refund-authorization', () => {
       expect(lines.some((l) => l.startsWith('refund not yet covered: '))).toBe(false);
     });
 
+    it('a window ending exactly at the refund does not cover it (the end is exclusive)', async () => {
+      frozen();
+      const { lines } = await approvedRun({ to: new Date(NOW).toISOString(), clampReason: 'clamped_to_last_rooted_hour' });
+      expect(lines.some((l) => l.startsWith('refund not yet covered: '))).toBe(true);
+      const after = await approvedRun({ to: new Date(NOW + 1).toISOString(), clampReason: 'clamped_to_last_rooted_hour' });
+      expect(after.lines.some((l) => l.startsWith('refund covered: '))).toBe(true);
+    });
+
     it('treats an unknown clamp reason as not yet covered', async () => {
       const { lines } = await approvedRun({ to: FUTURE, clampReason: 'clamped_to_unrooted_gap' });
       expect(lines.find((l) => l.startsWith('refund not yet covered: '))).toContain('unknown clamp reason clamped_to_unrooted_gap');
@@ -104,15 +120,17 @@ describe('examples/refund-authorization', () => {
     });
 
     it('--wait-rooted polls the refund hour until it is rooted, then requests the package', async () => {
-      const { lines, fake } = await approvedRun({ to: FUTURE, clampReason: 'none', effectiveTo: [PAST, PAST, FUTURE] }, { argv: ['--wait-rooted'] });
+      frozen();
+      const { lines, fake } = await approvedRun({ to: HOUR_END, clampReason: 'none', effectiveTo: [PAST, HOUR_END] }, { argv: ['--wait-rooted'] });
       const probes = bundles(fake.calls);
-      expect(probes).toHaveLength(3);
+      expect(probes).toHaveLength(2);
       const q = new URL(probes[0].url).searchParams;
-      expect(Date.parse(q.get('to')) - Date.parse(q.get('from'))).toBe(3_600_000);
-      expect(Date.parse(q.get('to')) % 3_600_000).toBe(0);
+      expect(q.get('to')).toBe(HOUR_END);
+      expect(Date.parse(q.get('to')) - Date.parse(q.get('from'))).toBe(HOUR);
       expect(fake.calls.findIndex((c) => c.method === 'POST' && c.url.endsWith('/audit/packages')))
-        .toBeGreaterThan(fake.calls.indexOf(probes[2]));
-      expect(lines).toContain(`--wait-rooted: rooted through ${FUTURE}`);
+        .toBeGreaterThan(fake.calls.indexOf(probes[1]));
+      expect(lines).toContain(`--wait-rooted: rooted through ${HOUR_END}`);
+      expect(lines.some((l) => l.startsWith('refund covered: '))).toBe(true);
     });
 
     it('--wait-rooted gives up after a bounded number of polls', async () => {
