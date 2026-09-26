@@ -3,6 +3,7 @@ import {
   InteractionDecisionUnavailableError,
   InteractionDeniedError,
   isOutage,
+  markOutage,
   PraesidiaConfigError,
 } from './errors.js';
 import { jcsCommitment, type JsonValue } from './jcs-canonical.js';
@@ -359,7 +360,7 @@ function assertDecision(value: unknown): InteractionDecision {
     typeof ttl !== 'number' || !Number.isInteger(ttl) || ttl < 0 ||
     (d.verdict === 'require_approval' && typeof d.approvalId !== 'string')
   ) {
-    throw new Error('malformed interaction decision response');
+    throw markOutage(new Error('malformed interaction decision response')); // malformed 2xx = outage
   }
   return d as InteractionDecision;
 }

@@ -3,6 +3,7 @@ import {
   GuardContentTooLargeError,
   GuardrailBlockedError,
   isOutage,
+  PraesidiaApiError,
   PraesidiaConfigError,
   ProtectedActionDeniedError,
   UnsupportedProtectedActionTargetError,
@@ -800,6 +801,10 @@ export class PraesidiaGuard {
         opts.chainId ? { [CHAIN_ID_HEADER]: opts.chainId } : undefined,
       );
 
+      // SDK-0357 — a 2xx without a boolean verdict is a malformed response (an outage).
+      if (typeof result?.passed !== 'boolean') {
+        throw new PraesidiaApiError(200, 'guardrails/validate', 'malformed validate response');
+      }
       this.degradedSince = undefined;
       return {
         passed: result.passed,

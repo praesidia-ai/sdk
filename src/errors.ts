@@ -99,8 +99,8 @@ export class PraesidiaApiError extends Error {
  * Praesidia account.
  */
 export class PraesidiaConfigError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = 'PraesidiaConfigError';
     Object.setPrototypeOf(this, PraesidiaConfigError.prototype);
   }
@@ -252,13 +252,27 @@ export class GuardContentTooLargeError extends Error {
   }
 }
 
+const outages = new WeakSet<object>();
+
 /**
- * The one degrade predicate (SDK-0348, SDK-0352): true only for a real outage —
- * transport/timeout, 408, 5xx, or a malformed 2xx. Every other 4xx, including a
- * 429 an end user can trigger from a shared egress IP, is false and must throw.
+ * @internal SDK-0357 — tag an error the transport raised (a `fetch` rejection,
+ * a body-read failure) or a non-JSON 2xx body, so {@link isOutage} can tell it
+ * from a local error. Returns `err` for `throw markOutage(err)`.
+ */
+export function markOutage(err: unknown): unknown {
+  if (typeof err === 'object' && err !== null) outages.add(err);
+  return err;
+}
+
+/**
+ * The one degrade predicate (SDK-0348, SDK-0352, SDK-0357; python `_is_outage`),
+ * an allowlist: true only for a real outage — transport/timeout, 408, 5xx, or a
+ * malformed 2xx. Every other 4xx (including a 429 an end user can trigger from a
+ * shared egress IP) and every local error (a BigInt or circular body, any
+ * programming error) is false and must throw.
  */
 export function isOutage(err: unknown): boolean {
-  if (err instanceof PraesidiaConfigError) return false;
-  if (!(err instanceof PraesidiaApiError)) return true;
+  if (typeof err === 'object' && err !== null && outages.has(err)) return true;
+  if (!(err instanceof PraesidiaApiError)) return false;
   return err.status < 400 || err.status >= 500 || err.status === 408;
 }

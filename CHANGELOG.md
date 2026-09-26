@@ -17,6 +17,18 @@ change below. It is the first version intended for the npm registry.
 - `exports["."]` lists `types` before `import`. `publishConfig` sets `access: public` and
   `provenance: true`.
 
+### SDK-0357: guard never degrades on a local error (security fix)
+
+- **Fixed (security, behavior change)** `isOutage` counted every non-API error as an outage, so a
+  `context` that `JSON.stringify` cannot encode (a BigInt or a circular object) made the guard
+  serve local rules under `local_rules` / `fail_open`. If that context is end-user influenced, the
+  user could skip the org's guardrails. `isOutage` is now an allowlist, like python `_is_outage`:
+  a `fetch` rejection, a body-read failure, a malformed 2xx, 408 and 5xx. Every other error throws.
+- **Changed** A POST/PATCH/PUT body that cannot be serialised throws `PraesidiaConfigError`
+  (`cause` = the original `TypeError`) instead of a bare `TypeError`, for every client call.
+  `PraesidiaConfigError` accepts an optional `ErrorOptions` second argument (additive).
+- A `guardrails/validate` 2xx without a boolean `passed` is treated as a malformed 2xx (degrades).
+
 ### SDK-0348: guard fails closed on caller-triggerable 4xx (security fix)
 
 - **Fixed (security, behavior change)** `PraesidiaGuard` served local rules (`passed: true`) for

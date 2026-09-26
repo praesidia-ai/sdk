@@ -1179,9 +1179,10 @@ Python also has a `guarded()` tool-wrapping helper that this SDK does not have y
 |---|---|
 | Input guardrail blocks content | Always throws `GuardrailBlockedError` before `fn` runs |
 | Output guardrail blocks content | Returned for inspection by default; `strict: true` / `throwOnBlock` throws |
-| Outage reaching Praesidia (network error, timeout, 408, 5xx) | Degrades to local rules, emits `console.warn` |
+| Outage reaching Praesidia (network error, timeout, 408, 5xx, malformed 2xx) | Degrades to local rules, emits `console.warn` |
 | Any other 4xx from Praesidia, including 429 | Always throws `PraesidiaApiError`, in every mode (SDK-0348) |
 | Content over `MAX_GUARD_CONTENT_LENGTH` (100,000 code points) | Throws `GuardContentTooLargeError` before any request (SDK-0348) |
+| `context` / body JSON cannot encode (BigInt, circular) | Throws `PraesidiaConfigError` (`cause` = the `TypeError`) before any request, in every mode (SDK-0357) |
 | `strict: true` + outage | Throws `PraesidiaApiError` |
 | `failOpen: true` | Silently degrades (no `console.warn`) |
 
@@ -1191,7 +1192,8 @@ The failure mode applies only to an **outage** of `guardrails/validate` (and `lo
 unreachable host, timeout, 408 or 5xx. Any other 4xx (400, 401, 403, 404, 413, 422, and 429)
 always throws `PraesidiaApiError` and never opens a degraded episode (SDK-0348). An end user can
 cause those responses (oversized content, a rate limit on a shared egress IP), so degrading on them
-would let that user switch the org's guardrails off.
+would let that user switch the org's guardrails off. A local error is never an outage either: a body the SDK cannot
+serialise, or any other exception raised before the request is sent, throws (SDK-0357).
 
 | `failureMode` | On a control-plane error | Legacy flags that map to it (when `failureMode` is unset) |
 |---|---|---|

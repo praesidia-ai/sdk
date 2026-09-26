@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 import {
   PraesidiaApiError,
   PraesidiaConfigError,
+  markOutage,
   type PraesidiaErrorEnvelope,
 } from "./errors.js";
 import {
@@ -59,7 +60,9 @@ export async function readBoundedResponseBytes(
   let totalBytes = 0;
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await reader.read().catch((e: unknown) => {
+        throw markOutage(e);
+      });
       if (done) break;
       if (!value) continue;
       totalBytes += value.byteLength;
@@ -111,7 +114,32 @@ export async function readBoundedJsonResponse<T>(
     path,
     "JSON response body",
   );
-  return JSON.parse(text) as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch (e) {
+    throw markOutage(e); // a non-JSON 2xx (proxy/HTML page) is an outage
+  }
+}
+
+/** SDK-0357 — every SDK request goes through here, so any rejection is transport. */
+async function send(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (e) {
+    throw markOutage(e);
+  }
+}
+
+/** SDK-0357 — a body JSON cannot encode (BigInt, circular) is a caller error, never an outage. */
+function jsonBody(body: unknown): string {
+  try {
+    return JSON.stringify(body);
+  } catch (e) {
+    throw new PraesidiaConfigError(
+      `request body is not JSON-serialisable: ${e instanceof Error ? e.message : String(e)}`,
+      { cause: e },
+    );
+  }
 }
 
 export async function readBoundedErrorResponse(
@@ -448,7 +476,7 @@ export class PraesidiaClient {
     url: string,
   ): Promise<Response> {
     if (this.retryConfig === false) {
-      return fetch(url, initFactory());
+      return send(url, initFactory());
     }
     const { maxAttempts, baseDelayMs, maxDelayMs, maxElapsedMs } =
       this.retryConfig;
@@ -457,7 +485,7 @@ export class PraesidiaClient {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       let response: Response;
       try {
-        response = await fetch(url, initFactory());
+        response = await send(url, initFactory());
       } catch (err) {
         // Network-level failure (DNS/connection reset/etc — fetch rejects,
         // it does not resolve). Retry it exactly like a 5xx, same budget.
@@ -517,15 +545,15 @@ export class PraesidiaClient {
           () => ({
             method: "POST",
             headers: this.buildHeaders(headers),
-            body: JSON.stringify(body),
+            body: jsonBody(body),
             signal: AbortSignal.timeout(this.requestTimeoutMs),
           }),
           url,
         )
-      : await fetch(url, {
+      : await send(url, {
           method: "POST",
           headers: this.buildHeaders(headers),
-          body: JSON.stringify(body),
+          body: jsonBody(body),
           signal: AbortSignal.timeout(this.requestTimeoutMs),
         });
 
@@ -562,12 +590,12 @@ export class PraesidiaClient {
     const initFactory = (): RequestInit & { method: string } => ({
       method: "PATCH",
       headers: this.buildHeaders(headers),
-      body: JSON.stringify(body),
+      body: jsonBody(body),
       signal: AbortSignal.timeout(this.requestTimeoutMs),
     });
     const response = retryable
       ? await this.fetchWithRetry(initFactory, url)
-      : await fetch(url, initFactory());
+      : await send(url, initFactory());
 
     if (!response.ok) {
       const text = await readBoundedErrorResponse(response, path);
@@ -594,7 +622,7 @@ export class PraesidiaClient {
       () => ({
         method: "PUT",
         headers: this.buildHeaders(extraHeaders),
-        body: JSON.stringify(body),
+        body: jsonBody(body),
         signal: AbortSignal.timeout(this.requestTimeoutMs),
       }),
       url,
