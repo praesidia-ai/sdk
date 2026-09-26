@@ -973,10 +973,10 @@ describe('PraesidiaTrust — AI System passport offline verify (SDK-0309)', () =
   it.each(['Ed25519', 'ES256'] as const)(
     'fetchAndVerifyAiSystem (%s) verifies with a trustedKeys anchor and GETs the public route',
     async (algorithm) => {
-      const { passport, publicKeyJwk } = signAiSystemPassport(
-        buildUnsignedAiSystemPassport(),
-        algorithm,
-      );
+      // Subject matches the requested (URL-encoded) id — SDK-0350 binding.
+      const unsigned = buildUnsignedAiSystemPassport();
+      unsigned.credentialSubject.id = 'did:web:praesidia.ai:ai-systems:sys 1';
+      const { passport, publicKeyJwk } = signAiSystemPassport(unsigned, algorithm);
       const trust = mockAiSystemBundle(passport, publicKeyJwk);
 
       const result = await trust.fetchAndVerifyAiSystem('sys 1', {
@@ -1093,5 +1093,84 @@ describe('PraesidiaTrust — AI System passport offline verify (SDK-0309)', () =
     expect(
       new PraesidiaTrust().verifyAiSystemPassport(passport, publicKeyJwk).reason,
     ).toBe('malformed-passport');
+  });
+});
+
+// SDK-0350 (F2-02): a genuine same-org passport for a DIFFERENT subject must
+// not verify for the id the caller asked about, even under a pinned key.
+describe('PraesidiaTrust — passport subject binding (SDK-0350)', () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  function serve(json: Record<string, unknown>) {
+    globalThis.fetch = makeFetchMock([{ ok: true, status: 200, json }]);
+    return new PraesidiaTrust({ baseUrl: 'https://api.praesidia.ai' });
+  }
+
+  it("fetchAndVerify rejects agent-1's passport served for agent-2, under a trusted key", async () => {
+    const { passport, publicKeyJwk } = makeKeypairAndPassport();
+    const result = await serve({ passport, publicKeyJwk }).fetchAndVerify(
+      'agent-2',
+      { trustedKeys: [publicKeyJwk] },
+    );
+    expect(result).toMatchObject({
+      verified: false,
+      signatureValid: true,
+      reason: 'subject_mismatch',
+    });
+  });
+
+  it('fetchAndVerify reports subject_mismatch (not unpinned_key) without an anchor', async () => {
+    const { passport, publicKeyJwk } = makeKeypairAndPassport();
+    const result = await serve({ passport, publicKeyJwk }).fetchAndVerify('agent-2');
+    expect(result).toMatchObject({ verified: false, reason: 'subject_mismatch' });
+  });
+
+  it("fetchAndVerifyAiSystem rejects sys-1's passport served for sys-2", async () => {
+    const { passport, publicKeyJwk } = signAiSystemPassport(
+      buildUnsignedAiSystemPassport(),
+      'Ed25519',
+    );
+    const result = await serve({ passport, publicKeyJwk }).fetchAndVerifyAiSystem(
+      'sys-2',
+      { trustedKeys: [publicKeyJwk] },
+    );
+    expect(result).toMatchObject({
+      verified: false,
+      signatureValid: true,
+      reason: 'subject_mismatch',
+    });
+  });
+
+  it('fetchAndVerifyAiSystem matches an uppercase UUID request to a lowercase subject', async () => {
+    const id = '0f8e2c1a-5b3d-4e6f-9a7b-1c2d3e4f5a6b';
+    const unsigned = buildUnsignedAiSystemPassport();
+    unsigned.credentialSubject.id = `did:web:praesidia.ai:ai-systems:${id}`;
+    const { passport, publicKeyJwk } = signAiSystemPassport(unsigned, 'Ed25519');
+    const result = await serve({ passport, publicKeyJwk }).fetchAndVerifyAiSystem(
+      id.toUpperCase(),
+      { trustedKeys: [publicKeyJwk] },
+    );
+    expect(result).toMatchObject({ verified: true, reason: 'ok' });
+  });
+
+  it('verifyPassport binds to expectedSubject when given; empty string fails closed', () => {
+    const { passport, publicKeyJwk } = makeKeypairAndPassport();
+    const trust = new PraesidiaTrust();
+    expect(
+      trust.verifyPassport(passport, publicKeyJwk, 'did:web:praesidia.ai:agents:agent-1'),
+    ).toEqual({ verified: true, signatureValid: true, expired: false, reason: 'ok' });
+    for (const expected of ['did:web:praesidia.ai:agents:agent-2', '']) {
+      expect(trust.verifyPassport(passport, publicKeyJwk, expected)).toEqual({
+        verified: false,
+        signatureValid: true,
+        expired: false,
+        reason: 'subject_mismatch',
+      });
+    }
+    // Omitted → no binding (offline callers keep today's behaviour).
+    expect(trust.verifyPassport(passport, publicKeyJwk).reason).toBe('ok');
   });
 });

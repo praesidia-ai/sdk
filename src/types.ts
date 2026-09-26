@@ -959,7 +959,9 @@ export type TrustVerificationReason =
   /** An anchor was supplied and the passport verifies under none of its keys. */
   | 'untrusted_key'
   /** `expectedFingerprint` does not match the JWK the server returned. */
-  | 'fingerprint_mismatch';
+  | 'fingerprint_mismatch'
+  /** Validly signed, but `credentialSubject.id` is not the requested subject. */
+  | 'subject_mismatch';
 
 /**
  * A public key JWK usable as a trust anchor (OKP/Ed25519 or EC/P-256).

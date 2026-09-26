@@ -176,15 +176,24 @@ export class PraesidiaTrust {
    *
    * Pure local computation against the supplied trust anchor. Never throws;
    * a malformed passport / key yields `{ verified: false, reason }`.
+   *
+   * `expectedSubject` (SDK-0350) — the DID the passport must be about, e.g.
+   * `did:web:praesidia.ai:agents:<agentId>`. When given, a validly signed
+   * passport whose `credentialSubject.id` differs (compared case-insensitively;
+   * the ids are UUIDs) is `verified: false, reason: 'subject_mismatch'` with
+   * `signatureValid: true`. An empty string never matches. Omitted → no
+   * subject binding.
    */
   verifyPassport(
     passport: TrustPassport,
     publicKeyJwk: Record<string, unknown>,
+    expectedSubject?: string,
   ): TrustVerificationResult {
     return this.verifyCredential(
       passport,
       publicKeyJwk,
       isPassportEnvelopeWellFormed,
+      expectedSubject,
     );
   }
 
@@ -195,16 +204,19 @@ export class PraesidiaTrust {
    * requires `type` to include `AiSystemTrustPassport` and the AI System
    * credential subject. An agent passport is `malformed-passport` here, and
    * an AI System passport is `malformed-passport` in `verifyPassport`.
-   * Never throws.
+   * `expectedSubject` as in {@link verifyPassport}
+   * (`did:web:praesidia.ai:ai-systems:<aiSystemId>`). Never throws.
    */
   verifyAiSystemPassport(
     passport: AiSystemTrustPassport,
     publicKeyJwk: Record<string, unknown>,
+    expectedSubject?: string,
   ): TrustVerificationResult {
     return this.verifyCredential(
       passport,
       publicKeyJwk,
       isAiSystemPassportEnvelopeWellFormed,
+      expectedSubject,
     );
   }
 
@@ -212,12 +224,14 @@ export class PraesidiaTrust {
     passport: P,
     publicKeyJwk: Record<string, unknown>,
     isEnvelopeWellFormed: (passport: P) => boolean,
+    expectedSubject?: string,
   ): TrustVerificationResult {
     try {
       return this.verifyCredentialUnchecked(
         passport,
         publicKeyJwk,
         isEnvelopeWellFormed,
+        expectedSubject,
       );
     } catch {
       return {
@@ -233,6 +247,7 @@ export class PraesidiaTrust {
     passport: P,
     publicKeyJwk: Record<string, unknown>,
     isEnvelopeWellFormed: (passport: P) => boolean,
+    expectedSubject?: string,
   ): TrustVerificationResult {
     const proof = passport?.proof;
     if (!proof || typeof proof.proofValue !== 'string') {
@@ -294,6 +309,18 @@ export class PraesidiaTrust {
         reason: 'signature-mismatch',
       };
     }
+    // Genuine signature, wrong subject: a substituted same-org passport.
+    if (
+      expectedSubject !== undefined &&
+      passport.credentialSubject.id.toLowerCase() !== expectedSubject.toLowerCase()
+    ) {
+      return {
+        verified: false,
+        signatureValid: true,
+        expired,
+        reason: 'subject_mismatch',
+      };
+    }
     if (expiration === 'invalid') {
       return {
         verified: false,
@@ -337,6 +364,10 @@ export class PraesidiaTrust {
    * the result is `verified: false, reason: 'unpinned_key'` — an integrity
    * check against an unauthenticated key is not an assurance and must not read
    * like one.
+   *
+   * The passport is also bound to `agentId` (SDK-0350): its
+   * `credentialSubject.id` must be `did:web:praesidia.ai:agents:<agentId>`
+   * (case-insensitive), else `verified: false, reason: 'subject_mismatch'`.
    */
   async fetchAndVerify(
     agentId: string,
@@ -346,7 +377,12 @@ export class PraesidiaTrust {
     const result = this.verifyAgainstAnchor(
       bundle.publicKeyJwk,
       options,
-      (jwk) => this.verifyPassport(bundle.passport, jwk),
+      (jwk) =>
+        this.verifyPassport(
+          bundle.passport,
+          jwk,
+          `did:web:praesidia.ai:agents:${agentId}`,
+        ),
     );
     return {
       ...result,
@@ -363,7 +399,8 @@ export class PraesidiaTrust {
    * (MCPSDK-04) — no anchor → `verified: false, reason: 'unpinned_key'`;
    * `trustedKeys` without the signing key → `untrusted_key`;
    * `expectedFingerprint` differing from the served key →
-   * `fingerprint_mismatch`.
+   * `fingerprint_mismatch`; subject not
+   * `did:web:praesidia.ai:ai-systems:<aiSystemId>` → `subject_mismatch`.
    */
   async fetchAndVerifyAiSystem(
     aiSystemId: string,
@@ -373,7 +410,12 @@ export class PraesidiaTrust {
     const result = this.verifyAgainstAnchor(
       bundle.publicKeyJwk,
       options,
-      (jwk) => this.verifyAiSystemPassport(bundle.passport, jwk),
+      (jwk) =>
+        this.verifyAiSystemPassport(
+          bundle.passport,
+          jwk,
+          `did:web:praesidia.ai:ai-systems:${aiSystemId}`,
+        ),
     );
     return {
       ...result,

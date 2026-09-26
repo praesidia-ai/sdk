@@ -978,10 +978,15 @@ jwkThumbprint(issuerJwk); // base64url; jwkThumbprintHex() for hex
 
 // Or verify a passport handed to you out-of-band:
 const bundle = await trust.fetchVerifyBundle(peerAgentId);
-const result = trust.verifyPassport(bundle.passport, myTrustedJwk);
+const result = trust.verifyPassport(
+  bundle.passport,
+  myTrustedJwk,
+  `did:web:praesidia.ai:agents:${peerAgentId}`, // optional expectedSubject
+);
 // result.reason ∈ ok | missing-proof | malformed-public-key
 //                  | signature-mismatch | invalid-expiration | expired
 //                  | unpinned_key | untrusted_key | fingerprint_mismatch
+//                  | subject_mismatch
 ```
 
 | `fetchAndVerify` anchor | Outcome |
@@ -991,6 +996,14 @@ const result = trust.verifyPassport(bundle.passport, myTrustedJwk);
 | `trustedKeys` without the signing key | `verified: false`, `reason: 'untrusted_key'` |
 | `expectedFingerprint` matches the served key | verified normally against that key |
 | `expectedFingerprint` differs | `verified: false`, `reason: 'fingerprint_mismatch'` |
+| any anchor, passport is for another subject | `verified: false`, `reason: 'subject_mismatch'`, `signatureValid: true` |
+
+`fetchAndVerify(agentId)` / `fetchAndVerifyAiSystem(aiSystemId)` bind the passport to
+the id you asked for: `credentialSubject.id` must equal
+`did:web:praesidia.ai:agents:<agentId>` / `did:web:praesidia.ai:ai-systems:<aiSystemId>`
+(case-insensitive — the ids are UUIDs). A genuine passport for a different agent of
+the same org therefore does not verify, even under a pinned key. `verifyPassport` /
+`verifyAiSystemPassport` apply the same check when you pass `expectedSubject`.
 
 `verifyPassport` reconstructs the canonical JSON of the passport with its `proof`
 member removed (RFC-8785-style), base64-decodes `proof.proofValue`, and verifies
