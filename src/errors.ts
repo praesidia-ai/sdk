@@ -232,3 +232,29 @@ export class InteractionDecisionUnavailableError extends Error {
     Object.setPrototypeOf(this, InteractionDecisionUnavailableError.prototype);
   }
 }
+
+/**
+ * SDK-0348 — thrown by `checkInput` / `checkOutput` / `run` before any request
+ * when content exceeds `MAX_GUARD_CONTENT_LENGTH` code points. Never degraded to
+ * local rules: oversized content is caller-controlled, not an outage.
+ */
+export class GuardContentTooLargeError extends Error {
+  readonly code = 'CONTENT_TOO_LARGE';
+  readonly length: number;
+  readonly maxLength: number;
+
+  constructor(length: number, maxLength: number) {
+    super(`Guard content is ${length} code points; the maximum is ${maxLength}`);
+    this.name = 'GuardContentTooLargeError';
+    this.length = length;
+    this.maxLength = maxLength;
+    Object.setPrototypeOf(this, GuardContentTooLargeError.prototype);
+  }
+}
+
+/** No answer was obtained: transport/timeout, 408/429/5xx, or a malformed 2xx. Other 4xx are caller errors. */
+export function isOutage(err: unknown): boolean {
+  if (err instanceof PraesidiaConfigError) return false;
+  if (!(err instanceof PraesidiaApiError)) return true;
+  return err.status < 400 || err.status >= 500 || err.status === 408 || err.status === 429;
+}

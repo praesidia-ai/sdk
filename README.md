@@ -1156,14 +1156,19 @@ Python also has a `guarded()` tool-wrapping helper that this SDK does not have y
 |---|---|
 | Input guardrail blocks content | Always throws `GuardrailBlockedError` before `fn` runs |
 | Output guardrail blocks content | Returned for inspection by default; `strict: true` / `throwOnBlock` throws |
-| Network error reaching Praesidia | Degrades to local rules, emits `console.warn` |
-| `strict: true` + network error | Throws `PraesidiaApiError` |
+| Outage reaching Praesidia (network error, timeout, 408, 5xx) | Degrades to local rules, emits `console.warn` |
+| Any other 4xx from Praesidia, including 429 | Always throws `PraesidiaApiError`, in every mode (SDK-0348) |
+| Content over `MAX_GUARD_CONTENT_LENGTH` (100,000 code points) | Throws `GuardContentTooLargeError` before any request (SDK-0348) |
+| `strict: true` + outage | Throws `PraesidiaApiError` |
 | `failOpen: true` | Silently degrades (no `console.warn`) |
 
 ### Control-plane failure mode (SDK-0335)
 
-A "network error" here is any error from `guardrails/validate` (and `logTask`): unreachable host,
-timeout or non-2xx response.
+The failure mode applies only to an **outage** of `guardrails/validate` (and `logTask`):
+unreachable host, timeout, 408 or 5xx. Any other 4xx (400, 401, 403, 404, 413, 422, and 429)
+always throws `PraesidiaApiError` and never opens a degraded episode (SDK-0348). An end user can
+cause those responses (oversized content, a rate limit on a shared egress IP), so degrading on them
+would let that user switch the org's guardrails off.
 
 | `failureMode` | On a control-plane error | Legacy flags that map to it (when `failureMode` is unset) |
 |---|---|---|
@@ -1209,6 +1214,11 @@ only by `guard.protectAction` — see [above](#guardprotectactionopts--promisepr
 `InteractionDecisionUnavailableError` (`cause` = the outage) are thrown only by
 `PraesidiaInteractionHooks` — see
 [Interaction hooks](#interaction-hooks--advisory-in-runtime-guard-sdk-0300).
+
+`GuardContentTooLargeError` (`code: 'CONTENT_TOO_LARGE'`, `length`, `maxLength`) is thrown by
+`checkInput` / `checkOutput` / `run` / `guardInput` / `guardOutput` before any request when content
+exceeds `MAX_GUARD_CONTENT_LENGTH` (100,000 Unicode code points, the API's limit). Offline mode
+(no API key) does not check the length.
 
 `InvalidMcpServerIdError` (a `PraesidiaConfigError`) is thrown only by `gatewayFetch` — see
 [Gateway calls tagged with an MCP server id](#gateway-calls-tagged-with-an-mcp-server-id-sdk-0312).
@@ -1295,6 +1305,19 @@ sibling checkout in `sdk-python`'s own `contract-drift.yml` — CD-0007 reuses
 this repo's scanner rather than a third, Python-native re-derivation.
 
 ## Changelog
+
+### Unreleased — SDK-0348: guard fails closed on caller-triggerable 4xx (security fix)
+
+- **Fixed (security, behavior change)** `PraesidiaGuard` served local rules (`passed: true`) for
+  *any* control-plane error under the default `local_rules` mode and under `fail_open`. An end
+  user could trigger a 400 (content over 100,000 chars) or a 429 (rate limit on the customer's
+  shared egress IP) and skip the org's guardrails. The guard now degrades only on an outage
+  (network error, timeout, 408, 5xx). Other 4xx, including 429, throw `PraesidiaApiError` in every
+  `failureMode`, for `checkInput` / `checkOutput` / `run` and `logTask`.
+- **Added** `MAX_GUARD_CONTENT_LENGTH` (100,000) and `GuardContentTooLargeError`
+  (`code: 'CONTENT_TOO_LARGE'`). Longer content is rejected before any request.
+- Signatures are unchanged. Code that relied on a 4xx degrading to local rules now sees a
+  thrown error. Semver minor (security fix).
 
 ### Unreleased — SDK-0332: delegation envelope + task-scoped interaction decisions (BE-1597, BE-1609)
 

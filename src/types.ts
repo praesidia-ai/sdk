@@ -1975,3 +1975,10 @@ export type AiAssetDesiredStateResult = DesiredStateOutcome<AiAssetRecord>;
 
 /** Result of `PraesidiaAiSystems.putRelationshipByExternalId`/`deleteRelationshipByExternalId`. */
 export type AssetRelationshipDesiredStateResult = DesiredStateOutcome<AssetRelationshipRecord>;
+
+/**
+ * SDK-0348 — server cap on `guardrails/validate` content, in Unicode code points
+ * (`@MaxLength(100000)` on ValidateContentDto). Longer content is rejected
+ * locally with `GuardContentTooLargeError` instead of sending a request that 400s.
+ */
+export const MAX_GUARD_CONTENT_LENGTH = 100_000;

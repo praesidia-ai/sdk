@@ -52,9 +52,11 @@ export {
   MEMORY_SOURCE_TYPES,
   OTLP_MAX_RESOURCE_SPANS,
   OTLP_MAX_BODY_BYTES,
+  MAX_GUARD_CONTENT_LENGTH,
 } from './types.js';
 export {
   GuardrailBlockedError,
+  GuardContentTooLargeError,
   PraesidiaApiError,
   PraesidiaConfigError,
   InvalidMcpServerIdError,

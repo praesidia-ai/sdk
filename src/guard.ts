@@ -1,11 +1,15 @@
 import { encodePathSegment, PraesidiaClient } from './client.js';
 import {
+  GuardContentTooLargeError,
   GuardrailBlockedError,
+  isOutage,
+  PraesidiaApiError,
   PraesidiaConfigError,
   ProtectedActionDeniedError,
   UnsupportedProtectedActionTargetError,
 } from './errors.js';
 import { runLocalRules } from './local-rules.js';
+import { MAX_GUARD_CONTENT_LENGTH } from './types.js';
 import type {
   ActionDenyReason,
   AgentIdentity,
@@ -126,7 +130,8 @@ function buildTaskInput(task: {
  *   - Input blocks ALWAYS throw GuardrailBlockedError before the wrapped call.
  *   - Output blocks are returned for inspection by default; strict guards and
  *     guardOutput({ throwOnBlock: true }) throw GuardrailBlockedError.
- *   - Network errors to Praesidia follow `failureMode` (SDK-0335):
+ *   - Outages (network error, timeout, 408, 5xx) follow `failureMode` (SDK-0335);
+ *     any other 4xx, including 429, always throws (SDK-0348):
  *     `local_rules` (default) serves local rules + console.warn, `fail_open`
  *     serves local rules silently, `fail_closed` throws. Legacy mapping:
  *     failOpen=true → fail_open, else strict=true → fail_closed.
@@ -762,6 +767,14 @@ export class PraesidiaGuard {
       return runLocalRules(content);
     }
 
+    // SDK-0348 — code points, as the server counts; `.length` bounds it from above.
+    if (content.length > MAX_GUARD_CONTENT_LENGTH) {
+      const length = [...content].length;
+      if (length > MAX_GUARD_CONTENT_LENGTH) {
+        throw new GuardContentTooLargeError(length, MAX_GUARD_CONTENT_LENGTH);
+      }
+    }
+
     const agentId = opts.agentId ?? this.agentId;
 
     try {
@@ -808,6 +821,10 @@ export class PraesidiaGuard {
    * Returns undefined when the error should be swallowed; otherwise rethrows.
    */
   private handleNetworkError<T>(err: unknown, operation: string): T {
+    // SDK-0348 — only an outage may degrade. A caller-triggerable 4xx (400
+    // oversized, 401/403, 429 on a shared egress IP) must never switch the
+    // org's guardrails off, so it throws in every failureMode.
+    if (!isOutage(err) || (err instanceof PraesidiaApiError && err.status === 429)) throw err;
     const now = Date.now();
     if (this.degradedSince === undefined) {
       this.degradedSince = now;

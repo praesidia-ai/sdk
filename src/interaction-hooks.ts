@@ -2,7 +2,7 @@ import { PraesidiaClient, encodePathSegment } from './client.js';
 import {
   InteractionDecisionUnavailableError,
   InteractionDeniedError,
-  PraesidiaApiError,
+  isOutage,
   PraesidiaConfigError,
 } from './errors.js';
 import { jcsCommitment, type JsonValue } from './jcs-canonical.js';
@@ -362,13 +362,6 @@ function assertDecision(value: unknown): InteractionDecision {
     throw new Error('malformed interaction decision response');
   }
   return d as InteractionDecision;
-}
-
-/** No decision was obtained: transport/timeout, 408/429/5xx, or a malformed 2xx. Other 4xx are caller errors. */
-function isOutage(err: unknown): boolean {
-  if (err instanceof PraesidiaConfigError) return false;
-  if (!(err instanceof PraesidiaApiError)) return true;
-  return err.status < 400 || err.status >= 500 || err.status === 408 || err.status === 429;
 }
 
 function positiveInt(value: number, label: string): number {
