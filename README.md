@@ -38,7 +38,8 @@ treats a framework's approval flag as Praesidia authorization. See the
 
 Source packages for native [OpenClaw](plugins/openclaw/README.md) and
 [OpenAI Agents TypeScript](plugins/openai-agents/README.md) live under `plugins/`
-and are packed separately. Their exact framework versions and narrower tested
+and are packed separately, as does the [managed MCP companion](plugins/managed-mcp/README.md)
+(`@praesidia/managed-mcp`) for OpenCode, Claude Code, n8n, Dify and Langflow. Their exact framework versions and narrower tested
 surfaces are documented there. Installing the base SDK does not intercept a
 runtime's other tools or contain its process.
 

@@ -1,0 +1,31 @@
+version: 0.1.0
+type: plugin
+author: praesidia
+name: praesidia_managed
+label:
+  en_US: Praesidia managed actions
+description:
+  en_US: Explicit preparation, separate human review, and approval-bound resume for one installed target.
+icon: icon.svg
+created_at: 2026-09-07T00:00:00Z
+resource:
+  memory: 268435456
+  permission:
+    tool:
+      enabled: false
+    model:
+      enabled: false
+    endpoint:
+      enabled: false
+plugins:
+  tools:
+    - provider/praesidia.yaml
+meta:
+  version: 0.0.1
+  arch:
+    - amd64
+    - arm64
+  runner:
+    language: python
+    version: '3.12'
+    entrypoint: main

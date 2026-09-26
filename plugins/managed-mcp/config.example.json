@@ -1,0 +1,12 @@
+{
+  "apiUrl": "https://api.praesidia.ai",
+  "organizationId": "REPLACE_WITH_ORGANIZATION_UUID",
+  "createdByUserId": "REPLACE_WITH_INSTALLATION_CREATOR_UUID",
+  "ecosystemId": "opencode",
+  "profileId": "managed-mcp",
+  "runtimeVersion": "REPLACE_WITH_ACTUAL_INSTALLED_VERSION",
+  "checkpointRuntime": "custom",
+  "stateDirectory": "/REPLACE_WITH_PRIVATE_HOST_STATE_DIRECTORY",
+  "enablePrepare": false,
+  "enableResume": false
+}

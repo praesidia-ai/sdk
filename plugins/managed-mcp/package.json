@@ -1,0 +1,22 @@
+{
+  "name": "@praesidia/managed-mcp",
+  "version": "0.1.0",
+  "description": "Explicit approval-bound Praesidia tools for MCP clients",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": { "node": ">=24" },
+  "bin": { "praesidia-managed-mcp": "src/cli.mjs" },
+  "exports": { ".": "./src/managed.mjs", "./client": "./src/client.mjs" },
+  "files": ["src/*.mjs", "README.md", "LICENSE", "CHANGELOG.md", "config.example.json", "clients/*.json", "clients/dify/*.py", "clients/dify/*.yaml", "clients/dify/*.txt", "clients/dify/*.md", "clients/dify/.difyignore", "clients/dify/provider/*.py", "clients/dify/provider/*.yaml", "clients/dify/tools/*.py", "clients/dify/tools/*.yaml", "clients/dify/_assets/*.svg", "clients/langflow/*.py", "clients/python/*.py", "clients/python/pyproject.toml", "clients/n8n/package.json", "clients/n8n/README.md", "clients/n8n/nodes/*.js", "clients/n8n/credentials/*.js"],
+  "scripts": {
+    "test": "node --test test/config.test.mjs test/managed.test.mjs test/stdio.test.mjs",
+    "test:native": "node --test test/native.test.mjs test/coding-clients.test.mjs test/platform-mcp.test.mjs",
+    "check": "node --check src/cli.mjs"
+  },
+  "dependencies": { "@modelcontextprotocol/sdk": "1.29.0", "@praesidia/sdk": "^0.4.0", "zod": "3.25.76" },
+  "keywords": ["praesidia", "mcp", "model-context-protocol", "ai-governance", "approval", "agent"],
+  "homepage": "https://github.com/praesidia-ai/sdk/tree/main/plugins/managed-mcp#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/praesidia-ai/sdk.git", "directory": "plugins/managed-mcp" },
+  "bugs": { "url": "https://github.com/praesidia-ai/sdk/issues" },
+  "publishConfig": { "access": "public", "provenance": true }
+}

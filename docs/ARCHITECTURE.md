@@ -44,11 +44,14 @@ separate `test/` tree for `src/`.
 - `plugins/openclaw/` — `@praesidia/openclaw`, native OpenClaw integration.
 - `plugins/openai-agents/` — `@praesidia/openai-agents`, OpenAI Agents TypeScript integration.
 - `plugins/nemoclaw-openclaw/` — `@praesidia/nemoclaw-openclaw`.
+- `plugins/managed-mcp/` — `@praesidia/managed-mcp`, the approval-bound MCP companion for
+  OpenCode, Claude Code, n8n, Dify and Langflow (moved from the website repo, INTEG-0052).
 
-Each has its own `package.json`/version and is tested by
-`.github/workflows/runtime-compatibility.yml`, but **none has a publish workflow** — only the root
-package's `publish.yml` exists (`sdk/PUBLISHING.md`'s final section). See each plugin's own
-`README.md` for its narrower tested surface.
+Each has its own `package.json`/version. `scripts/test-plugins.sh` runs each one's `npm test` in
+the root `npm test`, linking this checkout's SDK build for plugins that depend on it.
+`.github/workflows/runtime-compatibility.yml` exercises openclaw/openai-agents against their pinned
+runtimes. `.github/workflows/publish-plugins.yml` publishes one plugin per `<dir>-v<version>` tag
+(`sdk/PUBLISHING.md`, "Plugins"). See each plugin's own `README.md` for its narrower tested surface.
 
 ## Contract-drift gate
 

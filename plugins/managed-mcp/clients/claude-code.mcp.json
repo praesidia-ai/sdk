@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "praesidia": {
+      "type": "stdio",
+      "command": "praesidia-managed-mcp",
+      "args": ["serve", "--stdio"],
+      "env": {
+        "PRAESIDIA_MANAGED_CONFIG": "${PRAESIDIA_MANAGED_CONFIG}",
+        "PRAESIDIA_API_KEY": "${PRAESIDIA_API_KEY}",
+        "PRAESIDIA_RUNTIME_INSTALLATION_ID": "${PRAESIDIA_RUNTIME_INSTALLATION_ID}",
+        "PRAESIDIA_RUNTIME_THREAD_ID": "${PRAESIDIA_RUNTIME_THREAD_ID}"
+      }
+    }
+  }
+}

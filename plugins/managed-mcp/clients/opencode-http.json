@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "praesidia": {
+      "type": "remote",
+      "url": "{env:PRAESIDIA_MANAGED_MCP_URL}",
+      "oauth": false,
+      "headers": { "Authorization": "Bearer {env:PRAESIDIA_MANAGED_MCP_TOKEN}" },
+      "enabled": true
+    }
+  },
+  "permission": { "praesidia_*": "ask" }
+}

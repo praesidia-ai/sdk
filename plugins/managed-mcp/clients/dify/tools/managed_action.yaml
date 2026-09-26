@@ -1,0 +1,76 @@
+identity:
+  name: praesidia_managed_action
+  author: praesidia
+  label:
+    en_US: Praesidia managed action
+description:
+  human:
+    en_US: Prepare a fixed-target request, stop for separate review, then explicitly resume the approved original.
+  llm: Executes only the operator-selected operation. Never approves a request or retries an uncertain effect.
+parameters:
+  - name: operation
+    type: select
+    required: true
+    form: form
+    default: connection
+    label:
+      en_US: Explicit operation
+    human_description:
+      en_US: Operator-selected step; connection is read-only and no action is auto-approved.
+    options:
+      - value: connection
+        label:
+          en_US: Check connection
+      - value: prepare
+        label:
+          en_US: Prepare and stop for review
+      - value: checkpoint
+        label:
+          en_US: Read owned checkpoint
+      - value: resume
+        label:
+          en_US: Explicitly resume approved request
+      - value: list_actions
+        label:
+          en_US: Read action evidence list
+  - name: operation_key
+    type: string
+    form: llm
+    label:
+      en_US: Operation key within operator host run
+    human_description:
+      en_US: Required for preparation. Reuse only for the exact same body.
+    llm_description: Stable request key within this fixed host run; not a trusted host identity.
+  - name: body_json
+    type: string
+    form: llm
+    default: '{}'
+    label:
+      en_US: Exact request JSON object
+    human_description:
+      en_US: Required for preparation; target and identity remain operator-owned.
+    llm_description: JSON object for the fixed registered target.
+  - name: approval_id
+    type: string
+    form: form
+    label:
+      en_US: Owned approval UUID
+    human_description:
+      en_US: Existing approval created by this installation and caller.
+  - name: request_commitment
+    type: string
+    form: form
+    label:
+      en_US: Original request commitment
+    human_description:
+      en_US: Copy the exact preparation commitment for explicit resume.
+  - name: confirm
+    type: string
+    form: form
+    label:
+      en_US: Exact RESUME approval commitment confirmation
+    human_description:
+      en_US: Operator confirmation names the approval and commitment; separate human approval is still required.
+extra:
+  python:
+    source: tools/managed_action.py

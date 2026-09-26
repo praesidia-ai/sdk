@@ -1,0 +1,88 @@
+name: Publish plugin
+
+# Publishes ONE plugins/<name> package from an immutable tag `<name>-v<version>`
+# whose version matches plugins/<name>/package.json. The root package keeps its
+# own `v*` tag (publish.yml). Publish @praesidia/sdk first: a plugin whose
+# @praesidia/sdk range has no registry release is refused, never published
+# uninstallable. Uses the same NPM_TOKEN secret / trusted publishing as publish.yml.
+
+on:
+  push:
+    tags:
+      - 'managed-mcp-v*'
+      - 'openai-agents-v*'
+      - 'openclaw-v*'
+      - 'nemoclaw-openclaw-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: npm publish (plugin)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+
+      - name: Resolve plugin from tag and verify its version
+        id: plugin
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          PLUGIN="${RELEASE_TAG%-v*}"
+          DIR="plugins/$PLUGIN"
+          if [ ! -f "$DIR/package.json" ]; then
+            echo "Tag $RELEASE_TAG names no plugin directory $DIR" >&2
+            exit 1
+          fi
+          PACKAGE_VERSION="$(node -p "require('./$DIR/package.json').version")"
+          if [ "$RELEASE_TAG" != "$PLUGIN-v$PACKAGE_VERSION" ]; then
+            echo "Release tag $RELEASE_TAG does not match $DIR version $PACKAGE_VERSION" >&2
+            exit 1
+          fi
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tagged commit is contained in main
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Release commit $GITHUB_SHA is not contained in main" >&2
+            exit 1
+          fi
+
+      - name: Verify the required @praesidia/sdk is already on the registry
+        env:
+          DIR: ${{ steps.plugin.outputs.dir }}
+        run: |
+          RANGE="$(node -p "const p=require('./$DIR/package.json'); ({...p.peerDependencies, ...p.dependencies})['@praesidia/sdk'] || ''")"
+          if [ -n "$RANGE" ] && [ -z "$(npm view "@praesidia/sdk@$RANGE" version 2>/dev/null)" ]; then
+            echo "@praesidia/sdk@$RANGE is not on the registry; publish the root package (v* tag) first" >&2
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npm run build
+      # The full suite: vitest + every plugin's own tests (scripts/test-plugins.sh).
+      - run: npm test
+
+      - name: Verify publish artifact
+        working-directory: ${{ steps.plugin.outputs.dir }}
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        working-directory: ${{ steps.plugin.outputs.dir }}
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,0 +1,36 @@
+identity:
+  author: praesidia
+  name: praesidia_managed
+  label:
+    en_US: Praesidia managed actions
+  description:
+    en_US: One authenticated installation, with explicit approval-bound execution.
+  icon: icon.svg
+  tags:
+    - utilities
+credentials_for_provider:
+  endpoint:
+    type: text-input
+    required: true
+    label:
+      en_US: Companion HTTPS endpoint
+  token:
+    type: secret-input
+    required: true
+    label:
+      en_US: Companion bearer token
+  organization_id:
+    type: text-input
+    required: true
+    label:
+      en_US: Organization UUID
+  installation_id:
+    type: text-input
+    required: true
+    label:
+      en_US: Installation UUID
+tools:
+  - tools/managed_action.yaml
+extra:
+  python:
+    source: provider/praesidia.py

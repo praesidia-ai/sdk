@@ -1,0 +1,12 @@
+{
+  "name": "n8n-nodes-praesidia-managed",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "Explicit approval-bound Praesidia MCP workflow node",
+  "keywords": ["n8n-community-node-package"],
+  "files": ["nodes", "credentials", "README.md"],
+  "n8n": { "n8nNodesApiVersion": 1, "credentials": ["credentials/PraesidiaManagedMcp.credentials.js"], "nodes": ["nodes/PraesidiaManagedMcp.node.js"] },
+  "dependencies": { "@praesidia/managed-mcp": "0.1.0" },
+  "peerDependencies": { "n8n-workflow": ">=2.15.0" },
+  "peerDependenciesMeta": { "n8n-workflow": { "optional": true } }
+}

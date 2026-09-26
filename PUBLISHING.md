@@ -94,10 +94,23 @@ automatic. It needs the contract-drift gate green for a real release cycle and a
 support the exported surface (`src/index.ts`) under full SemVer. Before any release, run
 `npm run lint:api-contract` to check exported symbols against `ui/swagger.json`.
 
-## Plugins: out of scope here
+## Plugins
 
-`plugins/openclaw`, `plugins/openai-agents` and `plugins/nemoclaw-openclaw` are separate npm
-packages (`@praesidia/openclaw`, `@praesidia/openai-agents`, `@praesidia/nemoclaw-openclaw`) that
-depend on `@praesidia/sdk@^0.4.0`. `.github/workflows/runtime-compatibility.yml` tests them, but
-they have no publish workflow. A `v*` tag publishes only the root package. Publish the root
-package first; the plugins cannot install from the registry before it exists.
+`plugins/<dir>` holds a separate npm package named `@praesidia/<dir>`: `openclaw`,
+`openai-agents`, `nemoclaw-openclaw` and `managed-mcp`. Each has its own version and
+`CHANGELOG.md`. A `v*` tag publishes only the root package.
+`.github/workflows/publish-plugins.yml` publishes one plugin from a `<dir>-v<version>` tag, for
+example `managed-mcp-v0.1.0`. It uses the same `NPM_TOKEN` secret and runs the same checks: tag
+matches `plugins/<dir>/package.json`, commit is on `origin/main`, then build + `npm test` + `npm
+pack --dry-run` in the plugin directory. It also refuses to publish while the plugin's
+`@praesidia/sdk` range has no registry release, so **publish the root `v0.4.0` first**.
+
+```bash
+# after v0.4.0 is live (npm view @praesidia/sdk shows 0.4.0)
+(cd plugins/managed-mcp && npm pack --dry-run)   # check the file list
+git tag -a managed-mcp-v0.1.0 -m "@praesidia/managed-mcp 0.1.0"
+git push origin managed-mcp-v0.1.0
+```
+
+Trusted publishing is configured per package on npmjs.com. After each plugin's first publish, add
+a Trusted Publisher for it with workflow `publish-plugins.yml`.

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "praesidia": {
+      "type": "http",
+      "url": "${PRAESIDIA_MANAGED_MCP_URL}",
+      "headers": { "Authorization": "Bearer ${PRAESIDIA_MANAGED_MCP_TOKEN}" }
+    }
+  }
+}
