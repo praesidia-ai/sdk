@@ -2,6 +2,14 @@
 
 This separately packaged adapter supports `@openai/agents` **0.17.0** and the candidate `@praesidia/sdk` **0.4.0**. Install locally built/operator-provided artifacts until their registry release is verified. Build/pack the SDK, install its tarball and the pinned framework in this directory, then pack this adapter.
 
+```sh
+npm install @praesidia/openai-agents @openai/agents@0.17.0   # after publication; returns E404 until then
+```
+
+`@praesidia/sdk` ^0.4.0 is a dependency and a peer: npm installs it, and your own
+`import ... from '@praesidia/sdk'` must resolve to that same compatible copy. See
+[CHANGELOG.md](./CHANGELOG.md).
+
 ```js
 import { Agent, run } from '@openai/agents';
 import { FileRuntimeAttemptStore, PraesidiaProtectedHttp } from '@praesidia/sdk';

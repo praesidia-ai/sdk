@@ -8,7 +8,8 @@
     "index.js",
     "openclaw.plugin.json",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "openclaw": {
     "extensions": [
@@ -32,5 +33,26 @@
   },
   "engines": {
     "node": ">=24.15.0"
+  },
+  "keywords": [
+    "praesidia",
+    "openclaw",
+    "openclaw-plugin",
+    "ai-governance",
+    "approval",
+    "agent"
+  ],
+  "homepage": "https://github.com/praesidia-ai/sdk/tree/main/plugins/openclaw#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/praesidia-ai/sdk.git",
+    "directory": "plugins/openclaw"
+  },
+  "bugs": {
+    "url": "https://github.com/praesidia-ai/sdk/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

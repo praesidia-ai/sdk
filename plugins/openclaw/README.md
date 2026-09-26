@@ -14,6 +14,17 @@ sharing one agent across hosts requires shared durable atomic storage.
 
 The default `enforceManagedOnly: true` blocks other tool names at OpenClaw's native `before_tool_call` boundary. This affects the agent's available tools. Setting it to `false` leaves other tools outside Praesidia's protection. Neither mode prevents a host operator or trusted plugin from modifying the runtime or accessing credentials outside this plugin; stronger containment needs its own sandbox/egress profile. Only named, tested OpenClaw runners can carry an enforcement claim.
 
+## Install from npm
+
+```sh
+npm install @praesidia/openclaw openclaw@2026.9.2   # after publication; returns E404 until then
+openclaw plugins install --link node_modules/@praesidia/openclaw --force
+openclaw plugins enable praesidia
+```
+
+`@praesidia/sdk` ^0.4.0 is a dependency and a peer: npm installs it, and refuses a conflicting
+copy in the host project. See [CHANGELOG.md](./CHANGELOG.md).
+
 ## Install a local candidate
 
 Build and pack the SDK in this source checkout, then install its resulting tarball in this plugin directory together with OpenClaw **2026.9.2**. Use an operator-provided SDK artifact for a separate checkout. Registry publication is a separate release step.

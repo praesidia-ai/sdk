@@ -4,9 +4,14 @@ This release-specific OpenClaw plugin targets **NemoClaw 0.0.120**, **OpenShell 
 
 The tool uses the existing NVIDIA-managed MCP registration named `praesidia`. It calls mcporter's public `createRuntime().callTool()` with one fixed tool name; it does not invoke the CLI's typo correction/retry path. URL, transport and native credential placeholder are rechecked before every invocation. The connection must report the same live `CONNECTED` `nemoclaw/managed-mcp` installation before preparation or execution proceeds. Explicit checkpoint readback remains authenticated and binds the exact installation and approval after execution is disabled. Runtime-verified owner context is required; `allowLocalCli` is an explicit operator opt-in. The OpenClaw session and tool-call IDs are observations. The companion's operator-owned thread ID and server-validated installation/credential bind execution authority.
 
+The package is `@praesidia/nemoclaw-openclaw` (`npm install @praesidia/nemoclaw-openclaw` after
+publication; returns E404 until then). It does not depend on `@praesidia/sdk`: it talks only to the
+managed MCP companion. The supported image workflow below stages this directory's source files
+and does not need the registry. See [CHANGELOG.md](./CHANGELOG.md).
+
 ## Install the companion and provision authority
 
-Use the separate `@praesidia/managed-mcp` candidate in `website/integration-examples/managed-mcp`. Configure `ecosystemId: "nemoclaw"`, `profileId: "managed-mcp"`, `checkpointRuntime: "openclaw"`, one registered target with an independent public signing key, and a durable private state directory. `PRAESIDIA_RUNTIME_INSTALLATION_ID` and `PRAESIDIA_RUNTIME_THREAD_ID` are operator-owned. The companion keeps user-backed API credentials outside the sandbox; its dedicated HTTPS endpoint requires a separately provisioned `PRAESIDIA_MANAGED_MCP_TOKEN`. Preparation and resume are disabled until the operator enables them. Resume requires the exact stored approval, commitment and confirmation; ambiguous attempts remain blocked across restarts.
+Use the separate `@praesidia/managed-mcp` companion in this repository's [`plugins/managed-mcp`](../managed-mcp/README.md). Configure `ecosystemId: "nemoclaw"`, `profileId: "managed-mcp"`, `checkpointRuntime: "openclaw"`, one registered target with an independent public signing key, and a durable private state directory. `PRAESIDIA_RUNTIME_INSTALLATION_ID` and `PRAESIDIA_RUNTIME_THREAD_ID` are operator-owned. The companion keeps user-backed API credentials outside the sandbox; its dedicated HTTPS endpoint requires a separately provisioned `PRAESIDIA_MANAGED_MCP_TOKEN`. Preparation and resume are disabled until the operator enables them. Resume requires the exact stored approval, commitment and confirmation; ambiguous attempts remain blocked across restarts.
 
 Register that HTTPS companion through the supported native route:
 

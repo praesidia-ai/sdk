@@ -14,15 +14,37 @@
     "index.js",
     "index.d.ts",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "dependencies": {
     "@praesidia/sdk": "^0.4.0"
   },
   "peerDependencies": {
-    "@openai/agents": "0.17.0"
+    "@openai/agents": "0.17.0",
+    "@praesidia/sdk": "^0.4.0"
   },
   "engines": {
     "node": ">=20"
+  },
+  "keywords": [
+    "praesidia",
+    "openai-agents",
+    "ai-governance",
+    "approval",
+    "agent"
+  ],
+  "homepage": "https://github.com/praesidia-ai/sdk/tree/main/plugins/openai-agents#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/praesidia-ai/sdk.git",
+    "directory": "plugins/openai-agents"
+  },
+  "bugs": {
+    "url": "https://github.com/praesidia-ai/sdk/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

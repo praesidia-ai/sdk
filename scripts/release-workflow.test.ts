@@ -76,6 +76,22 @@ describe("plugin release workflow", () => {
     }
   });
 
+  // INTEG-0051 — every plugin tarball is publish-ready: changelog shipped, public
+  // scoped access, repository pointing at its own directory; an SDK user peers on it.
+  it("every plugin package carries release metadata", () => {
+    for (const dir of readdirSync(resolve(repositoryRoot, "plugins"))) {
+      if (!existsSync(resolve(repositoryRoot, "plugins", dir, "package.json"))) continue;
+      const pkg = JSON.parse(read(`plugins/${dir}/package.json`));
+      expect(pkg.files, dir).toContain("CHANGELOG.md");
+      expect(existsSync(resolve(repositoryRoot, "plugins", dir, "CHANGELOG.md")), dir).toBe(true);
+      expect(pkg.publishConfig, dir).toEqual({ access: "public", provenance: true });
+      expect(pkg.repository?.directory, dir).toBe(`plugins/${dir}`);
+      expect(pkg.license, dir).toBe("Apache-2.0");
+      const sdk = pkg.dependencies?.["@praesidia/sdk"];
+      if (sdk && !pkg.bin) expect(pkg.peerDependencies?.["@praesidia/sdk"], dir).toBe(sdk);
+    }
+  });
+
   it("publishes only a tested main commit whose SDK range is already on the registry", () => {
     const publish = workflow.indexOf("run: npm publish --access public --provenance");
     expect(publish).toBeGreaterThan(-1);

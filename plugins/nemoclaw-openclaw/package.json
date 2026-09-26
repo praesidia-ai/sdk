@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Pinned NemoClaw OpenClaw gate for the Praesidia managed MCP companion",
   "license": "Apache-2.0",
-  "files": ["index.js", "bridge.js", "openclaw.plugin.json", "README.md", "LICENSE"],
+  "files": ["index.js", "bridge.js", "openclaw.plugin.json", "README.md", "LICENSE", "CHANGELOG.md"],
   "scripts": {"test": "node --test test/*.test.mjs"},
   "openclaw": {
     "extensions": ["./index.js"],
@@ -13,5 +13,10 @@
   },
   "peerDependencies": {"openclaw": "2026.7.1", "mcporter": "0.7.3"},
   "devDependencies": {"openclaw": "2026.7.1", "mcporter": "0.7.3"},
-  "engines": {"node": ">=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0"}
+  "engines": {"node": ">=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0"},
+  "keywords": ["praesidia", "nemoclaw", "openclaw", "openclaw-plugin", "mcp", "ai-governance", "approval"],
+  "homepage": "https://github.com/praesidia-ai/sdk/tree/main/plugins/nemoclaw-openclaw#readme",
+  "repository": {"type": "git", "url": "git+https://github.com/praesidia-ai/sdk.git", "directory": "plugins/nemoclaw-openclaw"},
+  "bugs": {"url": "https://github.com/praesidia-ai/sdk/issues"},
+  "publishConfig": {"access": "public", "provenance": true}
 }
