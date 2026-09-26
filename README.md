@@ -1136,10 +1136,11 @@ await hooks.reportOutcome({
 `result` never leaves your process. A second report, or one for an approval that was not
 consumed, is refused with a single `PraesidiaApiError` (status 409); it is not retried.
 
-**Fail mode.** An outage is a network error, a timeout, a 408 / 429 / 5xx, or a malformed
+**Fail mode.** An outage is a network error, a timeout, a 408 / 5xx, or a malformed
 response. A fail-closed hook then throws `InteractionDecisionUnavailableError`; a fail-open
 hook resolves to `{ decision: null, failOpenError }`. Any other 4xx (bad key, unknown agent,
-feature not enabled) always throws `PraesidiaApiError`, on every hook. The defaults fail closed
+feature not enabled, and 429) always throws `PraesidiaApiError`, on every hook (SDK-0352): an
+end user can cause a 429 from a shared egress IP, so it must never open a fail-open hook. The defaults fail closed
 where a skipped check can do irreversible local damage with no other Praesidia control in the
 path (shell / code execution, filesystem writes), and fail open for read-only and
 lower-impact checks so a Praesidia outage does not stop every agent. Override per class with

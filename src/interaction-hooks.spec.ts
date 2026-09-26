@@ -134,11 +134,27 @@ describe('fail modes', () => {
     expect(DEFAULT_FAIL_MODES).toEqual({ toolCall: 'open', exec: 'closed', fsRead: 'open', fsWrite: 'closed', browser: 'open' });
   });
 
-  it.each([[{ status: 503, text: 'down' }], [{ status: 429, text: 'slow' }], [{ json: { verdict: 'maybe' } }], [{ text: 'not json' }]])(
+  it.each([[{ status: 503, text: 'down' }], [{ json: { verdict: 'maybe' } }], [{ text: 'not json' }]])(
     'fail-closed exec treats %j as an outage', async (res) => {
       stub([res]);
       await expect(hooks().beforeExec({ command: 'ls' })).rejects.toBeInstanceOf(InteractionDecisionUnavailableError);
     });
+
+  // SDK-0352 — same degrade predicate as the guard (SDK-0348): a 429 is caller-triggerable
+  // (shared egress IP), so it must never open a fail-open hook; a 503 still degrades.
+  it.each(['open', 'closed'] as const)('a 429 throws PraesidiaApiError on a fail-%s hook', async (mode) => {
+    stub([{ status: 429, text: 'slow' }]);
+    const err = await hooks({ failMode: { toolCall: mode } }).beforeToolCall({ toolName: 'search.web', arguments: {} }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PraesidiaApiError);
+    expect(err).toMatchObject({ status: 429 });
+  });
+
+  it('a 503 degrades a fail-open hook', async () => {
+    stub([{ status: 503, text: 'down' }]);
+    const res = await hooks().beforeToolCall({ toolName: 'search.web', arguments: {} });
+    expect(res.decision).toBeNull();
+    expect(res.failOpenError).toMatchObject({ status: 503 });
+  });
 
   it('a caller error (401) throws even on a fail-open hook', async () => {
     stub([{ status: 401, text: 'bad key' }]);

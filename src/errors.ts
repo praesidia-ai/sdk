@@ -213,7 +213,7 @@ export class InteractionDeniedError extends Error {
 
 /**
  * SDK-0300 — thrown by a fail-closed interaction hook when no decision could
- * be obtained (network error, timeout, 408/429/5xx, or a malformed response).
+ * be obtained (network error, timeout, 408/5xx, or a malformed response).
  * `cause` is the underlying error. A fail-open hook returns instead.
  */
 export class InteractionDecisionUnavailableError extends Error {
@@ -252,9 +252,13 @@ export class GuardContentTooLargeError extends Error {
   }
 }
 
-/** No answer was obtained: transport/timeout, 408/429/5xx, or a malformed 2xx. Other 4xx are caller errors. */
+/**
+ * The one degrade predicate (SDK-0348, SDK-0352): true only for a real outage —
+ * transport/timeout, 408, 5xx, or a malformed 2xx. Every other 4xx, including a
+ * 429 an end user can trigger from a shared egress IP, is false and must throw.
+ */
 export function isOutage(err: unknown): boolean {
   if (err instanceof PraesidiaConfigError) return false;
   if (!(err instanceof PraesidiaApiError)) return true;
-  return err.status < 400 || err.status >= 500 || err.status === 408 || err.status === 429;
+  return err.status < 400 || err.status >= 500 || err.status === 408;
 }

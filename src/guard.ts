@@ -3,7 +3,6 @@ import {
   GuardContentTooLargeError,
   GuardrailBlockedError,
   isOutage,
-  PraesidiaApiError,
   PraesidiaConfigError,
   ProtectedActionDeniedError,
   UnsupportedProtectedActionTargetError,
@@ -824,7 +823,7 @@ export class PraesidiaGuard {
     // SDK-0348 — only an outage may degrade. A caller-triggerable 4xx (400
     // oversized, 401/403, 429 on a shared egress IP) must never switch the
     // org's guardrails off, so it throws in every failureMode.
-    if (!isOutage(err) || (err instanceof PraesidiaApiError && err.status === 429)) throw err;
+    if (!isOutage(err)) throw err;
     const now = Date.now();
     if (this.degradedSince === undefined) {
       this.degradedSince = now;
