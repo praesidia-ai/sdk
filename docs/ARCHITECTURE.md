@@ -58,11 +58,8 @@ same scanner (`CD-0011`, tracked as duplication debt, not correctness debt).
 
 ## What ships to npm (when it is published)
 
-Controlled by `package.json`'s `files` array (a curated allow-list, not `.gitignore`-derived):
-`dist/**`, `README.md`, `LICENSE`, `package.json`, and exactly the four topic docs already
-present under `docs/` before this triad (`docs/federated-identity.md`,
-`docs/interop-research.md`, `docs/protected-http.md`, `docs/runtime-tools.md`) plus
-`examples/protected-http-target.mjs` (`sdk/PUBLISHING.md`'s "What ships" section, verified via
-`npm pack --dry-run` 2026-09-11). **This new triad (`docs/README.md`, `ARCHITECTURE.md`,
-`OPERATIONS.md`) is not in that list** and will not ship in the npm tarball unless a maintainer
-deliberately adds it — that is a decision for `sdk-dev`, not assumed here.
+Controlled by `package.json`'s `files` array (an allow-list, not `.gitignore`-derived): `dist/**`
+(compiled `.js` + `.d.ts`, no source maps), `README.md`, `LICENSE`, `CHANGELOG.md` and
+`package.json`. The guides under `docs/` and the files under `examples/` do not ship; the README
+links to them in the repository (`sdk/PUBLISHING.md` "What ships", verified via
+`npm pack --dry-run` 2026-09-26, INTEG-0050).

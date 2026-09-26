@@ -1,25 +1,21 @@
 {
   "name": "@praesidia/sdk",
   "version": "0.4.0",
-  "description": "Open-source agent governance SDK for Praesidia \u2014 guardrail checks, audit logging, analytics",
+  "description": "Open-source agent governance SDK for Praesidia — guardrail checks, audit logging, analytics",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
   "files": [
     "dist",
     "README.md",
-    "docs/interop-research.md",
-    "docs/protected-http.md",
     "LICENSE",
-    "docs/federated-identity.md",
-    "examples/protected-http-target.mjs",
-    "docs/runtime-tools.md"
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc",
@@ -54,6 +50,13 @@
   "homepage": "https://praesidia.ai",
   "repository": {
     "type": "git",
-    "url": "https://github.com/praesidia-ai/sdk"
+    "url": "git+https://github.com/praesidia-ai/sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/praesidia-ai/sdk/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }
