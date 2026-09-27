@@ -1183,6 +1183,8 @@ Python also has a `guarded()` tool-wrapping helper that this SDK does not have y
 | Any other 4xx from Praesidia, including 429 | Always throws `PraesidiaApiError`, in every mode (SDK-0348) |
 | Content over `MAX_GUARD_CONTENT_LENGTH` (100,000 code points) | Throws `GuardContentTooLargeError` before any request (SDK-0348) |
 | `context` / body JSON cannot encode (BigInt, circular) | Throws `PraesidiaConfigError` (`cause` = the `TypeError`) before any request, in every mode (SDK-0357) |
+| A header value with CR, LF, NUL or another character outside RFC 9110 field-value (e.g. an end-user-derived `chainId`) | Throws `PraesidiaConfigError` before any request, in every mode (SDK-0358) |
+| Any other local (non-outage) error | Rethrown as-is. The Python SDK wraps a non-`PraesidiaError` in `PraesidiaError` (original as `__cause__`) |
 | `strict: true` + outage | Throws `PraesidiaApiError` |
 | `failOpen: true` | Silently degrades (no `console.warn`) |
 

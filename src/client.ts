@@ -121,8 +121,23 @@ export async function readBoundedJsonResponse<T>(
   }
 }
 
-/** SDK-0357 — every SDK request goes through here, so any rejection is transport. */
+/** SDK-0358 — RFC 9110 token / field-value (HTAB, SP, VCHAR, obs-text; no CR/LF/NUL). */
+const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+const HEADER_VALUE = /^[\t\x20-\x7e\x80-\xff]*$/;
+
+/**
+ * SDK-0357 — every SDK request goes through here, so any rejection is transport.
+ * SDK-0358 — a header fetch would refuse (e.g. an end-user chainId with a
+ * newline) is a caller error, checked first so it can never read as an outage.
+ */
 async function send(url: string, init: RequestInit): Promise<Response> {
+  for (const [name, value] of Object.entries((init.headers ?? {}) as Record<string, unknown>)) {
+    if (!HEADER_NAME.test(name) || typeof value !== "string" || !HEADER_VALUE.test(value)) {
+      throw new PraesidiaConfigError(
+        `header ${JSON.stringify(name)} must be an RFC 9110 token with a field-value (no CR, LF, NUL or other control characters)`,
+      );
+    }
+  }
   try {
     return await fetch(url, init);
   } catch (e) {
@@ -487,6 +502,8 @@ export class PraesidiaClient {
       try {
         response = await send(url, initFactory());
       } catch (err) {
+        // SDK-0358 — a caller error (bad header/body) is never retried.
+        if (err instanceof PraesidiaConfigError) throw err;
         // Network-level failure (DNS/connection reset/etc — fetch rejects,
         // it does not resolve). Retry it exactly like a 5xx, same budget.
         const elapsed = performance.now() - start;
