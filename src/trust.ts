@@ -278,10 +278,14 @@ export class PraesidiaTrust {
     }
 
     // Sign-the-doc / attach-the-proof: strip `proof`, canonicalize the rest.
+    // Format 2 (ADR-0004) signs the purpose-tagged bytes instead.
     let message: Uint8Array;
     try {
       const { proof: _proof, ...unsigned } = passport;
       message = canonicalJson(unsigned);
+      if (proof.signatureFormat === 2) {
+        message = Buffer.concat([TRUST_PASSPORT_V2_TAG, message]);
+      }
     } catch {
       return {
         verified: false,
@@ -510,6 +514,13 @@ export class PraesidiaTrust {
 
 type PassportVerifier = (message: Uint8Array, signature: string) => boolean;
 
+/**
+ * ADR-0004 signature format 2: `"praesidia:<purpose>:v2\n" || canonical`.
+ * Agent and AI System passports share the `trust-passport` purpose. The
+ * purpose comes from what is being verified, never from the passport.
+ */
+const TRUST_PASSPORT_V2_TAG = Buffer.from('praesidia:trust-passport:v2\n', 'ascii');
+
 /** Both passport kinds share be's `signCredentialDocument` proof envelope. */
 type SignedTrustCredential = TrustPassport | AiSystemTrustPassport;
 
@@ -546,6 +557,10 @@ function isCredentialEnvelopeWellFormed(
     typeof subject.attestations.auditTrailEnabled === 'boolean' &&
     typeof subject.attestations.spendCapConfigured === 'boolean' &&
     isNonEmptyString(proof.type) &&
+    // Absent = 1; anything else (null, "2", 3) fails closed (AV-0018 contract).
+    (proof.signatureFormat === undefined ||
+      proof.signatureFormat === 1 ||
+      proof.signatureFormat === 2) &&
     proof.created === passport.issuanceDate &&
     proof.proofPurpose === 'assertionMethod' &&
     Number.isInteger(proof.keyVersion) &&

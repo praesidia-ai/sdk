@@ -15,6 +15,16 @@ change bumps the minor version (see `PUBLISHING.md`, "Semver policy").
   is `string | null`, and the receipt has a new `reportedDecisionId: string | null`. Calls that
   pass an `approvalId` still get a receipt typed with `approvalId: string` through an overload.
 
+### SDK-0363: trust passports accept tenant signature format 2
+
+- **Added** `verifyPassport` / `verifyAiSystemPassport` / `fetchAndVerify*` read
+  `proof.signatureFormat` (absent = 1). Format 2 verifies over
+  `"praesidia:trust-passport:v2\n" || canonical JSON` (ADR-0004); format 1 passports verify
+  unchanged. A signature for another purpose (e.g. `governance-badge`) does not verify.
+- **Changed** A `signatureFormat` other than absent, `1` or `2` (including `null` or `"2"`) is
+  `malformed-passport`. `TrustPassportProof` gains the optional `signatureFormat?: 1 | 2`
+  (additive type change). Minor bump under the 0.x policy.
+
 ## 0.4.0 — 2026-09-26 (first registry release)
 
 No earlier version reached npm (0.2.x and 0.3.x existed only in source), so 0.4.0 carries every

@@ -835,6 +835,13 @@ export interface TrustPassportProof {
   verificationMethod: string;
   keyVersion: number;
   proofValue: string;
+  /**
+   * SDK-0363 / ADR-0004. Absent or 1 = legacy: the signature is over the
+   * canonical JSON. 2 = the signature is over
+   * `"praesidia:trust-passport:v2\n" || canonical JSON`. Any other value
+   * (including `null` or `"2"`) is `malformed-passport`.
+   */
+  signatureFormat?: 1 | 2;
 }
 
 /** H3-02b — the signed, verifiable trust passport (W3C VC shape). */

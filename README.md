@@ -1020,6 +1020,12 @@ the substrate-selected signature over those exact bytes; it also checks
 `expirationDate`. It
 never throws — a malformed passport / key yields `{ verified: false, reason }`.
 
+Signature formats (ADR-0004): `proof.signatureFormat` absent or `1` means the signature is
+over the canonical JSON above; `2` means it is over
+`"praesidia:trust-passport:v2\n" || canonical JSON` (agent and AI System passports alike).
+Any other value is `malformed-passport`. A format-2 signature made for another purpose
+(e.g. `governance-badge`) is `signature-mismatch`.
+
 A human-readable PDF of an **AI System's** signed passport (signature
 fingerprint + verification URL printed on it) is a public download too:
 
