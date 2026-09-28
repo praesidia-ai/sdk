@@ -195,7 +195,7 @@ describe('approval outcomes (fixture)', () => {
 
 describe('reportOutcome (BE-1582)', () => {
   const OUTCOME_URL = `${URL_}/outcome`;
-  const RECEIPT = { approvalId: CONSUMED.approvalId as string, decisionId: '66666666-6666-4666-8666-666666666601' };
+  const RECEIPT = { approvalId: CONSUMED.approvalId as string, reportedDecisionId: null, decisionId: '66666666-6666-4666-8666-666666666601' };
   const email = byName('require_approval_minted').request as { action: { name: string; arguments: Record<string, string> } };
 
   it('a consumed allow surfaces approvalId, and the report carries a commitment, never the raw result', async () => {
@@ -241,6 +241,30 @@ describe('reportOutcome (BE-1582)', () => {
     const f = stub([{ json: RECEIPT }]);
     await expect(hooks().reportOutcome({ approvalId: RECEIPT.approvalId, status: 'done' as never })).rejects.toBeInstanceOf(PraesidiaConfigError);
     await expect(hooks().reportOutcome({ approvalId: '', status: 'succeeded' })).rejects.toBeInstanceOf(PraesidiaConfigError);
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('a plain allow reports by decisionId only (BE-1808)', async () => {
+    const receipt = { approvalId: null, reportedDecisionId: ALLOW.decisionId as string, decisionId: '66666666-6666-4666-8666-666666666602' };
+    const f = stub([{ json: ALLOW }, { json: receipt }]);
+    const h = hooks();
+    const { decision } = await h.beforeInteraction('agent_to_email', email.action);
+    expect(decision?.approvalId).toBeNull();
+    const r = await h.reportOutcome({ decisionId: decision!.decisionId, status: 'succeeded', targetSystem: 'smtp' });
+    expect(r).toEqual(receipt);
+    expect(String(f.mock.calls[1]?.[0])).toBe(OUTCOME_URL);
+    expect(sentBody(f, 1)).toBe(JSON.stringify({ agentId: AGENT, decisionId: ALLOW.decisionId, status: 'succeeded', targetSystem: 'smtp' }));
+  });
+
+  it('neither, both, or an empty decisionId throws before any request', async () => {
+    const f = stub([{ json: RECEIPT }]);
+    const h = hooks();
+    // @ts-expect-error neither key
+    await expect(h.reportOutcome({ status: 'succeeded' })).rejects.toBeInstanceOf(PraesidiaConfigError);
+    // @ts-expect-error both keys
+    await expect(h.reportOutcome({ approvalId: RECEIPT.approvalId, decisionId: RECEIPT.decisionId, status: 'succeeded' }))
+      .rejects.toBeInstanceOf(PraesidiaConfigError);
+    await expect(h.reportOutcome({ decisionId: '', status: 'succeeded' })).rejects.toBeInstanceOf(PraesidiaConfigError);
     expect(f).not.toHaveBeenCalled();
   });
 });

@@ -1127,23 +1127,32 @@ constrained the decision. If the server cannot read the task's delegation chain,
 is a deny with `delegation_chain_unavailable`; if it cannot evaluate assurance, a deny with
 `assurance_evaluation_error`.
 
-**Reporting the outcome.** When an `allow` came from a consumed approval
-(`decision.reasonCode === 'approval_consumed'`), report what happened once:
+**Reporting the outcome.** After an `allow`, report what happened once. Pass exactly one key:
+`approvalId` when the allow came from a consumed approval
+(`decision.reasonCode === 'approval_consumed'`), otherwise `decisionId` (a plain allow, where
+`decision.approvalId` is `null`). Neither or both throws `PraesidiaConfigError` before any
+request.
 
 ```ts
 const { decision } = await hooks.beforeInteraction('agent_to_email', { name: 'send' });
 const sent = await mailer.send(msg);
 await hooks.reportOutcome({
-  approvalId: decision!.approvalId!,
+  ...(decision!.approvalId ? { approvalId: decision!.approvalId } : { decisionId: decision!.decisionId }),
   status: 'succeeded', // | 'failed_no_effect' | 'partial' | 'unknown'
   result: sent,        // hashed locally (sha256 of JCS); only resultCommitment is sent
   targetSystem: 'smtp',
   targetTransactionId: sent.messageId,
-}); // → { approvalId, decisionId }
+}); // → { approvalId, reportedDecisionId, decisionId }
 ```
 
-`result` never leaves your process. A second report, or one for an approval that was not
-consumed, is refused with a single `PraesidiaApiError` (status 409); it is not retried.
+The receipt echoes the key you sent (`approvalId` or `reportedDecisionId`; the other is
+`null`). Its `decisionId` is the outcome's own Decision Record id, the key for
+`GET /organizations/:orgId/audit/decisions/:decisionId/receipt`. `result` never leaves your
+process. A second report, or one the server cannot match, is refused with a single
+`PraesidiaApiError` (status 409); it is not retried. An unmatched report is an approval that
+was not consumed, or a decisionId that is not a plain allow for this agent. A verdict reused
+from the decision cache shares its `decisionId`, so only its first run can report. Only the
+principal the allow was issued to may report it; anyone else gets a 403.
 
 **Fail mode.** An outage is a network error, a timeout, a 408 / 5xx, or a malformed
 response. A fail-closed hook then throws `InteractionDecisionUnavailableError`; a fail-open

@@ -94,23 +94,39 @@ export interface InteractionHookResult {
 export const INTERACTION_OUTCOME_STATUSES = ['succeeded', 'failed_no_effect', 'partial', 'unknown'] as const;
 export type InteractionOutcomeStatus = (typeof INTERACTION_OUTCOME_STATUSES)[number];
 
-/**
- * What the agent saw after running an approved interaction. `result` is
- * committed locally (sha256 of its JCS form) and never sent.
- */
-export interface InteractionOutcomeReport {
-  /** `decision.approvalId` of an `allow` with reasonCode `approval_consumed`. */
-  approvalId: string;
+interface InteractionOutcomeFields {
   status: InteractionOutcomeStatus;
   result?: JsonValue;
   targetSystem?: string;
   targetTransactionId?: string;
 }
 
+/** Outcome of an `allow` with reasonCode `approval_consumed`, keyed by `decision.approvalId`. */
+export interface InteractionApprovalOutcomeReport extends InteractionOutcomeFields {
+  approvalId: string;
+  decisionId?: never;
+}
+
+/** Outcome of a plain `allow` (`approvalId: null`), keyed by `decision.decisionId` (BE-1808). */
+export interface InteractionDecisionOutcomeReport extends InteractionOutcomeFields {
+  decisionId: string;
+  approvalId?: never;
+}
+
+/**
+ * What the agent saw after running an allowed interaction: exactly one of
+ * `approvalId` | `decisionId`. `result` is committed locally (sha256 of its
+ * JCS form) and never sent.
+ */
+export type InteractionOutcomeReport = InteractionApprovalOutcomeReport | InteractionDecisionOutcomeReport;
+
 /** be `InteractionOutcomeResponseDto`. */
 export interface InteractionOutcomeReceipt {
-  approvalId: string;
-  /** Decision Record id of the outcome. */
+  /** Echo of the reported approvalId; null on the decisionId path. */
+  approvalId: string | null;
+  /** Echo of the reported decisionId; null on the approvalId path (BE-1808). */
+  reportedDecisionId: string | null;
+  /** Decision Record id of the outcome — the receipt key for `audit/decisions/:decisionId/receipt`. */
   decisionId: string;
 }
 
@@ -234,21 +250,30 @@ export class PraesidiaInteractionHooks {
   }
 
   /**
-   * Record the result of an approved interaction, once (BE-1582). Any refusal
-   * (unknown, not consumed, not approved, already reported) is a
-   * `PraesidiaApiError` with status 409; it is not retried.
+   * Record the result of an allowed interaction, once: by `approvalId` for a
+   * consumed approval (BE-1582), by `decisionId` for a plain allow (BE-1808).
+   * A refusal (unknown, not consumed/not a plain allow, already reported) is a
+   * `PraesidiaApiError` with status 409; it is not retried. A verdict reused
+   * from the decision cache shares its decisionId, so only its first run can report.
    */
+  async reportOutcome(report: InteractionApprovalOutcomeReport): Promise<InteractionOutcomeReceipt & { approvalId: string }>;
+  async reportOutcome(report: InteractionDecisionOutcomeReport): Promise<InteractionOutcomeReceipt & { approvalId: null }>;
+  async reportOutcome(report: InteractionOutcomeReport): Promise<InteractionOutcomeReceipt>;
   async reportOutcome(report: InteractionOutcomeReport): Promise<InteractionOutcomeReceipt> {
-    const { approvalId, status, result, targetSystem, targetTransactionId } = report;
-    if (typeof approvalId !== 'string' || approvalId.length === 0) {
-      throw new PraesidiaConfigError('approvalId is required');
+    const { approvalId, decisionId, status, result, targetSystem, targetTransactionId } = report;
+    if ((approvalId === undefined) === (decisionId === undefined)) {
+      throw new PraesidiaConfigError('exactly one of approvalId or decisionId is required');
+    }
+    const [key, id] = approvalId !== undefined ? ['approvalId', approvalId] : ['decisionId', decisionId];
+    if (typeof id !== 'string' || id.length === 0) {
+      throw new PraesidiaConfigError(`${key} must be a non-empty string`);
     }
     if (!(INTERACTION_OUTCOME_STATUSES as readonly string[]).includes(status)) {
       throw new PraesidiaConfigError(`status must be one of ${INTERACTION_OUTCOME_STATUSES.join(', ')}`);
     }
     return this.client.post<InteractionOutcomeReceipt>(`${this.path}/outcome`, {
       agentId: this.agentId,
-      approvalId,
+      [key]: id,
       status,
       ...(result === undefined ? {} : { resultCommitment: jcsCommitment(result) }),
       ...(targetSystem === undefined ? {} : { targetSystem }),

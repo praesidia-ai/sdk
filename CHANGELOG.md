@@ -3,6 +3,18 @@
 All notable changes to `@praesidia/sdk`. Versions follow SemVer; while on `0.x`, a breaking
 change bumps the minor version (see `PUBLISHING.md`, "Semver policy").
 
+## Unreleased
+
+### SDK-0361: `reportOutcome` accepts `decisionId` for plain ALLOW decisions (needs be ≥ BE-1808)
+
+- `reportOutcome` takes exactly one of `approvalId` | `decisionId`, as a discriminated union
+  (`InteractionApprovalOutcomeReport` | `InteractionDecisionOutcomeReport`). Neither or both
+  throws `PraesidiaConfigError`. Existing `{ approvalId, ... }` calls compile unchanged.
+- **Type change (breaking for code that reads these types directly):** `InteractionOutcomeReport` is
+  now a union, so `report.approvalId` is `string | undefined`. `InteractionOutcomeReceipt.approvalId`
+  is `string | null`, and the receipt has a new `reportedDecisionId: string | null`. Calls that
+  pass an `approvalId` still get a receipt typed with `approvalId: string` through an overload.
+
 ## 0.4.0 — 2026-09-26 (first registry release)
 
 No earlier version reached npm (0.2.x and 0.3.x existed only in source), so 0.4.0 carries every
