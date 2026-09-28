@@ -1,0 +1,61 @@
+name: Praesidia release gate
+description: >-
+  Gate a release on the Praesidia deployment quality gate. Optionally imports a
+  CycloneDX AIBOM first. Fails closed on a failing verdict, any non-2xx or
+  unparsable JSON.
+author: Praesidia
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  api-url:
+    description: Praesidia API base URL, e.g. https://api.praesidia.ai
+    required: true
+  api-key:
+    description: >-
+      Organization or service-account API key (pass from a secret). Needs scope
+      `ci:gate`, plus `aibom:write` when aibom-path is set. Masked, never echoed.
+    required: true
+  org-id:
+    description: Organization id
+    required: true
+  ai-system-id:
+    description: AI System id (UUID)
+    required: true
+  eval-run-id:
+    description: Completed eval run id (UUID v4) to gate on
+    required: true
+  commit-sha:
+    description: >-
+      Optional 40-char lowercase commit SHA the run evaluated; binds the verdict
+      to that commit (409 if bound to another).
+    required: false
+    default: ''
+  aibom-path:
+    description: Optional path to a CycloneDX JSON BOM to import before gating
+    required: false
+    default: ''
+
+outputs:
+  verdict:
+    description: effectiveResult of the gate (pass | advisory_fail | fail)
+    value: ${{ steps.gate.outputs.verdict }}
+  report-url:
+    description: Report URL, when the API response carries `reportUrl` (empty otherwise)
+    value: ${{ steps.gate.outputs.report-url }}
+
+runs:
+  using: composite
+  steps:
+    - id: gate
+      shell: bash
+      env:
+        PRAESIDIA_API_URL: ${{ inputs.api-url }}
+        PRAESIDIA_API_KEY: ${{ inputs.api-key }}
+        PRAESIDIA_ORG_ID: ${{ inputs.org-id }}
+        PRAESIDIA_AI_SYSTEM_ID: ${{ inputs.ai-system-id }}
+        PRAESIDIA_EVAL_RUN_ID: ${{ inputs.eval-run-id }}
+        PRAESIDIA_COMMIT_SHA: ${{ inputs.commit-sha }}
+        PRAESIDIA_AIBOM_PATH: ${{ inputs.aibom-path }}
+      run: bash "${GITHUB_ACTION_PATH}/release-gate.sh"

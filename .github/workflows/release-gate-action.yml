@@ -1,0 +1,63 @@
+name: Release-gate action self-test
+
+# Gate-only: exercises actions/release-gate against a loopback mock. Never
+# publishes, deploys or pushes.
+on:
+  pull_request:
+    paths:
+      - 'actions/release-gate/**'
+      - '.github/workflows/release-gate-action.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  self-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24'
+
+      - name: Script tests (pass, fail, 401, malformed, ...)
+        run: node --test actions/release-gate/test/
+
+      - name: Start mock API
+        run: |
+          node actions/release-gate/test/mock-server.mjs > "$RUNNER_TEMP/mock-url" &
+          until [ -s "$RUNNER_TEMP/mock-url" ]; do sleep 0.2; done
+          echo "MOCK_URL=$(cat "$RUNNER_TEMP/mock-url")" >> "$GITHUB_ENV"
+
+      - name: Action wiring - pass
+        id: pass
+        uses: ./actions/release-gate
+        with:
+          api-url: ${{ env.MOCK_URL }}
+          api-key: pra_test_key
+          org-id: org-1
+          ai-system-id: sys-1
+          eval-run-id: pass
+
+      - name: Action wiring - fail
+        id: fail
+        continue-on-error: true
+        uses: ./actions/release-gate
+        with:
+          api-url: ${{ env.MOCK_URL }}
+          api-key: pra_test_key
+          org-id: org-1
+          ai-system-id: sys-1
+          eval-run-id: fail
+
+      - name: Assert outcomes
+        env:
+          PASS_VERDICT: ${{ steps.pass.outputs.verdict }}
+          FAIL_OUTCOME: ${{ steps.fail.outcome }}
+        run: |
+          test "$PASS_VERDICT" = pass
+          test "$FAIL_OUTCOME" = failure

@@ -11,7 +11,8 @@ export default defineConfig({
     // can't see) or failed to resolve a dependency this package never installs.
     // Excluded here, not deleted: run each plugin's own tests via its own
     // `npm test` inside that plugin's directory.
-    exclude: [...configDefaults.exclude, 'plugins/**'],
+    // actions/** runs under `node --test` (release-gate-action.yml), same reason.
+    exclude: [...configDefaults.exclude, 'plugins/**', 'actions/**'],
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],

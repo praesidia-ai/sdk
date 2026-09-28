@@ -1188,6 +1188,32 @@ Python parity: the `praesidia` Python SDK ships the same hooks (`PraesidiaIntera
 `AsyncPraesidiaInteractionHooks`, SDK-0301) with the same fail-mode defaults, verdicts and fixture.
 Python also has a `guarded()` tool-wrapping helper that this SDK does not have yet.
 
+## GitHub Action: release gate (SDK-2502)
+
+`actions/release-gate` is a composite action (bash + curl + jq; not part of the npm package) that
+gates a job on the deployment quality gate, optionally importing a CycloneDX AIBOM first:
+
+```yaml
+- uses: praesidia-ai/sdk/actions/release-gate@v<tag>
+  id: gate
+  with:
+    api-url: https://api.praesidia.ai        # your deployment's API host
+    api-key: ${{ secrets.PRAESIDIA_API_KEY }} # scope ci:gate (+ aibom:write with aibom-path)
+    org-id: ${{ vars.PRAESIDIA_ORG_ID }}
+    ai-system-id: ${{ vars.PRAESIDIA_AI_SYSTEM_ID }}
+    eval-run-id: ${{ env.EVAL_RUN_ID }}
+    commit-sha: ${{ env.EVAL_COMMIT_SHA }}   # optional: the 40-hex SHA the run evaluated
+    aibom-path: bom.cdx.json                 # optional
+```
+
+It calls `POST organizations/:orgId/ai-systems/:aiSystemId/aibom/import` (when `aibom-path` is
+set), then `POST .../quality-gate/evaluate` with `{ evalRunId, commitSha? }`. It fails closed: the
+step fails on `effectiveResult: "fail"`, a missing/unknown verdict, any non-2xx (401, 404, 409…),
+an unreachable API or unparsable JSON. `advisory_fail` (only non-blocking thresholds failed) passes
+with a warning. Outputs: `verdict` (the `effectiveResult`) and `report-url` (empty until the API
+returns a `reportUrl`). The key is masked and sent to curl on stdin, never in argv. This is a
+GitHub-only surface; the Python SDK has no equivalent because it is language-independent.
+
 ## Fail-open / fail-closed
 
 | Scenario | Default behaviour |
