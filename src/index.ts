@@ -66,6 +66,7 @@ export {
   // SDK-0300 — interaction hooks
   InteractionDeniedError,
   InteractionDecisionUnavailableError,
+  IdempotencyKeyReusedError,
 } from './errors.js';
 // PA01 D2/D18 — RFC 8785 JCS canonicalization (byte-compared against the
 // shared golden fixtures in jcs-canonical.spec.ts).

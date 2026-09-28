@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { PraesidiaClient, encodePathSegment } from './client.js';
 import {
   InteractionDecisionUnavailableError,
@@ -99,6 +100,8 @@ interface InteractionOutcomeFields {
   result?: JsonValue;
   targetSystem?: string;
   targetTransactionId?: string;
+  /** SDK-2503 — `Idempotency-Key` for this report (1-255 chars); default a fresh UUID v4. */
+  idempotencyKey?: string;
 }
 
 /** Outcome of an `allow` with reasonCode `approval_consumed`, keyed by `decision.approvalId`. */
@@ -131,7 +134,7 @@ export interface InteractionOutcomeReceipt {
 }
 
 export interface InteractionHooksConfig
-  extends Pick<GuardConfig, 'apiKey' | 'orgId' | 'agentId' | 'baseUrl' | 'requestTimeoutMs' | 'allowInsecureHttp'> {
+  extends Pick<GuardConfig, 'apiKey' | 'orgId' | 'agentId' | 'baseUrl' | 'requestTimeoutMs' | 'allowInsecureHttp' | 'retry'> {
   /** Per-class override of {@link DEFAULT_FAIL_MODES}. */
   failMode?: Partial<Record<InteractionHookClass, FailMode>>;
   /** Re-ask interval while a verdict is `require_approval` (default 2000 ms). */
@@ -188,12 +191,13 @@ export class PraesidiaInteractionHooks {
     this.taskId = config.taskId;
     this.organizationId = orgId;
     this.agentId = agentId;
-    // Not retried: every POST writes a Decision Record and may mint an approval.
+    // SDK-2503 — retried (429/5xx/network) only because every POST carries an
+    // Idempotency-Key (BE-1759): a retry replays the stored response, no new rows.
     this.client = new PraesidiaClient(
       config.baseUrl ?? process.env['PRAESIDIA_BASE_URL'] ?? 'https://api.praesidia.ai',
       apiKey,
       config.requestTimeoutMs,
-      false,
+      config.retry,
       config.allowInsecureHttp,
     );
     this.path = `/organizations/${encodePathSegment(orgId, 'orgId')}/interaction-decisions`;
@@ -232,11 +236,16 @@ export class PraesidiaInteractionHooks {
     return this.guard(interactionType, act, opts.failMode ?? 'closed');
   }
 
-  /** One raw decision request: no cache, no approval wait, no fail mode. */
+  /**
+   * One raw decision request: no cache, no approval wait, no fail mode.
+   * SDK-2503 — sent with `opts.idempotencyKey` (default a fresh UUID v4 per
+   * call), reused across the client's retries of this call only.
+   */
   async decide(
     interactionType: InteractionType,
     act: InteractionAction,
     approvalId?: string,
+    opts: { idempotencyKey?: string } = {},
   ): Promise<InteractionDecision> {
     assertRequest(interactionType, act);
     const wireAction = act.arguments === undefined ? { name: act.name } : { name: act.name, arguments: act.arguments };
@@ -246,21 +255,22 @@ export class PraesidiaInteractionHooks {
       action: wireAction,
       ...(approvalId === undefined ? {} : { approvalId }),
       ...(this.taskId === undefined ? {} : { taskId: this.taskId }),
-    }));
+    }, undefined, { idempotencyKey: opts.idempotencyKey ?? randomUUID() }));
   }
 
   /**
    * Record the result of an allowed interaction, once: by `approvalId` for a
    * consumed approval (BE-1582), by `decisionId` for a plain allow (BE-1808).
    * A refusal (unknown, not consumed/not a plain allow, already reported) is a
-   * `PraesidiaApiError` with status 409; it is not retried. A verdict reused
+   * `PraesidiaApiError` with status 409; it is not retried. Reusing
+   * `idempotencyKey` with a different report throws `IdempotencyKeyReusedError`. A verdict reused
    * from the decision cache shares its decisionId, so only its first run can report.
    */
   async reportOutcome(report: InteractionApprovalOutcomeReport): Promise<InteractionOutcomeReceipt & { approvalId: string }>;
   async reportOutcome(report: InteractionDecisionOutcomeReport): Promise<InteractionOutcomeReceipt & { approvalId: null }>;
   async reportOutcome(report: InteractionOutcomeReport): Promise<InteractionOutcomeReceipt>;
   async reportOutcome(report: InteractionOutcomeReport): Promise<InteractionOutcomeReceipt> {
-    const { approvalId, decisionId, status, result, targetSystem, targetTransactionId } = report;
+    const { approvalId, decisionId, status, result, targetSystem, targetTransactionId, idempotencyKey } = report;
     if ((approvalId === undefined) === (decisionId === undefined)) {
       throw new PraesidiaConfigError('exactly one of approvalId or decisionId is required');
     }
@@ -278,7 +288,7 @@ export class PraesidiaInteractionHooks {
       ...(result === undefined ? {} : { resultCommitment: jcsCommitment(result) }),
       ...(targetSystem === undefined ? {} : { targetSystem }),
       ...(targetTransactionId === undefined ? {} : { targetTransactionId }),
-    });
+    }, undefined, { idempotencyKey: idempotencyKey ?? randomUUID() });
   }
 
   private async guard(

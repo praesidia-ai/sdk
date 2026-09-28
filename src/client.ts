@@ -1,5 +1,6 @@
 import { performance } from "node:perf_hooks";
 import {
+  IdempotencyKeyReusedError,
   PraesidiaApiError,
   PraesidiaConfigError,
   markOutage,
@@ -197,6 +198,9 @@ export function parseErrorEnvelope(text: string): PraesidiaErrorEnvelope | undef
 /** Build a `PraesidiaApiError` from a non-2xx response's bounded-read body. */
 export function buildApiError(status: number, path: string, text: string): PraesidiaApiError {
   const envelope = parseErrorEnvelope(text);
+  if (status === 409 && envelope?.code === "IDEMPOTENCY_KEY_REUSED") {
+    return new IdempotencyKeyReusedError(path, text, envelope);
+  }
   return new PraesidiaApiError(status, path, text, envelope, isRetryableStatus(status));
 }
 
@@ -420,11 +424,12 @@ export class PraesidiaClient {
     if (
       typeof idempotencyKey !== "string" ||
       idempotencyKey.length === 0 ||
+      idempotencyKey.length > 255 ||
       idempotencyKey !== idempotencyKey.trim() ||
       /[\u0000-\u001f\u007f]/.test(idempotencyKey)
     ) {
       throw new PraesidiaConfigError(
-        "idempotencyKey must be non-empty and contain no surrounding whitespace or control characters",
+        "idempotencyKey must be 1-255 characters with no surrounding whitespace or control characters",
       );
     }
   }

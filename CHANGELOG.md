@@ -5,6 +5,21 @@ change bumps the minor version (see `PUBLISHING.md`, "Semver policy").
 
 ## Unreleased
 
+### SDK-2503: interaction hooks send an `Idempotency-Key`, and retry (needs be ≥ BE-1759)
+
+- `PraesidiaInteractionHooks` sends `Idempotency-Key` on every decision and outcome POST: a fresh
+  UUID v4 per logical call, reused on the SDK's own retries of that call. An approval poll (new
+  `approvalId` in the body) gets a new key.
+- **Behaviour change:** these POSTs are now retried on network error / 429 / 5xx under the
+  standard `retry` policy (new `retry` config field on `InteractionHooksConfig`; `retry: false`
+  restores one attempt). A hook can therefore wait longer before its fail mode applies.
+- New optional `idempotencyKey`: 4th argument of `decide(type, action, approvalId?, opts?)` and
+  field of `reportOutcome(report)`. Sent verbatim; 1-255 characters, else `PraesidiaConfigError`.
+- New `IdempotencyKeyReusedError` (subclass of `PraesidiaApiError`, 409
+  `IDEMPOTENCY_KEY_REUSED`): same key, different body. Never retried.
+- `PraesidiaClient.post` allows `idempotencyKey` on the two interaction-decision routes, and every
+  `idempotencyKey` is now capped at 255 characters (be's limit).
+
 ### SDK-0361: `reportOutcome` accepts `decisionId` for plain ALLOW decisions (needs be ≥ BE-1808)
 
 - `reportOutcome` takes exactly one of `approvalId` | `decisionId`, as a discriminated union

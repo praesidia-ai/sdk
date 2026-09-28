@@ -98,8 +98,9 @@ export function sleep(ms: number): Promise<void> {
  * R-SDK-1 — be-core honours the `Idempotency-Key` header for safe replay on
  * exactly two route families (grepped `be/src` for consumers of the header):
  * `POST /organizations/:orgId/tasks` (`agent-tasks.controller.ts`, via
- * `withIdempotency`) and the A2A inbound routes (`POST /a2a/tasks`,
- * `POST /a2a/tasks/:taskId/result`). Every other POST/PATCH in the API
+ * `withIdempotency`), the A2A inbound routes (`POST /a2a/tasks`,
+ * `POST /a2a/tasks/:taskId/result`) and the interaction decision + outcome
+ * routes (BE-1759, `POST .../interaction-decisions[/outcome]`). Every other POST/PATCH in the API
  * ignores the header entirely — including every PATCH route today. Passing
  * `idempotencyKey` to `PraesidiaClient.post`/`.patch` for any other path would
  * make a client-retried request LOOK safe while the server happily
@@ -110,6 +111,7 @@ const IDEMPOTENCY_HONOURED_POST_PATHS: readonly RegExp[] = [
   /^\/organizations\/[^/]+\/tasks$/,
   /^\/a2a\/tasks$/,
   /^\/a2a\/tasks\/[^/]+\/result$/,
+  /^\/organizations\/[^/]+\/interaction-decisions(?:\/outcome)?$/,
 ];
 
 /**
@@ -131,7 +133,8 @@ export function assertIdempotencyKeySupported(
   throw new PraesidiaConfigError(
     `be-core does not honour Idempotency-Key on ${method} ${path} — retry-on-write ` +
       'is only safe for routes with server-side dedup (today: POST ' +
-      '/organizations/:orgId/tasks, POST /a2a/tasks, POST /a2a/tasks/:taskId/result). ' +
+      '/organizations/:orgId/tasks, POST /a2a/tasks, POST /a2a/tasks/:taskId/result, ' +
+      'POST /organizations/:orgId/interaction-decisions[/outcome]). ' +
       'Passing idempotencyKey here would let a transient 5xx double-apply a write the ' +
       'server does not deduplicate.',
   );

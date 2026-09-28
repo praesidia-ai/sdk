@@ -94,6 +94,19 @@ export class PraesidiaApiError extends Error {
 }
 
 /**
+ * SDK-2503 — 409 `IDEMPOTENCY_KEY_REUSED`: the `Idempotency-Key` was already
+ * used with a different request body. Never retried (`retryable: false`):
+ * repeating it can only fail the same way. Send the new body with a new key.
+ */
+export class IdempotencyKeyReusedError extends PraesidiaApiError {
+  constructor(path: string, message: string, envelope?: PraesidiaErrorEnvelope) {
+    super(409, path, message, envelope, false);
+    this.name = 'IdempotencyKeyReusedError';
+    Object.setPrototypeOf(this, IdempotencyKeyReusedError.prototype);
+  }
+}
+
+/**
  * Thrown when the SDK is used without a valid configuration (missing
  * API key or org ID) and the requested operation requires a connected
  * Praesidia account.

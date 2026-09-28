@@ -906,8 +906,10 @@ duplication bug, not a resilience feature.
 
 **R-SDK-1 — `idempotencyKey` is allow-listed, not a blanket promise.**
 be-core only deduplicates a request server-side on `Idempotency-Key` for
-three routes today: `POST /organizations/:orgId/tasks`, `POST /a2a/tasks`,
-and `POST /a2a/tasks/:taskId/result`. Every other route — including every
+five routes today: `POST /organizations/:orgId/tasks`, `POST /a2a/tasks`,
+`POST /a2a/tasks/:taskId/result`, and the interaction decision and outcome
+POSTs (`POST /organizations/:orgId/interaction-decisions[/outcome]`, which
+`PraesidiaInteractionHooks` keys automatically). Every other route — including every
 PATCH — ignores the header entirely. Passing `idempotencyKey` to
 `PraesidiaClient.post`/`.patch` for any other path throws
 `PraesidiaConfigError` immediately (no request is sent) rather than silently
@@ -932,14 +934,16 @@ const noRetry = new PraesidiaGuard({ retry: false });
 
 Every resource class (`PraesidiaGuard`, `PraesidiaAgents`, `PraesidiaCompliance`,
 `PraesidiaMemory`, `PraesidiaTelemetry`, `PraesidiaWorkflows`,
-`PraesidiaConnections`, `PraesidiaAudit`, `PraesidiaAnalytics`) accepts the same
+`PraesidiaConnections`, `PraesidiaAudit`, `PraesidiaAnalytics`,
+`PraesidiaInteractionHooks`) accepts the same
 `retry` config field.
 
 > **Known gap:** only `PraesidiaClient.post`/`.patch` currently expose the
 > `idempotencyKey` option directly, and only for the three allow-listed
 > routes above (in practice: `PraesidiaGuard.logTask`/`.trackToolCall`, the
-> two callers of `POST /organizations/:orgId/tasks`). No resource method
-> forwards `idempotencyKey` as a public parameter yet — to retry that write
+> two callers of `POST /organizations/:orgId/tasks`). Apart from
+> `PraesidiaInteractionHooks.decide`/`.reportOutcome` (SDK-2503), no resource
+> method forwards `idempotencyKey` as a public parameter yet — to retry that write
 > today you need to drop to the client-level API. Widening this to a
 > per-method `idempotencyKey` parameter is a natural follow-up, tracked as a
 > known gap rather than silently left unstated.
@@ -1160,6 +1164,20 @@ was not consumed, or a decisionId that is not a plain allow for this agent. A ve
 from the decision cache shares its `decisionId`, so only its first run can report. Only the
 principal the allow was issued to may report it; anyone else gets a 403.
 
+**Retries and `Idempotency-Key` (SDK-2503, needs be ≥ BE-1759).** Every decision and outcome
+POST carries an `Idempotency-Key`: a fresh UUID v4 per logical call, reused on the SDK's own
+retries of that call (network error, 429, 5xx; the `retry` config, default 3 attempts in 15 s,
+`retry: false` for one attempt). A retry after a lost response replays the stored answer, so it
+writes no second Decision Record or outcome. Each approval poll adds `approvalId`, a new body, so
+it gets a new key. Pass your own key with `decide(type, action, approvalId, { idempotencyKey })`
+or `reportOutcome({ ..., idempotencyKey })` (1-255 characters, no surrounding whitespace; it is
+sent verbatim and never enters the body). The same key with a different body throws
+`IdempotencyKeyReusedError` (a `PraesidiaApiError`, status 409, `code: 'IDEMPOTENCY_KEY_REUSED'`),
+once, with no retry. A 409 without that code means the first request with the key is still
+running: it is a plain `PraesidiaApiError`, not retried; repeat the call with the same key once
+the first one has finished. A retry also lengthens how long a hook waits before its fail mode
+applies (up to `maxAttempts` × `requestTimeoutMs`, bounded by `maxElapsedMs`).
+
 **Fail mode.** An outage is a network error, a timeout, a 408 / 5xx, or a malformed
 response. A fail-closed hook then throws `InteractionDecisionUnavailableError`; a fail-open
 hook resolves to `{ decision: null, failOpenError }`. Any other 4xx (bad key, unknown agent,
@@ -1180,7 +1198,7 @@ verdicts are valid only under the `policyFingerprint` that produced them: a resp
 fingerprint evicts them all. A policy change therefore takes effect within `ttlSeconds`.
 
 In `observe` governance mode be answers `allow` and records the would-be decision; in `off` it
-answers `allow`. `decide(type, action, approvalId?)` is the raw call (no cache, no wait, no fail
+answers `allow`. `decide(type, action, approvalId?, { idempotencyKey? })` is the raw call (no cache, no wait, no fail
 mode). Action names must be dot-separated `[A-Za-z0-9_-]` segments (be's rule); anything else
 throws `PraesidiaConfigError` before a request is sent.
 
@@ -1280,7 +1298,9 @@ only by `guard.protectAction` — see [above](#guardprotectactionopts--promisepr
 
 `InteractionDeniedError` (`interactionType`, `actionName`, `reasonCode`, `decision`) and
 `InteractionDecisionUnavailableError` (`cause` = the outage) are thrown only by
-`PraesidiaInteractionHooks` — see
+`PraesidiaInteractionHooks`. `IdempotencyKeyReusedError` (a `PraesidiaApiError`, status 409,
+`code: 'IDEMPOTENCY_KEY_REUSED'`) means an `Idempotency-Key` was reused with a different body; it
+is never retried. See
 [Interaction hooks](#interaction-hooks--advisory-in-runtime-guard-sdk-0300).
 
 `GuardContentTooLargeError` (`code: 'CONTENT_TOO_LARGE'`, `length`, `maxLength`) is thrown by

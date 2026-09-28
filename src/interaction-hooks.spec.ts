@@ -11,6 +11,7 @@ import {
   type InteractionType,
 } from './interaction-hooks.js';
 import {
+  IdempotencyKeyReusedError,
   InteractionDecisionUnavailableError,
   InteractionDeniedError,
   PraesidiaApiError,
@@ -40,6 +41,7 @@ function hooks(extra: Partial<InteractionHooksConfig> = {}): PraesidiaInteractio
     agentId: AGENT,
     baseUrl: 'https://api.example',
     approvalPollIntervalMs: 1,
+    retry: { baseDelayMs: 0, maxDelayMs: 0 },
     ...extra,
   });
 }
@@ -334,5 +336,89 @@ describe('validation', () => {
   it('requires apiKey, orgId and agentId; rejects a bad failMode', () => {
     expect(() => new PraesidiaInteractionHooks({ apiKey: 'pk_test', orgId: fixture.orgId, agentId: '' })).toThrow(PraesidiaConfigError);
     expect(() => hooks({ failMode: { exec: 'maybe' as never } })).toThrow(PraesidiaConfigError);
+  });
+});
+
+describe('Idempotency-Key (SDK-2503, BE-1759)', () => {
+  const V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  const keyOf = (f: ReturnType<typeof vi.fn>, i: number): string | undefined =>
+    (f.mock.calls[i]?.[1]?.headers as Record<string, string> | undefined)?.['Idempotency-Key'];
+  const RECEIPT = { approvalId: CONSUMED.approvalId as string, reportedDecisionId: null, decisionId: '66666666-6666-4666-8666-666666666601' };
+  const REUSED = { status: 409, json: { statusCode: 409, code: 'IDEMPOTENCY_KEY_REUSED', message: 'Idempotency-Key was already used with a different request body' } };
+
+  it('a retried decide sends the same UUID v4 key on every attempt', async () => {
+    const f = stub([{ status: 503, text: 'down' }, { status: 502, text: 'down' }, { json: ALLOW }]);
+    await hooks().decide('model_to_tool', { name: 'search.web' });
+    expect(f).toHaveBeenCalledTimes(3);
+    expect(keyOf(f, 0)).toMatch(V4);
+    expect(keyOf(f, 1)).toBe(keyOf(f, 0));
+    expect(keyOf(f, 2)).toBe(keyOf(f, 0));
+  });
+
+  it('a retried reportOutcome sends the same key; the key never enters the body', async () => {
+    const f = stub([{ status: 503, text: 'down' }, { json: RECEIPT }]);
+    await hooks().reportOutcome({ approvalId: RECEIPT.approvalId, status: 'succeeded' });
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(keyOf(f, 0)).toMatch(V4);
+    expect(keyOf(f, 1)).toBe(keyOf(f, 0));
+    expect(sentBody(f, 1)).not.toContain('idempotencyKey');
+  });
+
+  it('two logical calls, and every approval poll (new body), send different keys', async () => {
+    const f = stub([{ json: { ...ALLOW, ttlSeconds: 0 } }]);
+    const h = hooks();
+    await h.decide('model_to_tool', { name: 'search.web' });
+    await h.decide('model_to_tool', { name: 'search.web' });
+    expect(keyOf(f, 0)).toMatch(V4);
+    expect(keyOf(f, 1)).toMatch(V4);
+    expect(keyOf(f, 1)).not.toBe(keyOf(f, 0));
+    const g = stub([{ json: PENDING }, { json: PENDING }, { json: CONSUMED }]);
+    await hooks().beforeInteraction('agent_to_email', { name: 'send' });
+    expect(new Set([0, 1, 2].map((i) => keyOf(g, i))).size).toBe(3);
+  });
+
+  it('a caller-supplied key is sent verbatim on decide and reportOutcome', async () => {
+    const f = stub([{ json: ALLOW }, { json: RECEIPT }]);
+    const h = hooks();
+    await h.decide('model_to_tool', { name: 'search.web' }, undefined, { idempotencyKey: 'order-42:decide' });
+    await h.reportOutcome({ approvalId: RECEIPT.approvalId, status: 'succeeded', idempotencyKey: 'order-42:outcome' });
+    expect(keyOf(f, 0)).toBe('order-42:decide');
+    expect(keyOf(f, 1)).toBe('order-42:outcome');
+  });
+
+  it.each([['x'.repeat(256)], [' padded'], ['']])('rejects key %j before any request', async (key) => {
+    const f = stub([{ json: ALLOW }]);
+    await expect(hooks().decide('model_to_tool', { name: 'search.web' }, undefined, { idempotencyKey: key }))
+      .rejects.toBeInstanceOf(PraesidiaConfigError);
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('409 IDEMPOTENCY_KEY_REUSED raises the typed error once, with no retry', async () => {
+    const f = stub([REUSED, { json: RECEIPT }]);
+    const err = await hooks().reportOutcome({ approvalId: RECEIPT.approvalId, status: 'succeeded', idempotencyKey: 'k1' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(IdempotencyKeyReusedError);
+    expect(err).toBeInstanceOf(PraesidiaApiError);
+    expect(err).toMatchObject({ status: 409, code: 'IDEMPOTENCY_KEY_REUSED', retryable: false });
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it('409 IDEMPOTENCY_KEY_REUSED on a hook throws, never fail-opens', async () => {
+    const f = stub([REUSED, { json: ALLOW }]);
+    const err = await hooks().beforeToolCall({ toolName: 'search.web' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(IdempotencyKeyReusedError);
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it('a 409 without the code stays a plain PraesidiaApiError', async () => {
+    stub([{ status: 409, json: { message: 'A request with this Idempotency-Key is already in progress.' } }]);
+    const err = await hooks().decide('model_to_tool', { name: 'search.web' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PraesidiaApiError);
+    expect(err).not.toBeInstanceOf(IdempotencyKeyReusedError);
+  });
+
+  it('retry: false sends one request', async () => {
+    const f = stub([{ status: 503, text: 'down' }, { json: ALLOW }]);
+    await expect(hooks({ retry: false }).decide('model_to_tool', { name: 'search.web' })).rejects.toMatchObject({ status: 503 });
+    expect(f).toHaveBeenCalledTimes(1);
   });
 });
