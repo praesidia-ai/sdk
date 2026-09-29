@@ -111,3 +111,12 @@ jobs:
         env:
           AUD_0063_REQUIRE_SWAGGER: 'true'
         run: npx vitest run src/analytics.coverage.spec.ts
+
+      # SDK-2512 — test-fixtures/genai-telemetry-v1.json is a vendored copy of
+      # queue-core's contracts/genai-telemetry-v1.json (checked out at `shared`
+      # above). PRAESIDIA_SHARED_DIR makes the drift check mandatory here.
+      - name: SDK-2512 — GenAI telemetry fixture vs queue-core
+        working-directory: sdk
+        env:
+          PRAESIDIA_SHARED_DIR: ${{ github.workspace }}/shared
+        run: npx vitest run src/telemetry-continuity.spec.ts

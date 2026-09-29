@@ -1,7 +1,19 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import { genAiSpan, GENAI_SEMCONV_VERSION, parseTraceparent } from './telemetry.js';
-const fixture = JSON.parse(readFileSync(new URL('../../shared/contracts/genai-telemetry-v1.json', import.meta.url), 'utf8')) as { agentName: string; agentId: string; provider: string; taskId: string; actionId: string; traceparent: string; traceId: string; parentSpanId: string; semanticConventions: string; invalidTraceparents: string[]; sensitiveAttributes: string[] };
+// SDK-2512: byte-identical copy of queue-core (core/shared) contracts/genai-telemetry-v1.json, so the suite
+// runs in a standalone sdk checkout, CI and the Docker build. The drift check below compares it against the
+// sibling: PRAESIDIA_SHARED_DIR set → sibling required (hard fail if missing); unset → ../../shared, skipped if absent.
+const vendored = readFileSync(new URL('../test-fixtures/genai-telemetry-v1.json', import.meta.url), 'utf8');
+const sharedContract = join(process.env['PRAESIDIA_SHARED_DIR'] ?? fileURLToPath(new URL('../../shared', import.meta.url)), 'contracts/genai-telemetry-v1.json');
+describe('shared GenAI telemetry contract drift', () => {
+  it.skipIf(!process.env['PRAESIDIA_SHARED_DIR'] && !existsSync(sharedContract))('vendored fixture matches core/shared byte-for-byte', () => {
+    expect(vendored).toBe(readFileSync(sharedContract, 'utf8'));
+  });
+});
+const fixture = JSON.parse(vendored) as { agentName: string; agentId: string; provider: string; taskId: string; actionId: string; traceparent: string; traceId: string; parentSpanId: string; semanticConventions: string; invalidTraceparents: string[]; sensitiveAttributes: string[] };
 const input = { agentName: fixture.agentName, agentId: fixture.agentId, system: fixture.provider, taskId: fixture.taskId, actionId: fixture.actionId, traceparent: fixture.traceparent };
 describe('shared GenAI telemetry contract', () => {
   it('preserves parentage, creates distinct children, and correlates the action', () => {

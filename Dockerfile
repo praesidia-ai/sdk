@@ -19,6 +19,8 @@ COPY src ./src
 # silently runs fewer tests than the host/CI suite while claiming to run all of
 # them.
 COPY scripts ./scripts
+# Contract fixtures read by src/*.spec.ts (http-receipt, interaction-decision, genai-telemetry).
+COPY test-fixtures ./test-fixtures
 COPY README.md LICENSE ./
 RUN npm run build && npm run test:coverage && npm run typecheck:spec
 
