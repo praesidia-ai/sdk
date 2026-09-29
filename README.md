@@ -22,7 +22,7 @@ npm install /path/to/praesidia-sdk-0.4.0.tgz   # run in your project
 
 ESM only (`"type": "module"`, no CommonJS build/export condition) — `import` this
 package; `require('@praesidia/sdk')` will fail with `ERR_REQUIRE_ESM`. Requires
-Node.js >= 18.
+Node.js >= 22.
 
 This README describes the current source checkout. A registry release may not
 contain every method shown here. [CHANGELOG.md](./CHANGELOG.md) lists what each

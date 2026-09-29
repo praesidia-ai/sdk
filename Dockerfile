@@ -3,10 +3,10 @@
 # deployable service — the package is a library published to npm. The image
 # exists so the build + test pipeline is reproducible on any host.
 #
-# Base: node:24-alpine (Active LTS), npm 11 (bundled). Runs as a non-root user.
+# Base: node:26-alpine (Current), npm 11 (bundled). Runs as a non-root user.
 
-FROM node:24.18-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS build
-# node:24.18-alpine
+FROM node:26.10.0-alpine3.24@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80 AS build
+# node:26.10.0-alpine3.24
 WORKDIR /app
 # Install with a committed lockfile for reproducible builds.
 COPY package.json package-lock.json ./
@@ -23,8 +23,8 @@ COPY README.md LICENSE ./
 RUN npm run build && npm run test:coverage && npm run typecheck:spec
 
 # ---- runtime: minimal, non-root, carries only the built output ----
-FROM node:24.18-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS runtime
-# node:24.18-alpine
+FROM node:26.10.0-alpine3.24@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80 AS runtime
+# node:26.10.0-alpine3.24
 ENV NODE_ENV=production
 WORKDIR /app
 RUN addgroup -S praesidia && adduser -S praesidia -G praesidia

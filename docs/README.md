@@ -14,7 +14,7 @@ condensed build/test/publish reference.
 `@praesidia/sdk` is an **open-source** (Apache 2.0), zero-license-cost TypeScript SDK for
 instrumenting an AI agent with Praesidia governance: guardrail checks, audit logging, analytics,
 agent identity/trust, workflows, connections, and OTLP GenAI telemetry
-(`sdk/README.md:1-5,386-422`). It is ESM-only (`sdk/README.md:12-14`) and targets Node `>=18`
+(`sdk/README.md:1-5,386-422`). It is ESM-only (`sdk/README.md:12-14`) and targets Node `>=22`
 (`package.json:33-35`).
 
 ## Publishing status — read this before writing install instructions anywhere

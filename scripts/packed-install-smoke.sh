@@ -37,13 +37,9 @@ const { exports } = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
 })().catch((e) => { console.error(e.message); process.exit(1); });
 '
 
-# The example declares engines node >=20.6; on older Node only the package itself is smoked.
-if node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 20 || (a === 20 && b >= 6) ? 0 : 1)'; then
-  cp -R "$ROOT/examples/refund-authorization" "$WORK/example" && cd "$WORK/example"
-  npm pkg set "dependencies.@praesidia/sdk=file:$TGZ"
-  npm install "${NPM_FLAGS[@]}"
-  node selfcheck.mjs
-else
-  echo "skip examples/refund-authorization selfcheck: Node $(node -v) < 20.6 (example engines)"
-fi
+# The example shares the package's engines floor (node >=22), so it is smoked on every supported Node.
+cp -R "$ROOT/examples/refund-authorization" "$WORK/example" && cd "$WORK/example"
+npm pkg set "dependencies.@praesidia/sdk=file:$TGZ"
+npm install "${NPM_FLAGS[@]}"
+node selfcheck.mjs
 echo "packed-install smoke OK on Node $(node -v)"

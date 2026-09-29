@@ -5,6 +5,12 @@ change bumps the minor version (see `PUBLISHING.md`, "Semver policy").
 
 ## Unreleased
 
+### SDK-2510: Node.js >= 22 (breaking)
+
+- **Breaking:** `engines.node` is now `>=22` (was `>=18`). Node 18 and 20 are end-of-life and are
+  no longer tested; CI runs on Node 22, 24 and 26. No API or emitted-JavaScript change.
+- Built with TypeScript 7; tested with Vitest 5. Declaration files differ only in quote style.
+
 ### SDK-2503: interaction hooks send an `Idempotency-Key`, and retry (needs be ≥ BE-1759)
 
 - `PraesidiaInteractionHooks` sends `Idempotency-Key` on every decision and outcome POST: a fresh

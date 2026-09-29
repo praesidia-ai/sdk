@@ -22,14 +22,12 @@ describe("packed-install smoke wiring", () => {
     expect(sh).toContain("selfcheck.mjs");
   });
 
-  it("runs the smoke in CI on Node 22 and Node 18, after the pack dry run", () => {
+  it("runs the smoke in CI on every supported Node (22, 24, 26), after the pack dry run", () => {
     const ci = read(".github/workflows/ci.yml");
     const dryRun = ci.indexOf("npm pack --dry-run");
-    const node22 = ci.indexOf("Packed-install smoke on Node 22");
-    const node18 = ci.indexOf("Packed-install smoke on Node 18");
     expect(dryRun).toBeGreaterThan(-1);
-    expect(node22).toBeGreaterThan(dryRun);
-    expect(node18).toBeGreaterThan(node22);
-    expect(ci.match(/npm run smoke:packed/g)).toHaveLength(2);
+    expect(ci.indexOf("Packed-install smoke on Node ${{ matrix.node }}")).toBeGreaterThan(dryRun);
+    expect(ci).toContain("node: ['22', '24', '26']");
+    expect(ci.match(/npm run smoke:packed/g)).toHaveLength(1);
   });
 });

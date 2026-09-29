@@ -5,7 +5,7 @@
   "description": "A governed EUR 8,250 Stripe test-mode refund with @praesidia/sdk: step-up approval, outcome, receipt, audit package.",
   "type": "module",
   "engines": {
-    "node": ">=20.6"
+    "node": ">=22"
   },
   "scripts": {
     "start": "node --env-file=.env refund.mjs",

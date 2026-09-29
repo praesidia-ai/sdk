@@ -6,7 +6,7 @@ only summarizes the day-to-day build/test loop.
 
 ## Requirements
 
-Node `>=18` (`package.json:34`). ESM-only package (`sdk/README.md:12-14`).
+Node `>=22` (`package.json:34`). ESM-only package (`sdk/README.md:12-14`).
 
 ## Local development
 
