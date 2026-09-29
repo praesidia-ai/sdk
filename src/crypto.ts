@@ -164,7 +164,7 @@ export function p256PublicKeyFromJwk(
 
   try {
     const keyObject = crypto.createPublicKey({
-      key: jwk as crypto.JsonWebKey,
+      key: jwk as crypto.webcrypto.JsonWebKey,
       format: 'jwk',
     });
     if (
