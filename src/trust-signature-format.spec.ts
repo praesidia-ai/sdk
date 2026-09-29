@@ -111,7 +111,9 @@ function sign<T extends object>(
   };
   if (opts.format !== undefined) proof['signatureFormat'] = opts.format;
   const jwk = publicKey.export({ format: 'jwk' }) as Record<string, unknown>;
-  return { passport: { ...unsigned, proof } as T & { proof: never }, jwk };
+  // `proof` stays Record<string, unknown>: tests deliberately set invalid signatureFormat values.
+  const passport: T & { proof: Record<string, unknown> } = { ...unsigned, proof };
+  return { passport, jwk };
 }
 
 const trust = new PraesidiaTrust();
