@@ -43,6 +43,9 @@ jobs:
           ai-system-id: sys-1
           eval-run-id: pass
 
+      # Negative case, not an advisory gate: this step MUST fail, so its error is
+      # absorbed here and "Assert outcomes" fails the job unless the action exited
+      # non-zero on a `fail` verdict. Callers never set continue-on-error. SDK-2701.
       - name: Action wiring - fail
         id: fail
         continue-on-error: true
@@ -57,7 +60,9 @@ jobs:
       - name: Assert outcomes
         env:
           PASS_VERDICT: ${{ steps.pass.outputs.verdict }}
+          FAIL_VERDICT: ${{ steps.fail.outputs.verdict }}
           FAIL_OUTCOME: ${{ steps.fail.outcome }}
         run: |
           test "$PASS_VERDICT" = pass
+          test "$FAIL_VERDICT" = fail
           test "$FAIL_OUTCOME" = failure

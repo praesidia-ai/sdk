@@ -19,9 +19,13 @@ import { makeFetchMock } from './__tests__/fetch-mock.js';
 // throws) when neither exists, so this package still builds/tests from a
 // bare `sdk` clone or its published npm tarball (no `ui` sibling).
 const HERE = dirname(fileURLToPath(import.meta.url));
+// SDK-2701 — REQUIRE_SWAGGER=1 (contract-drift.yml only) turns the skip into a failure and takes
+// BE_SWAGGER_PATH literally, so that job can never go green without reading its fresh be export.
+const REQUIRE_SWAGGER = process.env['REQUIRE_SWAGGER'] === '1';
 const SWAGGER_ENV_OVERRIDE = process.env['BE_SWAGGER_PATH'];
 const SWAGGER_PATH =
-  SWAGGER_ENV_OVERRIDE && existsSync(resolve(process.cwd(), SWAGGER_ENV_OVERRIDE))
+  SWAGGER_ENV_OVERRIDE &&
+  (REQUIRE_SWAGGER || existsSync(resolve(process.cwd(), SWAGGER_ENV_OVERRIDE)))
     ? resolve(process.cwd(), SWAGGER_ENV_OVERRIDE)
     : join(HERE, '..', '..', 'ui', 'swagger.json');
 const swaggerAvailable = existsSync(SWAGGER_PATH);
@@ -711,9 +715,10 @@ describe('PraesidiaAiSystems', () => {
     vi.restoreAllMocks();
   });
 
-  it.skipIf(!swaggerAvailable)(
+  it.skipIf(!swaggerAvailable && !REQUIRE_SWAGGER)(
     'AI_ASSET_TYPES/ASSET_RELATIONSHIP_TYPES/AI_ASSET_SOURCES match ui/swagger.json (SDK-0007, SDK-0317)',
     () => {
+      expect(swaggerAvailable, `REQUIRE_SWAGGER=1 but no swagger.json at ${SWAGGER_PATH}`).toBe(true);
       // Reads the gate-verified ui/swagger.json (never regenerated here) and
       // fails if it drifts from these tuples again -- see SDK-0007/SDK-0303.
       const spec = JSON.parse(readFileSync(SWAGGER_PATH, 'utf8'));

@@ -15,6 +15,9 @@ jobs:
     name: npm publish (@praesidia/sdk)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Protected environment: required reviewers / tag rules live on the `npm` environment,
+    # and NPM_TOKEN is readable only from it (as mcp release-npm.yml). SDK-2701.
+    environment: npm
     permissions:
       contents: read
       id-token: write

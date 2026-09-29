@@ -46,7 +46,7 @@ change bumps the minor version (see `PUBLISHING.md`, "Semver policy").
   `malformed-passport`. `TrustPassportProof` gains the optional `signatureFormat?: 1 | 2`
   (additive type change). Minor bump under the 0.x policy.
 
-## 0.4.0 — 2026-09-26 (first registry release)
+## 0.4.0 — release candidate, not yet published (no `v0.4.0` tag; `npm view @praesidia/sdk` is E404)
 
 No earlier version reached npm (0.2.x and 0.3.x existed only in source), so 0.4.0 carries every
 change below. It is the first version intended for the npm registry.
