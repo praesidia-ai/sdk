@@ -1,4 +1,5 @@
-import { createHash, createPublicKey, verify } from 'node:crypto';
+import { createHash, createPublicKey } from 'node:crypto';
+import { verifyEd25519 } from './crypto.js';
 import { jcsCanonicalize, jcsCommitment, type JsonValue } from './jcs-canonical.js';
 
 export const HTTP_RECEIPT_VERSION = 'praesidia.http-receipt.v1' as const;
@@ -53,6 +54,8 @@ export function verifyHttpReceipt(receipt: unknown, publicKeyPem: string, expect
     if (!/^[a-f0-9]{64}$/.test(String(s.requestCommitment)) || !/^[a-f0-9]{64}$/.test(String(s.resultCommitment))) return false;
     const key = createPublicKey(publicKeyPem);
     if (key.asymmetricKeyType !== 'ed25519') return false;
-    return verify(null, jcsCanonicalize(s as JsonValue), key, Buffer.from(r.signature, 'base64'));
+    // SDK-2802 — verifyEd25519 carries the SDK-2801 small-order / non-canonical guard on key and R.
+    const raw = key.export({ type: 'spki', format: 'der' }).subarray(-32);
+    return verifyEd25519(Buffer.from(jcsCanonicalize(s as JsonValue)), r.signature, raw);
   } catch { return false; }
 }

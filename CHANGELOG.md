@@ -90,6 +90,14 @@ change below. It is the first version intended for the npm registry.
   rejected token is a 403 `PraesidiaApiError`, not an outage. An empty or non-visible-ASCII token
   throws `PraesidiaConfigError` before any request. Additive (minor).
 
+### SDK-2802: `verifyHttpReceipt` rejects small-order / non-canonical Ed25519 keys and R
+
+- `verifyHttpReceipt` (and so `verifyProtectedHttpResult`) now verifies through `verifyEd25519`,
+  which carries the SDK-2801 guard: a receipt whose pinned target key or signature `R` is a
+  small-order or non-canonical point returns `false`. Before, a small-order key verified any
+  statement and a valid key could sign with an identity `R` on this OpenSSL build. The
+  signature must also be canonical base64 (as in the Python SDK). Signature unchanged (patch).
+
 ### SDK-2800: typed 403 for a stale `taskId`, typed BE-2836 Decision Record keys (needs be ≥ BE-2836)
 
 - New `InteractionTaskNotLiveError` (subclass of `PraesidiaApiError`, status 403, `taskId`):
