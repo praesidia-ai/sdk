@@ -9,7 +9,8 @@
  *
  * - {@link verifyEd25519}  mirrors be-core `CryptoUtilsService.verifyEd25519`
  *                          (AGV-003): same SPKI DER prefix, same 64-byte
- *                          signature guard, never throws.
+ *                          signature guard, never throws. Rejects small-order
+ *                          / non-canonical keys and R (BE-2858, SDK-2801).
  * - {@link verifyEs256}    mirrors be-core's KMS-backed P-256 verification:
  *                          strict DER/base64 input, canonical low-s signature,
  *                          SHA-256 over the canonical passport bytes.
@@ -32,6 +33,36 @@ import * as crypto from 'node:crypto';
 //       OID 1.3.101.112 = Ed25519 (0x06 0x03 0x2b 0x65 0x70)
 //     BIT STRING (0x03 0x21 0x00) — 32 raw public key bytes
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+
+// SDK-2801 / BE-2858 — edwards25519 field prime p = 2^255 - 19.
+const ED25519_P = (1n << 255n) - 19n;
+
+/**
+ * y-coordinates of the eight small-order (8-torsion) edwards25519 points:
+ * identity (y=1), order 2 (y=p-1), order 4 (y=0) and the two order-8 values.
+ * With either sign bit these cover every small-order encoding — the same
+ * blocklist as libsodium's ed25519_ref10.c. Internal: not re-exported.
+ */
+export const ED25519_SMALL_ORDER_Y: readonly bigint[] = Object.freeze([
+  0n,
+  1n,
+  ED25519_P - 1n,
+  0x05fc536d880238b13933c6d305acdfd5f098eff289f4c345b027b2c28f95e826n,
+  0x7a03ac9277fdc74ec6cc392cfa53202a0f67100d760b3cba4fd84d3d706a17c7n,
+]);
+
+/**
+ * True when a 32-byte Ed25519 point encoding (public key or signature R) must
+ * be rejected: non-canonical y (y >= p, RFC 8032 §5.1.3) or a small-order
+ * point. Some OpenSSL builds accept these, letting an all-zero key verify an
+ * all-zero signature over unrelated messages. Internal: not re-exported.
+ */
+export function isRejectedEd25519Point(encoding: Uint8Array): boolean {
+  if (encoding.length !== 32) return true;
+  let y = BigInt(encoding[31]! & 0x7f);
+  for (let i = 30; i >= 0; i--) y = (y << 8n) | BigInt(encoding[i]!);
+  return y >= ED25519_P || ED25519_SMALL_ORDER_Y.includes(y);
+}
 
 const P256_N = BigInt(
   '0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551',
@@ -93,6 +124,14 @@ export function verifyEd25519(
     // handing them to the OpenSSL bindings.
     const sig = decodeBase64Strict(signatureB64, 64);
     if (!sig) return false;
+    // SDK-2801 — reject small-order / non-canonical key and R before OpenSSL,
+    // whose acceptance of them varies by build.
+    if (
+      isRejectedEd25519Point(publicKey) ||
+      isRejectedEd25519Point(sig.subarray(0, 32))
+    ) {
+      return false;
+    }
     const der = Buffer.concat([ED25519_SPKI_PREFIX, Buffer.from(publicKey)]);
     const keyObject = crypto.createPublicKey({
       key: der,

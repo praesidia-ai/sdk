@@ -957,7 +957,10 @@ trust routes and verifies its detached Ed25519 or KMS-backed P-256/ES256 proof
 hand-written primitives in `crypto.ts`
 (`verifyEd25519`, `verifyEs256`, `canonicalJson`, and the matching JWK decoders)
 — the same offline-verify pattern as
-`@praesidia/audit-verifier`. No API key is needed.
+`@praesidia/audit-verifier`. No API key is needed. `verifyEd25519` rejects
+small-order and non-canonical public keys and signature `R` values itself
+(RFC 8032 §5.1.3, libsodium's blocklist), so the result does not depend on how
+strict the runtime's OpenSSL build is.
 
 The supplied JWK is the verification trust anchor. Resolve it from a trusted
 DID document or verification bundle; a signature can prove integrity relative
