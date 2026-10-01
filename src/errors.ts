@@ -107,6 +107,25 @@ export class IdempotencyKeyReusedError extends PraesidiaApiError {
 }
 
 /**
+ * SDK-2800 — 403 from `POST interaction-decisions` (be BE-2836): the hooks' `taskId` is not a live
+ * task this agent executes (completed, unknown, another agent's or another org's task). Every
+ * decision under that `taskId` fails the same way, so stop using it: build a new
+ * `PraesidiaInteractionHooks` with the current task's id, or without `taskId`. Never retried, and
+ * a fail-open hook throws it instead of allowing. be sends no `code`; the SDK matches be's message.
+ */
+export class InteractionTaskNotLiveError extends PraesidiaApiError {
+  /** The `taskId` be refused. */
+  readonly taskId: string;
+
+  constructor(taskId: string, path: string, message: string, envelope?: PraesidiaErrorEnvelope) {
+    super(403, path, message, envelope, false);
+    this.name = 'InteractionTaskNotLiveError';
+    this.taskId = taskId;
+    Object.setPrototypeOf(this, InteractionTaskNotLiveError.prototype);
+  }
+}
+
+/**
  * Thrown when the SDK is used without a valid configuration (missing
  * API key or org ID) and the requested operation requires a connected
  * Praesidia account.

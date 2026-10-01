@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import {
   DEFAULT_FAIL_MODES,
   INTERACTION_TYPES,
@@ -19,6 +19,7 @@ import {
 } from './errors.js';
 import { jcsCommitment } from './jcs-canonical.js';
 import { toolCallContextFromTask } from './guard.js';
+import { InteractionTaskNotLiveError, type InteractionDecisionRecordDetails } from './index.js';
 import { makeFetchMock, mockResponse, type MockResponseInit } from './__tests__/fetch-mock.js';
 
 // Byte-identical copy of be/test-fixtures/interaction-decision-v1.json (BE-1486).
@@ -420,5 +421,58 @@ describe('Idempotency-Key (SDK-2503, BE-1759)', () => {
     const f = stub([{ status: 503, text: 'down' }, { json: ALLOW }]);
     await expect(hooks({ retry: false }).decide('model_to_tool', { name: 'search.web' })).rejects.toMatchObject({ status: 503 });
     expect(f).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('stale taskId (BE-2836, SDK-2800)', () => {
+  const TASK = '00000000-0000-4000-8000-0000000000a1';
+  // be 5bdee08a's exact 403 body: interaction-decisions.service.ts's ForbiddenException run
+  // through be's global AllExceptionsFilter (no `code`, no `error`); only timestamp/requestId vary.
+  const NOT_LIVE = {
+    status: 403,
+    json: {
+      statusCode: 403,
+      timestamp: '2026-10-01T12:30:10.811Z',
+      path: `/organizations/${fixture.orgId}/interaction-decisions`,
+      method: 'POST',
+      requestId: '00000000-0000-4000-8000-0000000000ff',
+      message: 'taskId is not a live task this agent executes',
+    },
+  };
+
+  it('403 for a taskId that is not a live task → InteractionTaskNotLiveError, one request', async () => {
+    const f = stub([NOT_LIVE, { json: ALLOW }]);
+    const err = await hooks({ taskId: TASK }).decide('model_to_tool', { name: 'search.web' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InteractionTaskNotLiveError);
+    expect(err).toBeInstanceOf(PraesidiaApiError);
+    expect(err).toMatchObject({ status: 403, taskId: TASK, requestId: '00000000-0000-4000-8000-0000000000ff', retryable: false });
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it('a fail-open hook throws it, never fail-opens', async () => {
+    stub([NOT_LIVE, { json: ALLOW }]);
+    const err = await hooks({ taskId: TASK }).beforeToolCall({ toolName: 'search.web' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InteractionTaskNotLiveError);
+  });
+
+  it('any other 403 stays a plain PraesidiaApiError', async () => {
+    stub([{ status: 403, json: { ...NOT_LIVE.json, message: 'Caller may not act as this agent' } }]);
+    const err = await hooks({ taskId: TASK }).decide('model_to_tool', { name: 'search.web' }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 403 });
+    expect(err).not.toBeInstanceOf(InteractionTaskNotLiveError);
+  });
+
+  it('types the BE-2836 Decision Record keys', () => {
+    // `details` of be's recorded interaction decision (service spec, implicit live-task deny).
+    const details: InteractionDecisionRecordDetails = {
+      decision: 'DENY',
+      constrainedBy: 'delegation',
+      constrainingTaskId: TASK,
+      delegationReason: 'delegation_implicit_live_task',
+    };
+    expectTypeOf(details.delegationReason).toEqualTypeOf<'delegation_implicit_live_task' | undefined>();
+    expectTypeOf(details.constrainingTaskId).toEqualTypeOf<string | null | undefined>();
+    expectTypeOf(details.delegationBypass).toEqualTypeOf<'owner' | undefined>();
+    expect(details.constrainingTaskId).toBe(TASK);
   });
 });

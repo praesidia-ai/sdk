@@ -5,6 +5,18 @@ change bumps the minor version (see `PUBLISHING.md`, "Semver policy").
 
 ## Unreleased
 
+### SDK-2800: typed 403 for a stale `taskId`, typed BE-2836 Decision Record keys (needs be ≥ BE-2836)
+
+- New `InteractionTaskNotLiveError` (subclass of `PraesidiaApiError`, status 403, `taskId`):
+  `decide()` and every hook throw it when be answers `taskId is not a live task this agent
+  executes` for the hooks' `taskId` (completed, unknown, another agent's or another org's task).
+  Stop using that `taskId`. Before this it was a plain `PraesidiaApiError` 403; code catching
+  `PraesidiaApiError` still catches it. Never retried; a fail-open hook throws it.
+- New type `InteractionDecisionRecordDetails`: the `delegationReason`
+  (`'delegation_implicit_live_task'`), `constrainingTaskId` and `delegationBypass` (`'owner'`) keys
+  be BE-2836 writes on an `interaction.decision` Decision Record's `details`.
+- Additive only (minor). Python twin: `praesidia` SDK-2800.
+
 ### SDK-2797: `PraesidiaAgents.create` is typed as be's create envelope (breaking, types only)
 
 - **Breaking (types):** `create()` now returns `Promise<AgentCreateResult>`

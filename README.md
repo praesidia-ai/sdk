@@ -1138,6 +1138,26 @@ constrained the decision. If the server cannot read the task's delegation chain,
 is a deny with `delegation_chain_unavailable`; if it cannot evaluate assurance, a deny with
 `assurance_evaluation_error`.
 
+**Stale task (BE-2836).** Without a capability token, the server holds the agent to every live
+delegated task it executes, whether or not you pass `taskId`. A `taskId` that is not a live task
+this agent executes (completed, unknown, or another agent's) gets a 403, which the SDK throws as
+`InteractionTaskNotLiveError` (a `PraesidiaApiError`, status 403, with `taskId`). Every decision
+under that `taskId` fails the same way, so stop using it: build a new hooks instance with the
+current task's id, or without `taskId`. It is never retried and a fail-open hook throws it. The
+Decision Record (`audit.list()` row `details`) carries the keys typed as
+`InteractionDecisionRecordDetails`: `delegationReason: 'delegation_implicit_live_task'` and
+`constrainingTaskId` when the live tasks decided, `delegationBypass: 'owner'` when an owner-level
+human decided without a token.
+
+```ts
+try {
+  await hooks.beforeToolCall({ toolName: 'search.web' });
+} catch (err) {
+  if (err instanceof InteractionTaskNotLiveError) hooks = new PraesidiaInteractionHooks({ ...config, taskId: undefined });
+  else throw err;
+}
+```
+
 **Reporting the outcome.** After an `allow`, report what happened once. Pass exactly one key:
 `approvalId` when the allow came from a consumed approval
 (`decision.reasonCode === 'approval_consumed'`), otherwise `decisionId` (a plain allow, where
@@ -1301,7 +1321,8 @@ only by `guard.protectAction` — see [above](#guardprotectactionopts--promisepr
 `InteractionDecisionUnavailableError` (`cause` = the outage) are thrown only by
 `PraesidiaInteractionHooks`. `IdempotencyKeyReusedError` (a `PraesidiaApiError`, status 409,
 `code: 'IDEMPOTENCY_KEY_REUSED'`) means an `Idempotency-Key` was reused with a different body; it
-is never retried. See
+is never retried. `InteractionTaskNotLiveError` (a `PraesidiaApiError`, status 403, `taskId`)
+means the hooks' `taskId` is not a live task this agent executes (BE-2836). See
 [Interaction hooks](#interaction-hooks--advisory-in-runtime-guard-sdk-0300).
 
 `GuardContentTooLargeError` (`code: 'CONTENT_TOO_LARGE'`, `length`, `maxLength`) is thrown by

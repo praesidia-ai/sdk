@@ -3,8 +3,10 @@ import { PraesidiaClient, encodePathSegment } from './client.js';
 import {
   InteractionDecisionUnavailableError,
   InteractionDeniedError,
+  InteractionTaskNotLiveError,
   isOutage,
   markOutage,
+  PraesidiaApiError,
   PraesidiaConfigError,
 } from './errors.js';
 import { jcsCommitment, type JsonValue } from './jcs-canonical.js';
@@ -59,6 +61,21 @@ export interface InteractionDecision {
   decisionId: string;
   /** BE-1609 — the layer that denied or required approval; null/absent = nothing constrained it. */
   constrainedBy?: 'org_policy' | 'delegation' | 'assurance' | null;
+}
+
+/**
+ * SDK-2800 — delegation keys be BE-2836 adds to the `details` of an `interaction.decision`
+ * Decision Record (an `audit.list()` row). Absent from older servers and from decisions they
+ * do not apply to; every other `details` key stays untyped here.
+ */
+export interface InteractionDecisionRecordDetails {
+  /** The caller sent no capability token and was held to the live delegated tasks it executes. */
+  delegationReason?: 'delegation_implicit_live_task';
+  /** With `delegationReason`: the live task whose envelope decided; null = none narrowed the verdict. */
+  constrainingTaskId?: string | null;
+  /** An owner-level human decided without a token, so no task envelope applied. */
+  delegationBypass?: 'owner';
+  [key: string]: unknown;
 }
 
 export type FailMode = 'open' | 'closed';
@@ -249,13 +266,19 @@ export class PraesidiaInteractionHooks {
   ): Promise<InteractionDecision> {
     assertRequest(interactionType, act);
     const wireAction = act.arguments === undefined ? { name: act.name } : { name: act.name, arguments: act.arguments };
-    return assertDecision(await this.client.post<unknown>(this.path, {
-      interactionType,
-      agentId: this.agentId,
-      action: wireAction,
-      ...(approvalId === undefined ? {} : { approvalId }),
-      ...(this.taskId === undefined ? {} : { taskId: this.taskId }),
-    }, undefined, { idempotencyKey: opts.idempotencyKey ?? randomUUID() }));
+    let response: unknown;
+    try {
+      response = await this.client.post<unknown>(this.path, {
+        interactionType,
+        agentId: this.agentId,
+        action: wireAction,
+        ...(approvalId === undefined ? {} : { approvalId }),
+        ...(this.taskId === undefined ? {} : { taskId: this.taskId }),
+      }, undefined, { idempotencyKey: opts.idempotencyKey ?? randomUUID() });
+    } catch (err) {
+      throw taskNotLive(err, this.taskId);
+    }
+    return assertDecision(response);
   }
 
   /**
@@ -382,6 +405,16 @@ function assertRequest(type: InteractionType, act: InteractionAction): void {
   if (args !== undefined && (args === null || typeof args !== 'object' || Array.isArray(args))) {
     throw new PraesidiaConfigError('action arguments must be a JSON object');
   }
+}
+
+/** be BE-2836's 403 message (no `code` is sent) for a token-less `taskId` that is not a live task. */
+const TASK_NOT_LIVE = 'taskId is not a live task this agent executes';
+
+/** `err` as {@link InteractionTaskNotLiveError} when it is be's BE-2836 403 for the `taskId` sent. */
+function taskNotLive(err: unknown, taskId: string | undefined): unknown {
+  return taskId !== undefined && err instanceof PraesidiaApiError && err.status === 403 && err.body?.message === TASK_NOT_LIVE
+    ? new InteractionTaskNotLiveError(taskId, err.path, JSON.stringify(err.body), err.body)
+    : err;
 }
 
 function assertDecision(value: unknown): InteractionDecision {
