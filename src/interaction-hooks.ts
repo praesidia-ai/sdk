@@ -166,12 +166,24 @@ export interface InteractionHooksConfig
    * every verdict. Use one hooks instance per task.
    */
   taskId?: string;
+  /**
+   * SDK-2798 / be BE-1672 — the task's JIT capability token, e.g.
+   * `toolCallContextFromTask(task).capabilityToken`, sent as
+   * `X-Praesidia-Capability-Token` on every decision request. It binds the
+   * decision to that task's envelope; a token be rejects is a 403
+   * `PraesidiaApiError`, never an outage. Opaque, never logged or exposed.
+   */
+  capabilityToken?: string;
 }
 
 const ACTION_NAME = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/;
 const FS_READ_MODES: ReadonlySet<string> = new Set(['read', 'list']);
 const MAX_CACHE_ENTRIES = 1000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** be `InteractionDecisionsController.decide` reads the token from this header (BE-1672). */
+const CAPABILITY_TOKEN_HEADER = 'X-Praesidia-Capability-Token';
+/** Visible ASCII only: a JWT always is, and nothing else can be a single header value. */
+const HEADER_TOKEN = /^[\x21-\x7e]+$/;
 
 export class PraesidiaInteractionHooks {
   readonly organizationId: string;
@@ -183,6 +195,7 @@ export class PraesidiaInteractionHooks {
   private readonly pollMs: number;
   private readonly approvalTimeoutMs: number;
   private readonly onApprovalRequired?: (decision: InteractionDecision) => void;
+  readonly #capabilityToken?: string;
   /** Keyed by sha256(JCS({interactionType, action})); valid only under `fingerprint`. */
   private readonly cache = new Map<string, { decision: InteractionDecision; expiresAt: number }>();
   private fingerprint: string | undefined;
@@ -206,6 +219,7 @@ export class PraesidiaInteractionHooks {
     this.onApprovalRequired = config.onApprovalRequired;
     if (config.taskId !== undefined && !UUID.test(config.taskId)) throw new PraesidiaConfigError('taskId must be a UUID');
     this.taskId = config.taskId;
+    this.#capabilityToken = capabilityToken(config.capabilityToken);
     this.organizationId = orgId;
     this.agentId = agentId;
     // SDK-2503 — retried (429/5xx/network) only because every POST carries an
@@ -257,14 +271,17 @@ export class PraesidiaInteractionHooks {
    * One raw decision request: no cache, no approval wait, no fail mode.
    * SDK-2503 — sent with `opts.idempotencyKey` (default a fresh UUID v4 per
    * call), reused across the client's retries of this call only.
+   * SDK-2798 — `opts.capabilityToken` replaces the configured one for this call
+   * (e.g. a fresh token for the same task).
    */
   async decide(
     interactionType: InteractionType,
     act: InteractionAction,
     approvalId?: string,
-    opts: { idempotencyKey?: string } = {},
+    opts: { idempotencyKey?: string; capabilityToken?: string } = {},
   ): Promise<InteractionDecision> {
     assertRequest(interactionType, act);
+    const token = capabilityToken(opts.capabilityToken) ?? this.#capabilityToken;
     const wireAction = act.arguments === undefined ? { name: act.name } : { name: act.name, arguments: act.arguments };
     let response: unknown;
     try {
@@ -274,7 +291,9 @@ export class PraesidiaInteractionHooks {
         action: wireAction,
         ...(approvalId === undefined ? {} : { approvalId }),
         ...(this.taskId === undefined ? {} : { taskId: this.taskId }),
-      }, undefined, { idempotencyKey: opts.idempotencyKey ?? randomUUID() });
+      }, token === undefined ? undefined : { [CAPABILITY_TOKEN_HEADER]: token }, {
+        idempotencyKey: opts.idempotencyKey ?? randomUUID(),
+      });
     } catch (err) {
       throw taskNotLive(err, this.taskId);
     }
@@ -436,6 +455,13 @@ function assertDecision(value: unknown): InteractionDecision {
     throw markOutage(new Error('malformed interaction decision response')); // malformed 2xx = outage
   }
   return d as InteractionDecision;
+}
+
+function capabilityToken(token: string | undefined): string | undefined {
+  if (token !== undefined && (typeof token !== 'string' || !HEADER_TOKEN.test(token))) {
+    throw new PraesidiaConfigError('capabilityToken must be a non-empty string of visible ASCII');
+  }
+  return token;
 }
 
 function positiveInt(value: number, label: string): number {

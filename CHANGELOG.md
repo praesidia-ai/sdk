@@ -81,6 +81,15 @@ change below. It is the first version intended for the npm registry.
   `failMode: { toolCall: 'open', fsRead: 'open', browser: 'open' }`. This permits those actions
   without an authorization decision during an outage. Python sync/async use the same defaults.
 
+### SDK-2798: interaction hooks send the task's capability token (needs be with BE-1672)
+
+- New optional `InteractionHooksConfig.capabilityToken` and `decide()` option
+  `opts.capabilityToken` (per call, replaces the configured one). Sent as
+  `X-Praesidia-Capability-Token` on every decision request (approval polls included), never in
+  the body, never on `reportOutcome`. be then binds the decision to that task's envelope. A
+  rejected token is a 403 `PraesidiaApiError`, not an outage. An empty or non-visible-ASCII token
+  throws `PraesidiaConfigError` before any request. Additive (minor).
+
 ### SDK-2800: typed 403 for a stale `taskId`, typed BE-2836 Decision Record keys (needs be ≥ BE-2836)
 
 - New `InteractionTaskNotLiveError` (subclass of `PraesidiaApiError`, status 403, `taskId`):

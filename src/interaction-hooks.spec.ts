@@ -504,3 +504,70 @@ describe('stale taskId (BE-2836, SDK-2800)', () => {
     expect(details.constrainingTaskId).toBe(TASK);
   });
 });
+
+// SDK-2798 — parity with sdk-python tests/test_interaction_hooks.py "capability token (SDK-2798)":
+// same cases, same names. be reads the token from this header on POST interaction-decisions only
+// (interaction-decisions.controller.ts decide(); the outcome route ignores it).
+describe('capability token (SDK-2798, BE-1672)', () => {
+  const TASK = '00000000-0000-4000-8000-0000000000a1';
+  const TOKEN = 'eyJhbGciOiJFZERTQSJ9.eyJ0YXNrIjoiYTEifQ.c2ln';
+  const headerOf = (f: ReturnType<typeof vi.fn>, i: number): string | undefined =>
+    (f.mock.calls[i]?.[1]?.headers as Record<string, string> | undefined)?.['X-Praesidia-Capability-Token'];
+  // be's 403 bodies (capability-token.service.ts boundTask(); interaction-decisions.service.ts decide()).
+  const forbidden = (message: string) => ({
+    status: 403,
+    json: { statusCode: 403, path: `/organizations/${fixture.orgId}/interaction-decisions`, method: 'POST', message },
+  });
+
+  it('the task token rides every decision request as X-Praesidia-Capability-Token, never the body', async () => {
+    const f = stub([{ json: PENDING }, { json: CONSUMED }]);
+    const ctx = toolCallContextFromTask({ id: TASK, chainId: null, capabilityToken: TOKEN, serverAgentId: AGENT });
+    await hooks({ taskId: ctx.taskId, capabilityToken: ctx.capabilityToken }).beforeToolCall({ toolName: 'search.web' });
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(headerOf(f, 0)).toBe(TOKEN);
+    expect(headerOf(f, 1)).toBe(TOKEN);
+    expect(sentBody(f, 0)).not.toContain(TOKEN);
+    expect(JSON.parse(sentBody(f, 0))).toEqual({ interactionType: 'model_to_tool', agentId: AGENT, action: { name: 'search.web' }, taskId: TASK });
+  });
+
+  it('decide() takes a per-call token over the configured one; neither → no header', async () => {
+    const f = stub([{ json: ALLOW }, { json: ALLOW }, { json: ALLOW }]);
+    await hooks({ capabilityToken: TOKEN }).decide('model_to_tool', { name: 'search.web' }, undefined, { capabilityToken: 'fresh.token.sig' });
+    await hooks({ capabilityToken: TOKEN }).decide('model_to_tool', { name: 'search.web' });
+    await hooks().decide('model_to_tool', { name: 'search.web' });
+    expect(headerOf(f, 0)).toBe('fresh.token.sig');
+    expect(headerOf(f, 1)).toBe(TOKEN);
+    expect(headerOf(f, 2)).toBeUndefined();
+  });
+
+  it('reportOutcome never sends the token', async () => {
+    const f = stub([{ json: { approvalId: null, reportedDecisionId: ALLOW.decisionId, decisionId: '66666666-6666-4666-8666-666666666601' } }]);
+    await hooks({ capabilityToken: TOKEN }).reportOutcome({ decisionId: ALLOW.decisionId as string, status: 'succeeded' });
+    expect(headerOf(f, 0)).toBeUndefined();
+  });
+
+  it.each([
+    'Capability token is not valid for an executing task',
+    'Capability token is bound to another agent or task',
+  ])('be 403 "%s" is thrown by a fail-open hook, one request, not an outage', async (message) => {
+    const f = stub([forbidden(message), { json: ALLOW }]);
+    const err = await hooks({ taskId: TASK, capabilityToken: TOKEN }).beforeToolCall({ toolName: 'search.web' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PraesidiaApiError);
+    expect(err).not.toBeInstanceOf(InteractionTaskNotLiveError);
+    expect(err).toMatchObject({ status: 403 });
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['', 'a b', 'tok\r\nX-Evil: 1', 'tökén', 42 as unknown as string])('rejects token %j before any request', async (bad) => {
+    const f = stub([{ json: ALLOW }]);
+    expect(() => hooks({ capabilityToken: bad })).toThrow(PraesidiaConfigError);
+    await expect(hooks().decide('model_to_tool', { name: 'search.web' }, undefined, { capabilityToken: bad })).rejects.toBeInstanceOf(PraesidiaConfigError);
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('keeps the token off the public instance', () => {
+    const h = hooks({ capabilityToken: TOKEN });
+    expect(JSON.stringify(h)).not.toContain(TOKEN);
+    expect(Object.values(h)).not.toContain(TOKEN);
+  });
+});

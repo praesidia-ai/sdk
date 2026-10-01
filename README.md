@@ -1190,6 +1190,23 @@ try {
 }
 ```
 
+**Capability token (SDK-2798, BE-1672).** Pass the task's JIT capability token to bind every
+decision to that task explicitly: `capabilityToken` in the constructor, e.g.
+`const ctx = toolCallContextFromTask(task)` then
+`new PraesidiaInteractionHooks({ taskId: ctx.taskId, capabilityToken: ctx.capabilityToken })`, or per call with
+`decide(type, action, approvalId, { capabilityToken })`, which replaces the configured one for
+that call. The SDK sends it as the `X-Praesidia-Capability-Token` header on every decision
+request (approval polls included), never in the body, and never on `reportOutcome`; the token is
+not readable from the hooks instance. The server then holds the agent to that task's envelope
+whether or not you pass `taskId`. A token the server rejects is a 403 `PraesidiaApiError`, which
+is never retried and which a fail-open hook throws: `Capability token is not valid for an
+executing task` (expired, revoked, or the task is no longer in progress) or `Capability token is
+bound to another agent or task` (the token's agent is not `agentId`, or `taskId` names another
+task). Tokens last at most 5 minutes. For a longer task, pass a fresh token to `decide()`, build
+a new hooks instance with one, or omit the token: without one the server still holds the agent
+to its live delegated tasks (above). An empty token, or one with characters other than visible
+ASCII, throws `PraesidiaConfigError` before any request. Needs be with BE-1672.
+
 **Reporting the outcome.** After an `allow`, report what happened once. Pass exactly one key:
 `approvalId` when the allow came from a consumed approval
 (`decision.reasonCode === 'approval_consumed'`), otherwise `decisionId` (a plain allow, where
@@ -1254,7 +1271,7 @@ verdicts are valid only under the `policyFingerprint` that produced them: a resp
 fingerprint evicts them all. A policy change therefore takes effect within `ttlSeconds`.
 
 In `observe` governance mode be answers `allow` and records the would-be decision; in `off` it
-answers `allow`. `decide(type, action, approvalId?, { idempotencyKey? })` is the raw call (no cache, no wait, no fail
+answers `allow`. `decide(type, action, approvalId?, { idempotencyKey?, capabilityToken? })` is the raw call (no cache, no wait, no fail
 mode). Action names must be dot-separated `[A-Za-z0-9_-]` segments (be's rule); anything else
 throws `PraesidiaConfigError` before a request is sent.
 
