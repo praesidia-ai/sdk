@@ -1049,6 +1049,22 @@ export interface ListAgentsQuery {
 /** An agent record as returned by the API (passthrough shape). */
 export type AgentRecord = Record<string, unknown>;
 
+/**
+ * Response of `PraesidiaAgents.create` — be's `AgentCreateResponseDto`
+ * (SDK-2797). The created agent is nested under `agent`; the three sibling
+ * fields are returned on create only.
+ */
+export interface AgentCreateResult {
+  /** The created agent (be `AgentListItemDto`). */
+  agent: AgentRecord & { id: string; clientId: string };
+  /** Always `null` now: be issues no static client secret (credentials are JIT). */
+  clientSecret: string | null;
+  /** Always `'jit'` now; `'static'` stays in be's response schema for legacy agents. */
+  credentialMode: 'jit' | 'static';
+  /** Per-agent webhook signing secret, returned ONCE. Persist it; never log it. */
+  webhookSigningSecret: string;
+}
+
 /** Query params accepted by `PraesidiaWorkflows.list`. */
 export interface ListWorkflowsQuery {
   page?: number;

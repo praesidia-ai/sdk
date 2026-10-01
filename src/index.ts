@@ -100,6 +100,7 @@ export type {
   // FINDING-2 — agents CRUD / workflows / connections / audit parity types
   ListAgentsQuery,
   AgentRecord,
+  AgentCreateResult,
   ListWorkflowsQuery,
   ListWorkflowRunsQuery,
   WorkflowRecord,

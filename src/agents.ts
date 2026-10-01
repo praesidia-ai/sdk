@@ -9,7 +9,12 @@ import {
   paginateAll,
   type PaginatedEnvelope,
 } from './pagination.js';
-import type { GuardConfig, ListAgentsQuery, AgentRecord } from './types.js';
+import type {
+  GuardConfig,
+  ListAgentsQuery,
+  AgentRecord,
+  AgentCreateResult,
+} from './types.js';
 
 const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
 
@@ -109,17 +114,15 @@ export class PraesidiaAgents {
   /**
    * Create a new agent. POST .../agents.
    *
-   * The response carries `credentialMode` (`'jit'` | `'static'`) and
-   * `clientSecret` (`string | null`). `credentialMode === 'jit'` (default for
-   * ephemeral-first orgs) → `clientSecret` is `null`; the agent authenticates
-   * with ephemeral JIT capability tokens minted per task instead — do not
-   * expect a static secret. `credentialMode === 'static'` (legacy opt-in) →
-   * `clientSecret` is the plaintext secret, shown ONCE; persist it
-   * immediately. `clientId` (public, non-secret) is always returned. Never
-   * log `clientSecret`.
+   * Returns be's create envelope, not the bare agent (SDK-2797): the agent is
+   * `result.agent` (`result.agent.id`). `credentialMode` is `'jit'` and
+   * `clientSecret` is `null` — be mints no static secret; the agent
+   * authenticates with ephemeral JIT capability tokens minted per task.
+   * `webhookSigningSecret` is returned ONCE — persist it immediately and never
+   * log it. `agent.clientId` (public, non-secret) is always set.
    */
-  async create(data: Record<string, unknown>): Promise<AgentRecord> {
-    return this.client.post<AgentRecord>(this.agentsBase, data);
+  async create(data: Record<string, unknown>): Promise<AgentCreateResult> {
+    return this.client.post<AgentCreateResult>(this.agentsBase, data);
   }
 
   /** Partially update an agent (only supplied fields change). PATCH .../agents/:id. */

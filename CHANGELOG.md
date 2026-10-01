@@ -5,6 +5,16 @@ change bumps the minor version (see `PUBLISHING.md`, "Semver policy").
 
 ## Unreleased
 
+### SDK-2797: `PraesidiaAgents.create` is typed as be's create envelope (breaking, types only)
+
+- **Breaking (types):** `create()` now returns `Promise<AgentCreateResult>`
+  (`{ agent, clientSecret, credentialMode, webhookSigningSecret }`, new export) instead of
+  `Promise<AgentRecord>`. The runtime value is unchanged: be always sent this envelope, so
+  `created.id` was always `undefined`. Read the id from `created.agent.id`; code that used
+  `created.id` now fails to compile instead of failing at runtime.
+- README: the agent example uses a valid `type` (`'AUTONOMOUS'`; `'chat'` was a 400) and drops the
+  `'static'` credential mode, which be no longer issues.
+
 ### SDK-2510: Node.js >= 22 (breaking)
 
 - **Breaking:** `engines.node` is now `>=22` (was `>=18`). Node 18 and 20 are end-of-life and are

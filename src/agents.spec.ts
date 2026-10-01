@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PraesidiaAgents } from './agents.js';
 import { PraesidiaGuard } from './guard.js';
@@ -50,13 +51,27 @@ describe('PraesidiaAgents', () => {
       expect(url).toContain('/agents/agent-1');
     });
 
-    it('creates an agent via POST', async () => {
-      globalThis.fetch = makeFetchMock([
-        { json: { id: 'agent-2', clientId: 'c-1', credentialMode: 'jit', clientSecret: null } },
-      ]);
+    // SDK-2797 — be returns AgentCreateResponseDto `{agent, clientSecret, credentialMode,
+    // webhookSigningSecret}` (be/src/agents/dto/agent-response.dto.ts:27), not the agent.
+    // The fixture carries the key set QA-0012 observed live (findings/QA-0012/j1-ts.log:4).
+    it('creates an agent via POST and returns be\'s create envelope', async () => {
+      const body = JSON.parse(
+        readFileSync(
+          new URL('../test-fixtures/agent-create-response-v1.json', import.meta.url),
+          'utf8',
+        ),
+      ) as { agent: { id: string; clientId: string }; webhookSigningSecret: string };
+      globalThis.fetch = makeFetchMock([{ status: 201, json: body }]);
       const agents = new PraesidiaAgents({ apiKey: 'pk_x', orgId: 'org-1' });
-      const created = await agents.create({ name: 'New Bot' });
+      const created = await agents.create({ name: 'Support Bot', type: 'AUTONOMOUS' });
+      const id: string = created.agent.id;
+      expect(id).toBe(body.agent.id);
+      expect(created.agent.clientId).toBe(body.agent.clientId);
+      // @ts-expect-error — the agent is nested; a top-level `id` does not exist.
+      expect(created.id).toBeUndefined();
       expect(created.credentialMode).toBe('jit');
+      expect(created.clientSecret).toBeNull();
+      expect(created.webhookSigningSecret).toBe(body.webhookSigningSecret);
       const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
         string,
         RequestInit,

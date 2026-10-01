@@ -578,12 +578,13 @@ import { PraesidiaAgents } from '@praesidia/sdk';
 const agents = new PraesidiaAgents();
 const list = await agents.list({ page: 1, limit: 20 });
 const agent = await agents.get(list[0].id as string);
-const created = await agents.create({ name: 'Support Bot', type: 'chat' });
-// created.credentialMode is 'jit' (default; clientSecret is null — the agent
-// authenticates with ephemeral JIT tokens) or 'static' (legacy opt-in;
-// clientSecret is the plaintext secret, shown ONCE — persist it immediately).
-await agents.update(created.id as string, { name: 'Renamed Bot' });
-await agents.delete(created.id as string);
+// type: 'AUTONOMOUS' (default) | 'SUPERVISED' | 'SERVICE' | 'ORCHESTRATOR'
+const created = await agents.create({ name: 'Support Bot', type: 'AUTONOMOUS' });
+// create() returns { agent, clientSecret, credentialMode, webhookSigningSecret }.
+// credentialMode is 'jit' and clientSecret is null: the agent authenticates with
+// ephemeral JIT tokens. webhookSigningSecret is shown ONCE — persist it now.
+await agents.update(created.agent.id, { name: 'Renamed Bot' });
+await agents.delete(created.agent.id);
 ```
 
 Task submission (`run`), polling (`pollPendingTasks`), and task-scoped MCP tool
@@ -594,7 +595,7 @@ mirrors the SDK's existing organization and is unchanged.
 |---|---|---|
 | `list(query?)` | `Promise<AgentRecord[]>` | `GET .../agents` |
 | `get(id)` | `Promise<AgentRecord>` | `GET .../agents/:id` |
-| `create(data)` | `Promise<AgentRecord>` | `POST .../agents` |
+| `create(data)` | `Promise<AgentCreateResult>` (`{ agent, clientSecret, credentialMode, webhookSigningSecret }`) | `POST .../agents` |
 | `update(id, data)` | `Promise<AgentRecord>` | `PATCH .../agents/:id` |
 | `delete(id)` | `Promise<void>` | `DELETE .../agents/:id` |
 | `refreshCredential(secret)` | `void` | in-memory credential swap (no request) |
