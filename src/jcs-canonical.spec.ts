@@ -87,6 +87,28 @@ describe('jcsCanonicalize — in-memory -0 handling', () => {
 });
 
 describe('jcsCanonicalize — additional refusals not in the shared fixture set', () => {
+  it.each([
+    { value: new Array<JsonValue>(1) },
+    { value: [1, , 3] },
+    { value: [1, ,] },
+  ])('throws on a sparse array $value rather than dropping absent elements', ({ value }) => {
+    expect(() => jcsCanonicalize(value as JsonValue)).toThrow(
+      JcsCanonicalizationError,
+    );
+  });
+
+  it.each(['\ud800', '\udfff'])('throws on an unpaired surrogate property name %j', (key) => {
+    expect(() => jcsCanonicalize({ [key]: 'value' })).toThrow(
+      JcsCanonicalizationError,
+    );
+  });
+
+  it('preserves a valid surrogate pair in a property name', () => {
+    expect(jcsCanonicalize({ '\ud83d\ude00': 'value' }).toString('utf8')).toBe(
+      '{"😀":"value"}',
+    );
+  });
+
   it('throws on a top-level undefined', () => {
     expect(() =>
       jcsCanonicalize(undefined as unknown as JsonValue),

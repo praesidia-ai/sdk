@@ -95,7 +95,13 @@ function canonicalize(v: JsonValue | undefined): string {
     return JSON.stringify(v);
   }
   if (Array.isArray(v)) {
-    return '[' + v.map((el) => canonicalize(el)).join(',') + ']';
+    // Array.map skips holes. Visit each index so absent elements are refused
+    // like explicit undefined rather than erased or emitted as invalid JSON.
+    const parts: string[] = [];
+    for (let i = 0; i < v.length; i++) {
+      parts.push(canonicalize(v[i]));
+    }
+    return '[' + parts.join(',') + ']';
   }
   if (typeof v === 'object') {
     if (v instanceof Date) {
@@ -125,7 +131,8 @@ function canonicalize(v: JsonValue | undefined): string {
             'instead of setting it to undefined',
         );
       }
-      return JSON.stringify(k) + ':' + canonicalize(val);
+      // Property names obey the same Unicode constraints as string values.
+      return canonicalize(k) + ':' + canonicalize(val);
     });
     return '{' + parts.join(',') + '}';
   }
