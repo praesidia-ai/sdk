@@ -220,7 +220,7 @@ export class PraesidiaInteractionHooks {
     this.path = `/organizations/${encodePathSegment(orgId, 'orgId')}/interaction-decisions`;
   }
 
-  /** Tool call chosen by the model: `model_to_tool.<toolName>`. Default fail-open. */
+  /** Tool call chosen by the model: `model_to_tool.<toolName>`. Default fail-closed. */
   beforeToolCall(req: ToolCallRequest): Promise<InteractionHookResult> {
     return this.guard('model_to_tool', action(req.toolName, req.arguments), this.failModes.toolCall);
   }
@@ -232,13 +232,13 @@ export class PraesidiaInteractionHooks {
     return this.guard(type, action('exec', { command, args, cwd }), this.failModes.exec);
   }
 
-  /** Filesystem access: `agent_to_filesystem.<mode>`. Fail-open for read/list, fail-closed otherwise. */
+  /** Filesystem access: `agent_to_filesystem.<mode>`. Default fail-closed for every mode (`fsRead` / `fsWrite`). */
   beforeFsAccess(req: FsAccessRequest): Promise<InteractionHookResult> {
     const cls = FS_READ_MODES.has(req.mode) ? 'fsRead' : 'fsWrite';
     return this.guard('agent_to_filesystem', action(req.mode, { path: req.path }), this.failModes[cls]);
   }
 
-  /** Browser action: `agent_to_browser.<action>`. Default fail-open. */
+  /** Browser action: `agent_to_browser.<action>`. Default fail-closed. */
   beforeBrowserAction(req: BrowserActionRequest): Promise<InteractionHookResult> {
     const args = { ...req.arguments, url: req.url };
     return this.guard('agent_to_browser', action(req.action, args), this.failModes.browser);

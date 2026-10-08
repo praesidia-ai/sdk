@@ -3,9 +3,9 @@
 All notable changes to `@praesidia/openclaw`. Versions follow SemVer; while on `0.x`, a breaking
 change bumps the minor version (see the repository's `PUBLISHING.md`, "Semver policy").
 
-## 0.1.1 — unreleased (first registry release)
+## 0.1.1 — 2026-10-08 (first registry release)
 
-Never published to npm; 0.1.0 existed only in source. Needs `@praesidia/sdk` 0.4.0 on the
+No earlier version reached npm; 0.1.0 existed only in source. Needs `@praesidia/sdk` 0.4.0 on the
 registry first.
 
 ### INTEG-0051: release packaging

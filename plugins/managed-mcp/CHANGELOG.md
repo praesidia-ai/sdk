@@ -3,9 +3,9 @@
 All notable changes to `@praesidia/managed-mcp`. Versions follow SemVer; while on `0.x`, a
 breaking change bumps the minor version (see the repository's `PUBLISHING.md`, "Semver policy").
 
-## 0.1.0 — unreleased (first registry release)
+## 0.1.0 — 2026-10-08 (first registry release)
 
-Never published to npm. It needs `@praesidia/sdk` 0.4.0 on the registry first.
+No earlier version reached npm. It needs `@praesidia/sdk` 0.4.0 on the registry first.
 
 ### INTEG-0052: moved into the sdk repository
 
