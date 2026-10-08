@@ -5,6 +5,11 @@ change bumps the minor version (see `PUBLISHING.md`, "Semver policy").
 
 ## Unreleased
 
+### App API alignment
+
+- The Docker build stage includes example, plugin metadata and workflow fixtures
+  needed by its tests; nested host `node_modules` are excluded from the context.
+
 ### SDK-2800: typed 403 for a stale `taskId`, typed BE-2836 Decision Record keys (needs be ≥ BE-2836)
 
 - New `InteractionTaskNotLiveError` (subclass of `PraesidiaApiError`, status 403, `taskId`):

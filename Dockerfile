@@ -21,6 +21,9 @@ COPY src ./src
 COPY scripts ./scripts
 # Contract fixtures read by src/*.spec.ts (http-receipt, interaction-decision, genai-telemetry).
 COPY test-fixtures ./test-fixtures
+COPY examples ./examples
+COPY plugins ./plugins
+COPY .github/workflows ./.github/workflows
 COPY README.md LICENSE ./
 RUN npm run build && npm run test:coverage && npm run typecheck:spec
 
