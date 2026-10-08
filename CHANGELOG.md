@@ -18,6 +18,16 @@ change bumps the minor version (see `PUBLISHING.md`, "Semver policy").
 - The Docker build stage includes example, plugin metadata and workflow fixtures
   needed by its tests; nested host `node_modules` are excluded from the context.
 
+### Interaction hooks require authorization decisions on outages (breaking)
+
+- **Breaking behavior:** all hook classes now default to fail closed. Tool calls, filesystem
+  reads/listing and browser actions previously failed open on decision API outages; they now
+  throw `InteractionDecisionUnavailableError`, as exec and filesystem writes already did.
+- Successful decisions, denials, approval waits and retries are unchanged. Explicit per-class
+  fail-open overrides remain supported. To preserve the previous outage behavior, set
+  `failMode: { toolCall: 'open', fsRead: 'open', browser: 'open' }`. This permits those actions
+  without an authorization decision during an outage. Python sync/async use the same defaults.
+
 ### SDK-2800: typed 403 for a stale `taskId`, typed BE-2836 Decision Record keys (needs be ≥ BE-2836)
 
 - New `InteractionTaskNotLiveError` (subclass of `PraesidiaApiError`, status 403, `taskId`):

@@ -81,13 +81,13 @@ export interface InteractionDecisionRecordDetails {
 export type FailMode = 'open' | 'closed';
 /** The fail-mode classes the four hooks map onto. */
 export type InteractionHookClass = 'toolCall' | 'exec' | 'fsRead' | 'fsWrite' | 'browser';
-/** Fail-closed where a skipped check can do irreversible local damage (exec, fs writes). */
+/** Require an authorization decision for every hook; fail-open is an explicit opt-in. */
 export const DEFAULT_FAIL_MODES: Readonly<Record<InteractionHookClass, FailMode>> = Object.freeze({
-  toolCall: 'open',
+  toolCall: 'closed',
   exec: 'closed',
-  fsRead: 'open',
+  fsRead: 'closed',
   fsWrite: 'closed',
-  browser: 'open',
+  browser: 'closed',
 });
 
 export interface ToolCallRequest { toolName: string; arguments?: Record<string, JsonValue> }

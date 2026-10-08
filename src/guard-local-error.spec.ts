@@ -66,9 +66,9 @@ describe("Guard never degrades on a local serialisation error (SDK-0357)", () =>
     expect(isOutage(new PraesidiaApiError(429, "/x", "slow down"))).toBe(false);
   });
 
-  it("interaction hooks: a malformed 2xx still fails open", async () => {
+  it("interaction hooks: an explicit fail-open override still permits a malformed 2xx", async () => {
     globalThis.fetch = makeFetchMock([{ status: 200, text: "not json" }]);
-    const hooks = new PraesidiaInteractionHooks({ apiKey: "pk_test", orgId: base.orgId, agentId: base.connectionId, baseUrl: "https://api.example" });
+    const hooks = new PraesidiaInteractionHooks({ apiKey: "pk_test", orgId: base.orgId, agentId: base.connectionId, baseUrl: "https://api.example", failMode: { toolCall: "open" } });
     const r = await hooks.beforeToolCall({ toolName: "search", arguments: { q: "x" } });
     expect(r.decision).toBeNull();
     expect(r.failOpenError).toBeInstanceOf(SyntaxError);

@@ -7,6 +7,7 @@ import {
   PraesidiaInteractionHooks,
   type InteractionDecision,
   type InteractionHookResult,
+  type InteractionHookClass,
   type InteractionHooksConfig,
   type InteractionType,
 } from './interaction-hooks.js';
@@ -55,12 +56,14 @@ const sentBody = (f: ReturnType<typeof vi.fn>, i: number): string => String(f.mo
 
 type Hook = (h: PraesidiaInteractionHooks) => Promise<InteractionHookResult>;
 // `fail` is the README-documented default, stated here, not read from DEFAULT_FAIL_MODES.
-const HOOKS: { hook: string; fail: 'open' | 'closed'; type: InteractionType; call: Hook }[] = [
-  { hook: 'beforeToolCall', fail: 'open', type: 'model_to_tool', call: (h) => h.beforeToolCall({ toolName: 'search.web', arguments: { q: 'x' } }) },
-  { hook: 'beforeExec', fail: 'closed', type: 'agent_to_shell', call: (h) => h.beforeExec({ command: 'rm -rf /srv' }) },
-  { hook: 'beforeFsAccess(read)', fail: 'open', type: 'agent_to_filesystem', call: (h) => h.beforeFsAccess({ path: '/srv/reports/q3.csv', mode: 'read' }) },
-  { hook: 'beforeFsAccess(write)', fail: 'closed', type: 'agent_to_filesystem', call: (h) => h.beforeFsAccess({ path: '/srv/x', mode: 'write' }) },
-  { hook: 'beforeBrowserAction', fail: 'open', type: 'agent_to_browser', call: (h) => h.beforeBrowserAction({ action: 'navigate', url: 'https://example.com' }) },
+const HOOKS: { hook: string; cls: InteractionHookClass; fail: 'open' | 'closed'; type: InteractionType; call: Hook }[] = [
+  { hook: 'beforeToolCall', cls: 'toolCall', fail: 'closed', type: 'model_to_tool', call: (h) => h.beforeToolCall({ toolName: 'search.web', arguments: { q: 'x' } }) },
+  { hook: 'beforeExec', cls: 'exec', fail: 'closed', type: 'agent_to_shell', call: (h) => h.beforeExec({ command: 'rm -rf /srv' }) },
+  { hook: 'beforeFsAccess(read)', cls: 'fsRead', fail: 'closed', type: 'agent_to_filesystem', call: (h) => h.beforeFsAccess({ path: '/srv/reports/q3.csv', mode: 'read' }) },
+  { hook: 'beforeFsAccess(list)', cls: 'fsRead', fail: 'closed', type: 'agent_to_filesystem', call: (h) => h.beforeFsAccess({ path: '/srv', mode: 'list' }) },
+  { hook: 'beforeFsAccess(delete)', cls: 'fsWrite', fail: 'closed', type: 'agent_to_filesystem', call: (h) => h.beforeFsAccess({ path: '/srv/x', mode: 'delete' }) },
+  { hook: 'beforeFsAccess(write)', cls: 'fsWrite', fail: 'closed', type: 'agent_to_filesystem', call: (h) => h.beforeFsAccess({ path: '/srv/x', mode: 'write' }) },
+  { hook: 'beforeBrowserAction', cls: 'browser', fail: 'closed', type: 'agent_to_browser', call: (h) => h.beforeBrowserAction({ action: 'navigate', url: 'https://example.com' }) },
 ];
 
 afterEach(() => vi.unstubAllGlobals());
@@ -91,7 +94,7 @@ describe('interaction-decision contract (BE-1486 fixture)', () => {
   });
 });
 
-describe.each(HOOKS)('$hook', ({ fail, type, call }) => {
+describe.each(HOOKS)('$hook', ({ cls, fail, type, call }) => {
   it('allow passes through with the decision', async () => {
     const f = stub([{ json: ALLOW }]);
     await expect(call(hooks())).resolves.toEqual({ decision: ALLOW });
@@ -130,11 +133,23 @@ describe.each(HOOKS)('$hook', ({ fail, type, call }) => {
       await expect(result).resolves.toEqual({ decision: null, failOpenError: outage });
     }
   });
+  it.each([{ status: 503, text: 'down' }, { json: { verdict: 'maybe' } }, { text: 'not json' }])(
+    'an unavailable or malformed decision %j blocks by default', async (res) => {
+      stub([res]);
+      await expect(call(hooks())).rejects.toBeInstanceOf(InteractionDecisionUnavailableError);
+    });
+
+  it('an explicit fail-open override permits an outage for this class', async () => {
+    const outage = new TypeError('fetch failed');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(outage));
+    await expect(call(hooks({ failMode: { [cls]: 'open' } }))).resolves.toEqual({ decision: null, failOpenError: outage });
+  });
+
 });
 
 describe('fail modes', () => {
-  it('defaults: fail-closed for exec and fs writes only', () => {
-    expect(DEFAULT_FAIL_MODES).toEqual({ toolCall: 'open', exec: 'closed', fsRead: 'open', fsWrite: 'closed', browser: 'open' });
+  it('defaults: require an authorization decision for every hook', () => {
+    expect(DEFAULT_FAIL_MODES).toEqual({ toolCall: 'closed', exec: 'closed', fsRead: 'closed', fsWrite: 'closed', browser: 'closed' });
   });
 
   it.each([[{ status: 503, text: 'down' }], [{ json: { verdict: 'maybe' } }], [{ text: 'not json' }]])(
@@ -154,14 +169,14 @@ describe('fail modes', () => {
 
   it('a 503 degrades a fail-open hook', async () => {
     stub([{ status: 503, text: 'down' }]);
-    const res = await hooks().beforeToolCall({ toolName: 'search.web', arguments: {} });
+    const res = await hooks({ failMode: { toolCall: 'open' } }).beforeToolCall({ toolName: 'search.web', arguments: {} });
     expect(res.decision).toBeNull();
     expect(res.failOpenError).toMatchObject({ status: 503 });
   });
 
   it('a caller error (401) throws even on a fail-open hook', async () => {
     stub([{ status: 401, text: 'bad key' }]);
-    await expect(hooks().beforeFsAccess({ path: '/a', mode: 'read' })).rejects.toBeInstanceOf(PraesidiaApiError);
+    await expect(hooks({ failMode: { fsRead: 'open' } }).beforeFsAccess({ path: '/a', mode: 'read' })).rejects.toBeInstanceOf(PraesidiaApiError);
   });
 
   it('failMode override flips a class', async () => {
@@ -178,7 +193,7 @@ describe('fail modes', () => {
   it('an outage while waiting for approval never allows, even fail-open', async () => {
     const f = vi.fn().mockResolvedValueOnce(mockResponse({ json: PENDING })).mockRejectedValue(new TypeError('down'));
     vi.stubGlobal('fetch', f);
-    const err = await hooks({ approvalTimeoutMs: 20 }).beforeBrowserAction({ action: 'click' }).catch((e: unknown) => e);
+    const err = await hooks({ approvalTimeoutMs: 20, failMode: { browser: 'open' } }).beforeBrowserAction({ action: 'click' }).catch((e: unknown) => e);
     expect(err).toMatchObject({ name: 'InteractionDeniedError', reasonCode: 'approval_wait_timeout' });
   });
 });
@@ -322,7 +337,7 @@ describe('task envelope (BE-1609, SDK-0332)', () => {
   });
   it('surfaces constrainedBy on a delegation deny', async () => {
     stub([{ json: { ...DENY, reasonCode: 'delegation_tool_not_allowed', constrainedBy: 'delegation' } }]);
-    const err = await hooks({ taskId: TASK }).beforeToolCall({ toolName: 'search.web' }).catch((e: unknown) => e);
+    const err = await hooks({ taskId: TASK, failMode: { toolCall: 'open' } }).beforeToolCall({ toolName: 'search.web' }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(InteractionDeniedError);
     expect((err as InteractionDeniedError).decision.constrainedBy).toBe('delegation');
   });
@@ -405,7 +420,7 @@ describe('Idempotency-Key (SDK-2503, BE-1759)', () => {
 
   it('409 IDEMPOTENCY_KEY_REUSED on a hook throws, never fail-opens', async () => {
     const f = stub([REUSED, { json: ALLOW }]);
-    const err = await hooks().beforeToolCall({ toolName: 'search.web' }).catch((e: unknown) => e);
+    const err = await hooks({ failMode: { toolCall: 'open' } }).beforeToolCall({ toolName: 'search.web' }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(IdempotencyKeyReusedError);
     expect(f).toHaveBeenCalledTimes(1);
   });
@@ -451,7 +466,7 @@ describe('stale taskId (BE-2836, SDK-2800)', () => {
 
   it('a fail-open hook throws it, never fail-opens', async () => {
     stub([NOT_LIVE, { json: ALLOW }]);
-    const err = await hooks({ taskId: TASK }).beforeToolCall({ toolName: 'search.web' }).catch((e: unknown) => e);
+    const err = await hooks({ taskId: TASK, failMode: { toolCall: 'open' } }).beforeToolCall({ toolName: 'search.web' }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(InteractionTaskNotLiveError);
   });
 

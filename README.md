@@ -1131,10 +1131,10 @@ spawnSync('git', ['status'], { cwd: '/srv/repo' });
 
 | Hook | Asks as | Default on outage |
 |---|---|---|
-| `beforeToolCall({ toolName, arguments? })` | `model_to_tool.<toolName>` | fail-open |
+| `beforeToolCall({ toolName, arguments? })` | `model_to_tool.<toolName>` | **fail-closed** |
 | `beforeExec({ command, args?, cwd?, runtime? })` | `agent_to_shell.exec` (`runtime: 'code'` → `agent_to_code_execution.exec`) | **fail-closed** |
-| `beforeFsAccess({ path, mode })` | `agent_to_filesystem.<mode>` | fail-open for `read` / `list`, **fail-closed** for `write` / `delete` |
-| `beforeBrowserAction({ action, url?, arguments? })` | `agent_to_browser.<action>` | fail-open |
+| `beforeFsAccess({ path, mode })` | `agent_to_filesystem.<mode>` | **fail-closed** for every mode |
+| `beforeBrowserAction({ action, url?, arguments? })` | `agent_to_browser.<action>` | **fail-closed** |
 | `beforeInteraction(type, { name, arguments? }, { failMode? })` | `<type>.<name>`, any of `INTERACTION_TYPES` | **fail-closed** |
 
 Every hook resolves to `{ decision }` on `allow`, throws `InteractionDeniedError` on `deny`,
@@ -1218,11 +1218,12 @@ applies (up to `maxAttempts` × `requestTimeoutMs`, bounded by `maxElapsedMs`).
 response. A fail-closed hook then throws `InteractionDecisionUnavailableError`; a fail-open
 hook resolves to `{ decision: null, failOpenError }`. Any other 4xx (bad key, unknown agent,
 feature not enabled, and 429) always throws `PraesidiaApiError`, on every hook (SDK-0352): an
-end user can cause a 429 from a shared egress IP, so it must never open a fail-open hook. The defaults fail closed
-where a skipped check can do irreversible local damage with no other Praesidia control in the
-path (shell / code execution, filesystem writes), and fail open for read-only and
-lower-impact checks so a Praesidia outage does not stop every agent. Override per class with
-`failMode: { toolCall, exec, fsRead, fsWrite, browser }` (`'open' | 'closed'`). An outage while
+end user can cause a 429 from a shared egress IP, so it must never open a fail-open hook. Every hook defaults to fail closed: tools and browser actions can have external side effects,
+and reads can expose sensitive data. An unavailable authorization decision stops the action.
+Opt in per class with `failMode: { toolCall, exec, fsRead, fsWrite, browser }`
+(`'open' | 'closed'`). To retain the previous outage behavior, explicitly configure
+`failMode: { toolCall: 'open', fsRead: 'open', browser: 'open' }`; those classes then proceed
+without an authorization decision on an outage. An outage while
 waiting for an approval never turns into an allow: the hook keeps waiting, then times out.
 
 **Cache.** A verdict is reused for its `ttlSeconds` for the identical request, in memory, per
