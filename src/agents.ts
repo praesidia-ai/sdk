@@ -25,7 +25,7 @@ const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
  * Usage (zero config — reads from env vars):
  *   const agents = new PraesidiaAgents();
  *   const list = await agents.list();
- *   agents.refreshCredential(newClientSecret); // adopt in-process
+ *   agents.refreshCredential(newManagementKey); // adopt in-process
  *
  * Config resolution order: constructor arg → environment variable → default.
  * Like PraesidiaCompliance there is no local/offline mode — every operation is
@@ -144,11 +144,11 @@ export class PraesidiaAgents {
   }
 
   /**
-   * Adopt a newly provisioned client secret in-process, at runtime
+   * Adopt a newly provisioned management API key in-process, at runtime
    * (zero-downtime swap).
    *
    * Call this with a freshly provisioned credential: subsequent requests from
-   * this instance authenticate with the new secret, so a long-lived client can
+   * this instance authenticate with the new key, so a long-lived client can
    * swap credentials without recreating the instance or restarting the process.
    *
    * SECURITY: the credential is held only in memory and is never logged.

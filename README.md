@@ -383,8 +383,8 @@ can buffer an unbounded body.
 
 ## Agent credential refresh
 
-`PraesidiaAgents` lets a long-lived client adopt a newly provisioned agent
-client secret at runtime for a **zero-downtime** swap — no restart, no
+`PraesidiaAgents` lets a long-lived client adopt a newly provisioned management
+API key at runtime for a **zero-downtime** swap — no restart, no
 recreating the instance.
 
 ```typescript
@@ -393,18 +393,18 @@ import { PraesidiaAgents } from '@praesidia/sdk';
 // Zero config: reads PRAESIDIA_API_KEY, PRAESIDIA_ORG_ID, PRAESIDIA_BASE_URL
 const agents = new PraesidiaAgents();
 
-// Adopt a newly provisioned secret in-process without a restart:
-agents.refreshCredential(newClientSecret);
+// Adopt a newly provisioned management key in-process without a restart:
+agents.refreshCredential(newManagementKey);
 ```
 
-`refreshCredential(secret)` is also available on `PraesidiaGuard` — a
+`refreshCredential(apiKey)` is also available on `PraesidiaGuard` — a
 long-lived guard can swap in a new credential mid-flight so guarded calls keep
 working across the swap.
 
 ### `new PraesidiaAgents(config?)`
 
-Same config shape as `PraesidiaGuard` (only `apiKey`, `orgId`, `baseUrl` are
-used). Like `PraesidiaCompliance` there is no local mode — a missing
+Same connection config as `PraesidiaGuard`, including `requestTimeoutMs`,
+`retry` and `allowInsecureHttp`. Like `PraesidiaCompliance` there is no local mode — a missing
 `apiKey`/`orgId` throws `PraesidiaConfigError` at construction.
 
 | Method | Returns | Endpoint |
