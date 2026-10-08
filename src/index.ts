@@ -246,6 +246,7 @@ export {
   AI_ASSET_ENTITY_TYPES,
   AI_SYSTEM_ASSET_ROLES,
   ASSET_RELATIONSHIP_TYPES,
+  CROSS_BORDER_STATUSES,
   ASSET_GRAPH_DIRECTIONS,
   // SDK-0322 — AISYS-0018 approval-gated lifecycle
   APPROVAL_GATED_LIFECYCLE_TARGETS,
@@ -280,6 +281,7 @@ export type {
   AttachAiSystemAssetInput,
   AiSystemAssetRecord,
   AssetRelationshipType,
+  CrossBorderStatus,
   CreateAssetRelationshipInput,
   ListAssetRelationshipsQuery,
   AssetRelationshipRecord,

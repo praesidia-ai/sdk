@@ -7,6 +7,14 @@ change bumps the minor version (see `PUBLISHING.md`, "Semver policy").
 
 ### App API alignment
 
+- Agent lists now accept all app filters, including tier, status, visibility and
+  skill/MIME filters, and retain them across pagination.
+- Relationship lists accept the cross-border status filter. Create/update types
+  now include geography, vendor and cross-border review fields; update geography
+  and vendor fields accept `null` to clear them. **Type correction:** input
+  `confidence` is a number (0–1), matching the backend DTO, rather than a string.
+- Shared management-query fixtures are checked against fresh backend OpenAPI
+  exports in contract CI for both SDKs.
 - The Docker build stage includes example, plugin metadata and workflow fixtures
   needed by its tests; nested host `node_modules` are excluded from the context.
 

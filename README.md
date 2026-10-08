@@ -600,6 +600,12 @@ mirrors the SDK's existing organization and is unchanged.
 | `delete(id)` | `Promise<void>` | `DELETE .../agents/:id` |
 | `refreshCredential(secret)` | `void` | in-memory credential swap (no request) |
 
+Agent `list`, `listPage` and `listAll` accept the app's filters: `name`, `search`,
+`role`, `status`, `type`, `visibility`, `tier`, `scope`, `capability`,
+`capabilityExact`, `skillTag`, `inputMode` and `outputMode`. For example,
+`agents.listAll({ tier: 'OBSERVED', status: 'ACTIVE', skillTag: 'maps' })`
+keeps those filters across every page.
+
 ## Workflows (FINDING-2 parity with the Python SDK)
 
 `PraesidiaWorkflows` manages approval workflows and their runs.
@@ -739,7 +745,13 @@ await aiSystems.approveLifecycleTransition(requestId);
 ```
 
 Python parity: `sdk-python` ships the same request/approve/reject/retire/reapprove
-methods; `listLifecycleRequests` is TS-only for now (documented gap).
+methods and `list_lifecycle_requests(status=..., ai_system_id=...)`.
+
+Relationship lists accept `crossBorderStatus` (`unknown`, `compliant`,
+`review_required`, `violation`). Relationship create/update inputs accept numeric
+`confidence` (0–1), `sourceGeography`, `processingGeography`,
+`destinationGeography`, `vendorAiAssetId` and `crossBorderStatus`.
+Pass `null` for a geography or vendor field on update to clear it.
 
 `reapprove(id, { materialChangeId })` clears the re-approval flag a material change
 leaves on a `production` system (ORGANIZATION_OWNER; 409 unless `materialChangeId` is
@@ -751,7 +763,7 @@ the change the flag names now).
 `entitlement_projection`) are written only by the platform's own pipelines.
 `listAssets({ source })` still filters on all of them (be BE-1529, SDK-0317).
 
-Every `list*`/`listAssets`/`listRelationships` also has a `*Page` (full
+Inventory methods `list`, `listAssets` and `listRelationships` also have a `*Page` (full
 pagination envelope) and `*All` (auto-paginating async generator) sibling,
 matching the `listPage`/`listAll` convention above (SCAN2-011).
 

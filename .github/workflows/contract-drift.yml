@@ -122,6 +122,13 @@ jobs:
           BE_SWAGGER_PATH: ../swagger.generated.json
         run: npx vitest run src/ai-systems.spec.ts
 
+      - name: Management list queries vs be-core
+        working-directory: sdk
+        env:
+          REQUIRE_SWAGGER: '1'
+          BE_SWAGGER_PATH: ../swagger.generated.json
+        run: npx vitest run src/management-query.spec.ts
+
       # SDK-2512 — test-fixtures/genai-telemetry-v1.json is a vendored copy of
       # queue-core's contracts/genai-telemetry-v1.json (checked out at `shared`
       # above). PRAESIDIA_SHARED_DIR makes the drift check mandatory here.

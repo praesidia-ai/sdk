@@ -86,6 +86,18 @@ export class PraesidiaAgents {
     query: ListAgentsQuery = {},
   ): Promise<PaginatedEnvelope<AgentRecord>> {
     assertPagination(query);
+    for (const [key, allowed] of Object.entries({
+      role: ['CLIENT', 'SERVER'],
+      status: ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'QUARANTINED', 'REVOKED'],
+      visibility: ['PRIVATE', 'TEAM', 'ORGANIZATION', 'PUBLIC'],
+      tier: ['MANAGED', 'OBSERVED'],
+      scope: ['own', 'organization'],
+    })) {
+      const value = query[key as keyof ListAgentsQuery];
+      if (value !== undefined && !allowed.includes(value as string)) {
+        throw new PraesidiaConfigError(`${key} must be one of ${allowed.join(', ')}`);
+      }
+    }
     const qs = buildQueryString(query);
     const result = await this.client.get<AgentRecord[] | Record<string, unknown>>(
       `${this.agentsBase}${qs}`,
@@ -163,6 +175,10 @@ function buildQueryString(query: ListAgentsQuery): string {
   const params: Array<[string, string]> = [];
   if (query.page !== undefined) params.push(['page', String(query.page)]);
   if (query.limit !== undefined) params.push(['limit', String(query.limit)]);
+  for (const key of ['name', 'search', 'role', 'status', 'type', 'visibility', 'tier', 'scope',
+    'capability', 'capabilityExact', 'skillTag', 'inputMode', 'outputMode'] as const) {
+    if (query[key] !== undefined) params.push([key, query[key]]);
+  }
   if (params.length === 0) return '';
   const encoded = params
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)

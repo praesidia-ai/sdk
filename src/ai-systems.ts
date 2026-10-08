@@ -22,6 +22,7 @@ import {
   APPROVAL_GATED_LIFECYCLE_TARGETS,
   ASSET_GRAPH_DIRECTIONS,
   ASSET_RELATIONSHIP_TYPES,
+  CROSS_BORDER_STATUSES,
   type AdoptAiAssetInput,
   type AiAssetDesiredStateResult,
   type AiAssetRecord,
@@ -571,6 +572,7 @@ export class PraesidiaAiSystems {
   ): Promise<PaginatedEnvelope<AssetRelationshipRecord>> {
     assertPagination(query);
     assertEnum(query.relationshipType, ASSET_RELATIONSHIP_TYPES, 'relationshipType');
+    assertEnum(query.crossBorderStatus, CROSS_BORDER_STATUSES, 'crossBorderStatus');
     const qs = buildQueryString(query);
     const result = await this.client.get<
       AssetRelationshipRecord[] | Record<string, unknown>

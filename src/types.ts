@@ -1044,6 +1044,19 @@ export interface AiSystemTrustFetchAndVerifyResult
 export interface ListAgentsQuery {
   page?: number;
   limit?: number;
+  name?: string;
+  search?: string;
+  role?: 'CLIENT' | 'SERVER';
+  status?: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' | 'QUARANTINED' | 'REVOKED';
+  type?: string;
+  visibility?: 'PRIVATE' | 'TEAM' | 'ORGANIZATION' | 'PUBLIC';
+  tier?: 'MANAGED' | 'OBSERVED';
+  scope?: 'own' | 'organization';
+  capability?: string;
+  capabilityExact?: string;
+  skillTag?: string;
+  inputMode?: string;
+  outputMode?: string;
 }
 
 /** An agent record as returned by the API (passthrough shape). */
@@ -1852,9 +1865,18 @@ export interface CreateAssetRelationshipInput {
   targetAssetId: string;
   relationshipType: AssetRelationshipType;
   source?: string;
-  confidence?: string;
+  /** Number from 0 to 1, as accepted by the create/update DTOs. */
+  confidence?: number;
   metadata?: Record<string, unknown>;
+  sourceGeography?: string;
+  processingGeography?: string;
+  destinationGeography?: string;
+  vendorAiAssetId?: string;
+  crossBorderStatus?: CrossBorderStatus;
 }
+
+export const CROSS_BORDER_STATUSES = ['unknown', 'compliant', 'review_required', 'violation'] as const;
+export type CrossBorderStatus = (typeof CROSS_BORDER_STATUSES)[number];
 
 /** Query params accepted by `PraesidiaAiSystems.listRelationships` (`ListAssetRelationshipsQueryDto`). */
 export interface ListAssetRelationshipsQuery {
@@ -1863,6 +1885,7 @@ export interface ListAssetRelationshipsQuery {
   /** Either endpoint (source or target). */
   assetId?: string;
   relationshipType?: AssetRelationshipType;
+  crossBorderStatus?: CrossBorderStatus;
   includeArchived?: boolean;
   page?: number;
   limit?: number;
@@ -1878,8 +1901,13 @@ export type AssetRelationshipRecord = Record<string, unknown>;
  * this edge and creating a new one, matching `be`'s DTO.
  */
 export type UpdateAssetRelationshipInput = Partial<
-  Omit<CreateAssetRelationshipInput, 'sourceAssetId' | 'targetAssetId'>
->;
+  Omit<CreateAssetRelationshipInput, 'sourceAssetId' | 'targetAssetId' | 'sourceGeography' | 'processingGeography' | 'destinationGeography' | 'vendorAiAssetId'>
+> & {
+  sourceGeography?: string | null;
+  processingGeography?: string | null;
+  destinationGeography?: string | null;
+  vendorAiAssetId?: string | null;
+};
 
 /** `TraverseAssetGraphQueryDto`'s `direction` (be's AISYS-0003). */
 export const ASSET_GRAPH_DIRECTIONS = ['downstream', 'upstream', 'both'] as const;
