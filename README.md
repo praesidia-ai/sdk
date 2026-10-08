@@ -409,7 +409,7 @@ Same connection config as `PraesidiaGuard`, including `requestTimeoutMs`,
 
 | Method | Returns | Endpoint |
 |---|---|---|
-| `refreshCredential(secret)` | `void` | in-memory credential swap (no request) |
+| `refreshCredential(apiKey: string)` | `void` | adopt a newly provisioned management API key in-memory (zero-downtime swap, no request) |
 
 ## Agent identity + task lifecycle + guardrail hooks (H1-02a)
 
@@ -598,7 +598,7 @@ mirrors the SDK's existing organization and is unchanged.
 | `create(data)` | `Promise<AgentCreateResult>` (`{ agent, clientSecret, credentialMode, webhookSigningSecret }`) | `POST .../agents` |
 | `update(id, data)` | `Promise<AgentRecord>` | `PATCH .../agents/:id` |
 | `delete(id)` | `Promise<void>` | `DELETE .../agents/:id` |
-| `refreshCredential(secret)` | `void` | in-memory credential swap (no request) |
+| `refreshCredential(apiKey: string)` | `void` | adopt a newly provisioned management API key in-memory (zero-downtime swap, no request) |
 
 Agent `list`, `listPage` and `listAll` accept the app's filters: `name`, `search`,
 `role`, `status`, `type`, `visibility`, `tier`, `scope`, `capability`,
