@@ -1948,7 +1948,7 @@ export interface AssetGraphEdge {
   targetAssetId: string;
   relationshipType: AssetRelationshipType;
   source: string;
-  confidence: string;
+  confidence: number;
 }
 
 /** `AssetGraphStatsDto` — `depth` is the `maxDepth` actually applied (post-clamp). `truncated`

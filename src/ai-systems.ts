@@ -264,17 +264,25 @@ export class PraesidiaAiSystems {
 
   /**
    * List lifecycle transition requests (be defaults to the `PENDING` queue).
-   * GET .../ai-systems/lifecycle-requests. Returns the requested page as a bare array.
+   * GET .../ai-systems/lifecycle-requests. Returns the requested page as a bare array;
+   * use {@link listLifecycleRequestsPage} for the full envelope (truncation signal).
    */
   async listLifecycleRequests(
     query: ListAiSystemLifecycleRequestsQuery = {},
   ): Promise<AiSystemLifecycleTransitionRequest[]> {
+    return (await this.listLifecycleRequestsPage(query)).data;
+  }
+
+  /** Like {@link listLifecycleRequests}, but returns be's full pagination envelope. */
+  async listLifecycleRequestsPage(
+    query: ListAiSystemLifecycleRequestsQuery = {},
+  ): Promise<PaginatedEnvelope<AiSystemLifecycleTransitionRequest>> {
     assertPagination(query);
     assertEnum(query.status, AI_SYSTEM_LIFECYCLE_REQUEST_STATUSES, 'status');
     const result = await this.client.get<
       AiSystemLifecycleTransitionRequest[] | Record<string, unknown>
     >(`${this.systemsBase}/lifecycle-requests${buildQueryString(query)}`);
-    return normalizePagedEnvelope<AiSystemLifecycleTransitionRequest>(result, 'data').data;
+    return normalizePagedEnvelope<AiSystemLifecycleTransitionRequest>(result, 'data');
   }
 
   /**

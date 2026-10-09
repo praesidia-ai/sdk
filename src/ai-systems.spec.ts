@@ -261,6 +261,16 @@ describe('PraesidiaAiSystems', () => {
       expect(rows).toEqual([{ id: 'req-1' }]);
     });
 
+    it('listLifecycleRequestsPage keeps be meta so a multi-page queue is visible', async () => {
+      const meta = { page: 1, limit: 1, total: 3, totalPages: 3, hasNextPage: true };
+      globalThis.fetch = makeFetchMock([{ json: { data: [{ id: 'req-1' }], total: 3, meta } }]);
+      const aiSystems = new PraesidiaAiSystems({ apiKey: 'pk_x', orgId: 'org-1' });
+      const page = await aiSystems.listLifecycleRequestsPage({ limit: 1 });
+      expect(page.meta.hasNextPage).toBe(true);
+      expect(page.total).toBe(3);
+      await expect(aiSystems.listLifecycleRequestsPage({ limit: 101 })).rejects.toThrow(/limit/);
+    });
+
     it('retire POSTs .../ai-systems/:id/retire and returns the 202 request + preview (SDK-0322)', async () => {
       globalThis.fetch = makeFetchMock([
         { status: 202, json: { requestId: 'req-2', preview: { aiSystemId: 'sys-1', dependentCount: 0 } } },

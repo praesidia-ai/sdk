@@ -691,6 +691,7 @@ await aiSystems.createRelationship({
 | `transitionLifecycle(id, status)` | `Promise<AiSystemRecord>` | `PATCH .../ai-systems/:id/lifecycle` (ungated targets only; `production`/`retired` throw) |
 | `requestLifecycleTransition(id, { toStatus, reason? })` | `Promise<AiSystemLifecycleTransitionRequest>` | `POST .../ai-systems/:id/lifecycle-requests` |
 | `listLifecycleRequests(query?)` | `Promise<AiSystemLifecycleTransitionRequest[]>` | `GET .../ai-systems/lifecycle-requests` (default `status: 'PENDING'`) |
+| `listLifecycleRequestsPage(query?)` | `Promise<PaginatedEnvelope<AiSystemLifecycleTransitionRequest>>` | Same route, with be's `total`/`meta` |
 | `approveLifecycleTransition(requestId, { reason? }?)` | `Promise<AiSystemLifecycleTransitionRequest>` | `POST .../ai-systems/lifecycle-requests/:requestId/approve` |
 | `rejectLifecycleTransition(requestId, { reason? }?)` | `Promise<AiSystemLifecycleTransitionRequest>` | `POST .../ai-systems/lifecycle-requests/:requestId/reject` |
 | `retire(id, { retentionPolicy, reason, retentionUntil? })` | `Promise<RetireAiSystemResult>` | `POST .../ai-systems/:id/retire` (202) |
