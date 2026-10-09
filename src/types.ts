@@ -1315,15 +1315,15 @@ export type AnalyticsEventType =
 export interface AnalyticsEvent {
   id: string;
   organizationId: string | null;
-  agentId?: string;
+  agentId: string | null;
   eventType: AnalyticsEventType;
-  endpoint?: string;
-  method?: string;
-  statusCode?: number;
-  responseTimeMs?: number;
-  requestSizeBytes?: number;
-  responseSizeBytes?: number;
-  errorCode?: string;
+  endpoint: string | null;
+  method: string | null;
+  statusCode: number | null;
+  responseTimeMs: number | null;
+  requestSizeBytes: number | null;
+  responseSizeBytes: number | null;
+  errorCode: string | null;
   errorMessage?: string;
   sourceIp?: string;
   userAgent?: string;
