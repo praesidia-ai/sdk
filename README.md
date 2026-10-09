@@ -1222,6 +1222,8 @@ running: it is a plain `PraesidiaApiError`, not retried; repeat the call with th
 the first one has finished. A retry also lengthens how long a hook waits before its fail mode
 applies (up to `maxAttempts` × `requestTimeoutMs`, bounded by `maxElapsedMs`).
 
+`reportOutcome` also checks its target fields client-side and throws `PraesidiaConfigError` before the request: `targetSystem` must be a string of at most 100 characters and `targetTransactionId` a string of at most 200 (the backend `InteractionOutcomeDto` limits; the Python SDK does the same).
+
 **Fail mode.** An outage is a network error, a timeout, a 408 / 5xx, or a malformed
 response. A fail-closed hook then throws `InteractionDecisionUnavailableError`; a fail-open
 hook resolves to `{ decision: null, failOpenError }`. Any other 4xx (bad key, unknown agent,
