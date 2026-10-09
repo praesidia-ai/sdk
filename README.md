@@ -864,6 +864,7 @@ package's `evidence/audit-bundle.zip`).
 | Method | Returns | Endpoint |
 |---|---|---|
 | `list(query?)` | `Promise<AuditLogEntry[]>` | `GET .../audit-logs` |
+| `listPage(query?)` | `Promise<{ data: AuditLogEntry[]; total: number; meta }>` | `GET .../audit-logs` (full envelope) |
 | `stream(query?)` | `AsyncGenerator<AuditLogEntry>` | pages `GET .../audit-logs` until empty |
 | `export(query?)` | `Promise<Uint8Array>` | `GET .../audit-logs/export` |
 
@@ -892,6 +893,12 @@ const csv = await analytics.export();
 | `captureState()` | `Promise<AnalyticsCaptureState>` | `GET .../analytics/capture-state` |
 | `agentAnalytics(agentId, query?)` | `Promise<AgentAnalyticsResult>` | `GET .../analytics/agents/:agentId` |
 | `events(query?)` | `Promise<AnalyticsEvent[]>` | `GET .../analytics/events` (paginated) |
+| `eventsPage(query?)` | `Promise<{ data: AnalyticsEvent[]; total: number; meta }>` | `GET .../analytics/events` (full envelope) |
+
+`audit.listPage` and `analytics.eventsPage` return the server's `{ data, total, meta }` envelope.
+All paginated list methods validate client-side and throw `PraesidiaConfigError` before any
+request: `page` must be an integer 1..1_000_000 and `limit` an integer 1..100 (`audit.stream`
+clamps a larger `limit` to 100 instead).
 | `activityLog(query?)` | `Promise<AnalyticsEvent[]>` | `GET .../analytics/activity-log` (PRA-QA-261 alias of `events`) |
 | `recordEvent(input)` | `Promise<AnalyticsEvent>` | `POST .../analytics/events` (`ANALYTICS_CREATE`, JWT-only — see below) |
 | `securityMetrics(query?)` | `Promise<SecurityMetricsResult>` | `GET .../analytics/advanced/security` (ADVANCED_ANALYTICS) |

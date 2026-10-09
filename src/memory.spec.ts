@@ -181,6 +181,16 @@ describe('PraesidiaMemory', () => {
     expect(url).toContain('tag=crm');
   });
 
+  it.each([0, 101])('rejects list limit %i before fetch', async (limit) => {
+    const spy = makeFetchMock([]);
+    globalThis.fetch = spy;
+
+    await expect(new PraesidiaMemory(config).list({ limit })).rejects.toThrow(
+      PraesidiaConfigError,
+    );
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it('rejects a backend-invalid list source type before fetch', async () => {
     const spy = makeFetchMock([]);
     globalThis.fetch = spy;
