@@ -1464,7 +1464,7 @@ export interface ComplianceMetricsResult {
   };
   dataRetention: {
     retentionDays: number;
-    oldestRecord: string;
+    oldestRecord: string | null;
     recordsToExpire: number;
   };
   auditLogStats: {
