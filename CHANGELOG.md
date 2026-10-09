@@ -5,6 +5,24 @@ change bumps the minor version (see `PUBLISHING.md`, "Semver policy").
 
 ## Unreleased
 
+### Pagination envelopes and bounds
+
+- Added `audit.listPage`, `analytics.eventsPage` and `aiSystems.listLifecycleRequestsPage`,
+  which return the paged envelope (items plus `meta`) instead of only the items.
+- `page` now throws above 1_000_000 (client-side, before any request).
+- `memory.list` `limit` is validated to 1..100.
+
+### Type correction (breaking for TypeScript callers)
+
+- `AssetGraphEdge.confidence` is now `number` (it was typed `string`), matching what the API
+  returns. Code that treated it as a string no longer compiles.
+
+### Interaction hooks
+
+- `reportOutcome` rejects before the request with `PraesidiaConfigError` when `targetSystem`
+  exceeds 100 characters, `targetTransactionId` exceeds 200, or either is not a string
+  (matches the backend `InteractionOutcomeDto` limits and the Python SDK).
+
 ## 0.4.0 — 2026-10-08 (first npm release)
 
 No earlier version reached npm (0.2.x and 0.3.x existed only in source), so 0.4.0 carries every

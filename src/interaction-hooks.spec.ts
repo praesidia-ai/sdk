@@ -255,6 +255,19 @@ describe('reportOutcome (BE-1582)', () => {
     expect(f).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects over-long or non-string targetSystem/targetTransactionId before any request', async () => {
+    const f = stub([{ json: RECEIPT }]);
+    const base = { approvalId: RECEIPT.approvalId, status: 'succeeded' as const };
+    const bad: Array<Record<string, unknown>> = [
+      { targetSystem: 'x'.repeat(101) }, { targetTransactionId: 'x'.repeat(201) },
+      { targetSystem: 5 }, { targetTransactionId: {} },
+    ];
+    for (const b of bad) await expect(hooks().reportOutcome({ ...base, ...b } as never)).rejects.toBeInstanceOf(PraesidiaConfigError);
+    expect(f).not.toHaveBeenCalled();
+    await hooks().reportOutcome({ ...base, targetSystem: 'x'.repeat(100), targetTransactionId: 'x'.repeat(200) });
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects a bad status or missing approvalId before any request', async () => {
     const f = stub([{ json: RECEIPT }]);
     await expect(hooks().reportOutcome({ approvalId: RECEIPT.approvalId, status: 'done' as never })).rejects.toBeInstanceOf(PraesidiaConfigError);

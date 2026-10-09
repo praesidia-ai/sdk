@@ -304,6 +304,11 @@ export class PraesidiaInteractionHooks {
     if (!(INTERACTION_OUTCOME_STATUSES as readonly string[]).includes(status)) {
       throw new PraesidiaConfigError(`status must be one of ${INTERACTION_OUTCOME_STATUSES.join(', ')}`);
     }
+    for (const [name, v, max] of [['targetSystem', targetSystem, 100], ['targetTransactionId', targetTransactionId, 200]] as const) {
+      if (v !== undefined && (typeof v !== 'string' || v.length > max)) {
+        throw new PraesidiaConfigError(`${name} must be a string of at most ${max} characters`);
+      }
+    }
     return this.client.post<InteractionOutcomeReceipt>(`${this.path}/outcome`, {
       agentId: this.agentId,
       [key]: id,
