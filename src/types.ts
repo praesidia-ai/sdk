@@ -620,8 +620,8 @@ export interface EraseMemoryInput {
 
 /** H2-06c — provenance lineage attached to a retrieved memory. */
 export interface MemoryProvenance {
-  accessSourceId?: string | null;
-  sourceContentVersion?: string | null;
+  accessSourceId: string | null;
+  sourceContentVersion: string | null;
   sourceType: MemorySourceType;
   sourceAgentId: string | null;
   authorUserId: string | null;
