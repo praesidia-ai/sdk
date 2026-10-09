@@ -156,6 +156,13 @@ describe('PraesidiaAnalytics (FINDING-1)', () => {
     expect(url).toBe('https://api.praesidia.ai/organizations/org-1/analytics/capture-state');
   });
 
+  it('eventsPage() returns the full envelope', async () => {
+    const meta = { page: 1, limit: 10, total: 1, totalPages: 1, hasNextPage: false };
+    globalThis.fetch = makeFetchMock([{ json: { data: [{ id: 'e1' }], total: 1, meta } }]);
+    const analytics = new PraesidiaAnalytics({ apiKey: 'pk_x', orgId: 'org-1' });
+    expect(await analytics.eventsPage({ limit: 10 })).toEqual({ data: [{ id: 'e1' }], total: 1, meta });
+  });
+
   it('events() unwraps the { data, meta } pagination envelope', async () => {
     globalThis.fetch = makeFetchMock([
       { json: { data: [{ id: 'evt-1' }], total: 1, meta: { page: 1, limit: 20 } } },

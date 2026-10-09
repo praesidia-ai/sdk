@@ -25,6 +25,14 @@ describe('PraesidiaAudit', () => {
     expect(url).toContain('/organizations/org-1/audit-logs');
   });
 
+  it('listPage returns the full envelope and rejects page > 1_000_000', async () => {
+    const meta = { page: 2, limit: 1, total: 5, totalPages: 5, hasNextPage: true };
+    globalThis.fetch = makeFetchMock([{ json: { data: [{ id: 'r' }], total: 5, meta } }]);
+    const audit = new PraesidiaAudit({ apiKey: 'pk_x', orgId: 'org-1' });
+    expect(await audit.listPage({ page: 2, limit: 1 })).toEqual({ data: [{ id: 'r' }], total: 5, meta });
+    await expect(audit.listPage({ page: 1_000_001 })).rejects.toThrow(PraesidiaConfigError);
+  });
+
   it('unwraps the backend data envelope and serializes all list filters', async () => {
     globalThis.fetch = makeFetchMock([{ json: { data: [{ id: 'row-2' }] } }]);
     const audit = new PraesidiaAudit({ apiKey: 'pk_x', orgId: 'org-1' });

@@ -298,10 +298,12 @@ export function assertPagination(query: {
 }): void {
   if (
     query.page !== undefined &&
-    (!Number.isInteger(query.page) || (query.page as number) < 1)
+    (!Number.isInteger(query.page) ||
+      (query.page as number) < 1 ||
+      (query.page as number) > 1_000_000)
   ) {
     throw new PraesidiaConfigError(
-      "page must be an integer greater than or equal to 1",
+      "page must be an integer from 1 to 1000000",
     );
   }
   if (

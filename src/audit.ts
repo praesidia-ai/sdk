@@ -6,6 +6,7 @@ import {
 } from './client.js';
 import { PraesidiaConfigError } from './errors.js';
 import { assertBundleDateRange } from './evidence-query.js';
+import { normalizePagedEnvelope, type PaginatedEnvelope } from './pagination.js';
 import type {
   AuditBundleDownload,
   AuditBundleQuery,
@@ -84,14 +85,20 @@ export class PraesidiaAudit {
    * `limit` is validated against the backend maximum of 100.
    */
   async list(query: ListAuditLogsQuery = {}): Promise<AuditLogEntry[]> {
+    return (await this.listPage(query)).data;
+  }
+
+  /** Like {@link list}, but returns be's full pagination envelope (`{data,total,meta}`). */
+  async listPage(
+    query: ListAuditLogsQuery = {},
+  ): Promise<PaginatedEnvelope<AuditLogEntry>> {
     assertPagination(query);
     assertIsoDateRange(query.fromDate, query.toDate);
     const qs = buildQueryString(query);
-    const result = await this.client.get<
-      AuditLogEntry[] | { data?: AuditLogEntry[]; logs?: AuditLogEntry[] }
-    >(`${this.auditBase}${qs}`);
-    if (Array.isArray(result)) return result;
-    return result.data ?? result.logs ?? [];
+    const result = await this.client.get<AuditLogEntry[] | Record<string, unknown>>(
+      `${this.auditBase}${qs}`,
+    );
+    return normalizePagedEnvelope<AuditLogEntry>(result, 'logs');
   }
 
   /**

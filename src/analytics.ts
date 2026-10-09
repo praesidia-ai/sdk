@@ -5,6 +5,7 @@ import {
   PraesidiaClient,
 } from './client.js';
 import { PraesidiaConfigError } from './errors.js';
+import { normalizePagedEnvelope, type PaginatedEnvelope } from './pagination.js';
 import type {
   AgentAnalyticsResult,
   AnalyticsAnomaly,
@@ -163,12 +164,19 @@ export class PraesidiaAnalytics {
    * `PraesidiaAgents.list` / `PraesidiaAudit.list`.
    */
   async events(query: AnalyticsEventsQuery = {}): Promise<AnalyticsEvent[]> {
+    return (await this.eventsPage(query)).data;
+  }
+
+  /** Like {@link events}, but returns be's full pagination envelope (`{data,total,meta}`). */
+  async eventsPage(
+    query: AnalyticsEventsQuery = {},
+  ): Promise<PaginatedEnvelope<AnalyticsEvent>> {
     assertPagination(query);
     assertIsoDateRange(query.fromDate, query.toDate);
-    const result = await this.client.get<
-      AnalyticsEvent[] | { data?: AnalyticsEvent[] }
-    >(`${this.analyticsBase}/events${buildEventsQuery(query)}`);
-    return Array.isArray(result) ? result : (result.data ?? []);
+    const result = await this.client.get<AnalyticsEvent[] | Record<string, unknown>>(
+      `${this.analyticsBase}/events${buildEventsQuery(query)}`,
+    );
+    return normalizePagedEnvelope<AnalyticsEvent>(result, 'data');
   }
 
   /**
