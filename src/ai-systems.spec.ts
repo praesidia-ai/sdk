@@ -733,14 +733,14 @@ describe('PraesidiaAiSystems', () => {
       // fails if it drifts from these tuples again -- see SDK-0007/SDK-0303.
       const spec = JSON.parse(readFileSync(SWAGGER_PATH, 'utf8'));
       const schemas = spec.components.schemas;
-      const openapiAssetTypes: string[] = schemas.AiAsset.properties.assetType.enum;
+      const openapiAssetTypes: string[] = schemas.AiAssetResponseDto.properties.assetType.enum;
       const openapiRelationshipTypes: string[] =
-        schemas.AssetRelationship.properties.relationshipType.enum;
+        schemas.AssetRelationshipResponseDto.properties.relationshipType.enum;
       expect(new Set(AI_ASSET_TYPES)).toEqual(new Set(openapiAssetTypes));
       expect(new Set(ASSET_RELATIONSHIP_TYPES)).toEqual(new Set(openapiRelationshipTypes));
       // SDK-0317: the list filter covers every stored source; the create/put subset must stay
       // inside CreateAiAssetDto's enum (a superset until swagger is re-exported after BE-1529).
-      expect(new Set(AI_ASSET_SOURCES)).toEqual(new Set(schemas.AiAsset.properties.source.enum));
+      expect(new Set(AI_ASSET_SOURCES)).toEqual(new Set(schemas.AiAssetResponseDto.properties.source.enum));
       const createSources: string[] = schemas.CreateAiAssetDto.properties.source.enum;
       for (const source of AI_ASSET_CLIENT_SOURCES) expect(createSources).toContain(source);
     },
