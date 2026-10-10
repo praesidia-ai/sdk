@@ -588,8 +588,16 @@ await agents.delete(created.agent.id);
 ```
 
 Task submission (`run`), polling (`pollPendingTasks`), and task-scoped MCP tool
-calls stay on `PraesidiaGuard` (`run` / `logTask` / `trackToolCall`) — this
-mirrors the SDK's existing organization and is unchanged.
+calls stay on `PraesidiaGuard` (`run` / `logTask` / `pollPendingTasks` /
+`trackToolCall`) — this mirrors the SDK's existing organization and is unchanged.
+
+`guard.pollPendingTasks(clientId, { clientSecret?, accessToken? })` calls
+`GET /a2a/tasks/pending/:clientId` and returns the claimed `PolledTaskRow[]`
+(Python: `agents.poll_pending_tasks`). `clientSecret` sends only the
+`X-A2A-Client-Id` / `X-A2A-Client-Secret` headers (no management Bearer header);
+`accessToken` is sent as the Bearer credential; pass at most one. Without either,
+the guard's API key is used. Thread a row into `trackToolCall` with
+`toolCallContextFromTask(row)`, and never log a row's `capabilityToken`.
 
 | Method | Returns | Endpoint |
 |---|---|---|
@@ -1400,6 +1408,11 @@ agent-runtime caller needs:
   catalog.
 - **`mcp-servers/inventory`** (list/refresh/review/dependencies) — the MCP tool-inventory review
   surface.
+- **`api-keys`** management (`/organizations/{orgId}/integrations/api-keys` list/create/rotate/
+  metrics/delete, `/users/api-keys`, `/account/api-keys/{id}/rotate`) — keys are issued and rotated
+  in the app; the SDK only accepts an existing key as `apiKey`.
+- **`organizations`** CRUD (`POST`/`GET /organizations`, `GET`/`PATCH`/`DELETE
+  /organizations/{orgId}`, `accept-invite`) — the SDK is scoped to one existing org via `orgId`.
 - **`runtime-installations`** management (create/patch/challenge/disable/list/verify) — only the
   opaque, already-provisioned `runtimeInstallationId` is accepted (see `PraesidiaProtectedHttp`
   config); creating and verifying an installation is done once, in the app.

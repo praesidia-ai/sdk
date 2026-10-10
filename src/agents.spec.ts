@@ -54,6 +54,17 @@ describe('PraesidiaAgents', () => {
     // SDK-2797 — be returns AgentCreateResponseDto `{agent, clientSecret, credentialMode,
     // webhookSigningSecret}` (be/src/agents/dto/agent-response.dto.ts:27), not the agent.
     // The fixture carries the key set QA-0012 observed live (findings/QA-0012/j1-ts.log:4).
+    it.each([[{}], [{ name: '' }], [{ name: 42 }]])(
+      'create rejects %j without a non-empty string name before any request',
+      async (data) => {
+        const mock = makeFetchMock([]);
+        globalThis.fetch = mock;
+        const agents = new PraesidiaAgents({ apiKey: 'pk_x', orgId: 'org-1' });
+        await expect(agents.create(data)).rejects.toThrow(PraesidiaConfigError);
+        expect(mock).not.toHaveBeenCalled();
+      },
+    );
+
     it('creates an agent via POST and returns be\'s create envelope', async () => {
       const body = JSON.parse(
         readFileSync(

@@ -5,6 +5,20 @@ change bumps the minor version (see `PUBLISHING.md`, "Semver policy").
 
 ## Unreleased
 
+### A2A polling and analytics fields
+
+- Added `PraesidiaGuard.pollPendingTasks(clientId, { clientSecret?, accessToken? })`
+  (`GET /a2a/tasks/pending/:clientId`), matching the Python SDK's `poll_pending_tasks`. The
+  README already named it; earlier releases did not ship it.
+- `PraesidiaClient.get` takes an optional third argument `{ includeAuth?: boolean }`
+  (default `true`). Existing calls are unchanged.
+- `AnalyticsEvent.sourceIp` and `userAgent` are deprecated: the API no longer returns them.
+  They stay optional and will be removed in a future minor release.
+- **Breaking behavior:** `agents.create()` throws `PraesidiaConfigError` before any request when
+  `data` has no non-empty string `name` (be's `CreateAgentDto` requires it); before, be's 400
+  surfaced as `PraesidiaApiError`.
+- README "Not covered by this SDK" now lists API keys and organizations CRUD.
+
 ### Pagination envelopes and bounds
 
 - Added `audit.listPage`, `analytics.eventsPage` and `aiSystems.listLifecycleRequestsPage`,

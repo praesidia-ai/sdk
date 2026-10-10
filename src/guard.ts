@@ -527,6 +527,53 @@ export class PraesidiaGuard {
   }
 
   /**
+   * Q3-02 / Q4-02 — claim the pending tasks routed to a polling (server) agent
+   * via `GET /a2a/tasks/pending/:clientId`. Each row carries the chain identity
+   * (`chainId` + `hopIndex`) and, when governance is active, the JIT
+   * `capabilityToken`; thread a row into `trackToolCall` with
+   * `toolCallContextFromTask`. Mirrors Python `poll_pending_tasks`.
+   *
+   * Auth: `clientSecret` sends only `X-A2A-Client-Id` / `X-A2A-Client-Secret`
+   * (no management Bearer header); `accessToken` sends it as the Bearer
+   * credential; neither → the guard's configured API key. NEVER log a row's
+   * `capabilityToken`. Throws PraesidiaConfigError in local/offline mode.
+   */
+  async pollPendingTasks(
+    clientId: string,
+    opts: { clientSecret?: string; accessToken?: string } = {},
+  ): Promise<PolledTaskRow[]> {
+    if (!this.client) {
+      throw new PraesidiaConfigError(
+        'pollPendingTasks requires a connected client (PRAESIDIA_API_KEY and PRAESIDIA_ORG_ID)',
+      );
+    }
+    const { clientSecret, accessToken } = opts;
+    if (clientSecret !== undefined && accessToken !== undefined) {
+      throw new PraesidiaConfigError('provide clientSecret or accessToken, not both');
+    }
+    const singleLine = (v: string) => typeof v === 'string' && v !== '' && !/[\r\n]/.test(v);
+    let headers: Record<string, string> | undefined;
+    if (clientSecret !== undefined) {
+      if (!singleLine(clientSecret)) {
+        throw new PraesidiaConfigError('clientSecret must be a non-empty single-line string');
+      }
+      headers = { 'X-A2A-Client-Id': clientId, 'X-A2A-Client-Secret': clientSecret };
+    } else if (accessToken !== undefined) {
+      if (!singleLine(accessToken)) {
+        throw new PraesidiaConfigError('accessToken must be a non-empty single-line string');
+      }
+      headers = { Authorization: `Bearer ${accessToken}` };
+    }
+    const res = await this.client.get<
+      PolledTaskRow[] | { data?: PolledTaskRow[]; tasks?: PolledTaskRow[] }
+    >(`/a2a/tasks/pending/${encodePathSegment(clientId, 'clientId')}`, headers, {
+      includeAuth: clientSecret === undefined,
+    });
+    if (Array.isArray(res)) return res;
+    return res.data ?? res.tasks ?? [];
+  }
+
+  /**
    * Q3-02 — adopt an inbound chain-trace id and forward it (unchanged) on every
    * subsequent outbound call as `X-Praesidia-Chain-Id`. Call this with the id
    * echoed from an inbound `X-Praesidia-Chain-Id` header so a chain stays

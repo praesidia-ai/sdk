@@ -464,14 +464,15 @@ export class PraesidiaClient {
 
   private buildHeaders(
     extraHeaders?: Record<string, string>,
+    includeAuth = true,
   ): Record<string, string> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      // api-key.strategy.ts uses passport-http-bearer which reads the
-      // Authorization: Bearer header. This is the canonical header for
-      // org-scoped API keys in be-core.
-      Authorization: `Bearer ${this.#apiKey}`,
     };
+    // api-key.strategy.ts uses passport-http-bearer which reads the
+    // Authorization: Bearer header. This is the canonical header for
+    // org-scoped API keys in be-core.
+    if (includeAuth) headers.Authorization = `Bearer ${this.#apiKey}`;
     // Q3-02 — forward the inbound chain-trace id on every call so the chain
     // stays joined across SDK-driven hops.
     if (this.chainId) {
@@ -660,16 +661,21 @@ export class PraesidiaClient {
     return readBoundedJsonResponse<T>(response, path);
   }
 
-  /** GET is always idempotent — retried per the configured (or default) policy. */
+  /**
+   * GET is always idempotent — retried per the configured (or default) policy.
+   * `opts.includeAuth: false` omits the management `Authorization` header (A2A
+   * static-secret auth treats any Bearer header as authoritative).
+   */
   async get<T>(
     path: string,
     extraHeaders?: Record<string, string>,
+    opts: { includeAuth?: boolean } = {},
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const response = await this.fetchWithRetry(
       () => ({
         method: "GET",
-        headers: this.buildHeaders(extraHeaders),
+        headers: this.buildHeaders(extraHeaders, opts.includeAuth ?? true),
         signal: AbortSignal.timeout(this.requestTimeoutMs),
       }),
       url,

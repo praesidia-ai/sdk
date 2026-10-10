@@ -1325,7 +1325,17 @@ export interface AnalyticsEvent {
   responseSizeBytes: number | null;
   errorCode: string | null;
   errorMessage?: string;
+  /**
+   * @deprecated The API no longer returns this field (removed from analytics
+   * event responses); it is always absent. Kept optional for compatibility and
+   * will be removed in a future minor release.
+   */
   sourceIp?: string;
+  /**
+   * @deprecated The API no longer returns this field (removed from analytics
+   * event responses); it is always absent. Kept optional for compatibility and
+   * will be removed in a future minor release.
+   */
   userAgent?: string;
   metadata?: Record<string, unknown>;
   createdAt: string;

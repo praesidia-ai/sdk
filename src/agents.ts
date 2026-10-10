@@ -134,6 +134,10 @@ export class PraesidiaAgents {
    * log it. `agent.clientId` (public, non-secret) is always set.
    */
   async create(data: Record<string, unknown>): Promise<AgentCreateResult> {
+    // be's CreateAgentDto requires `name`; fail before the request (mirrors Python).
+    if (typeof data?.name !== 'string' || data.name === '') {
+      throw new PraesidiaConfigError('agents.create requires a non-empty string `name`');
+    }
     return this.client.post<AgentCreateResult>(this.agentsBase, data);
   }
 
