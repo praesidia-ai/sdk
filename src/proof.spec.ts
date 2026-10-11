@@ -1,5 +1,6 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PraesidiaProof, PraesidiaAudit, PROTECTED_ACTION_CLOSURES } from './index.js';
+import { PraesidiaProof, PraesidiaAudit, PROTECTED_ACTION_CLOSURES, PROTECTED_ACTION_STATES } from './index.js';
 import { PraesidiaApiError, PraesidiaConfigError } from './errors.js';
 import { makeFetchMock } from './__tests__/fetch-mock.js';
 
@@ -22,11 +23,11 @@ describe('protected-action evidence readback', () => {
     const response = { data: [{ actionId: 'a1', closure: 'SUCCEEDED', evidenceGrade: 'C' }], total: 102, meta: { page: 2, limit: 10, total: 102, totalPages: 11, hasNextPage: true, hasPrevPage: true } };
     globalThis.fetch = makeFetchMock([{ json: response }]);
     const proof = new PraesidiaProof(config);
-    expect(await proof.list({agentId:'agent-id',taskId:'task-id',chainId:'chain-id',state:'OUTCOME_UNKNOWN & review',closure:'OUTCOME_UNKNOWN',from:'2026-09-01T00:00:00+03:00',to:'2026-09-02T00:00:00+03:00',page:2,limit:10})).toEqual(response);
+    expect(await proof.list({agentId:'agent-id',taskId:'task-id',chainId:'chain-id & review',state:'OUTCOME_UNKNOWN',closure:'OUTCOME_UNKNOWN',from:'2026-09-01T00:00:00+03:00',to:'2026-09-02T00:00:00+03:00',page:2,limit:10})).toEqual(response);
     const [url, init] = call();
     const parsed = new URL(url);
     expect(parsed.pathname).toBe('/organizations/org-1/protected-actions');
-    expect(Object.fromEntries(parsed.searchParams)).toEqual({agentId:'agent-id',taskId:'task-id',chainId:'chain-id',state:'OUTCOME_UNKNOWN & review',closure:'OUTCOME_UNKNOWN',from:'2026-09-01T00:00:00+03:00',to:'2026-09-02T00:00:00+03:00',page:'2',limit:'10'});
+    expect(Object.fromEntries(parsed.searchParams)).toEqual({agentId:'agent-id',taskId:'task-id',chainId:'chain-id & review',state:'OUTCOME_UNKNOWN',closure:'OUTCOME_UNKNOWN',from:'2026-09-01T00:00:00+03:00',to:'2026-09-02T00:00:00+03:00',page:'2',limit:'10'});
     expect(init.headers).toMatchObject({Authorization:'Bearer pk_personal'});
   });
 
@@ -54,10 +55,17 @@ describe('protected-action evidence readback', () => {
     expect(call(1)[1].headers).toMatchObject({Authorization:'Bearer pk_rotated'});
   });
 
-  it.each([{page:0},{limit:101},{limit:1.5},{closure:'SUCCESS'},{from:'2026-02-30'},{from:'2026-09-01T24:00:00Z'},{from:'2026-09-01T10:00:00'},{from:'2026-09-02',to:'2026-09-01'}])('rejects invalid query %j without sending a request', async query => {
+  it.each([{page:0},{limit:101},{limit:1.5},{closure:'SUCCESS'},{state:'DISPATCHD'},{from:'2026-02-30'},{from:'2026-09-01T24:00:00Z'},{from:'2026-09-01T10:00:00'},{from:'2026-09-02',to:'2026-09-01'}])('rejects invalid query %j without sending a request', async query => {
     globalThis.fetch = makeFetchMock([]);
     await expect(new PraesidiaProof(config).list(query as never)).rejects.toThrow(PraesidiaConfigError);
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  const specPath = process.env['BE_SWAGGER_PATH'] ?? new URL('../../be/openapi.json', import.meta.url).pathname;
+  it.skipIf(!existsSync(specPath) && process.env['REQUIRE_SWAGGER'] !== '1')('state filter values match the backend spec enum', () => {
+    const spec = JSON.parse(readFileSync(specPath, 'utf8'));
+    const state = spec.paths['/organizations/{orgId}/protected-actions'].get.parameters.find((p: { name: string }) => p.name === 'state');
+    expect([...state.schema.enum].sort()).toEqual([...PROTECTED_ACTION_STATES].sort());
   });
 
   it('omits unset query fields and propagates forbidden responses without fallback', async () => {

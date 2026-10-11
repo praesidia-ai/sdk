@@ -5,13 +5,19 @@ export const PROTECTED_ACTION_CLOSURES = [
   'DUPLICATE_SUPPRESSED', 'OUTCOME_UNKNOWN', 'EVIDENCE_INCOMPLETE',
 ] as const;
 export type ProtectedActionClosure = typeof PROTECTED_ACTION_CLOSURES[number];
+/** `list({ state })` values: an open phase (be `ProtectedActionPhase`), or the closure once closed. */
+export const PROTECTED_ACTION_STATES = [
+  'PROPOSED', 'AUTHORITY_RESOLVED', 'POLICY_DECIDED', 'PERMIT_ISSUED', 'PERMIT_CONSUMED',
+  'DISPATCHED', 'AWAITING_OUTCOME', ...PROTECTED_ACTION_CLOSURES,
+] as const;
+export type ProtectedActionState = typeof PROTECTED_ACTION_STATES[number];
 export type EvidenceGrade = 'A' | 'B' | 'C' | 'D';
 
 export interface ListProtectedActionsQuery {
   agentId?: string;
   taskId?: string;
   chainId?: string;
-  state?: string;
+  state?: ProtectedActionState;
   closure?: ProtectedActionClosure;
   /** Inclusive firstObservedAt lower bound. */
   from?: string;

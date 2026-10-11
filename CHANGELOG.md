@@ -5,6 +5,14 @@ change bumps the minor version (see `PUBLISHING.md`, "Semver policy").
 
 ## Unreleased
 
+### Protected-action state filter and nullable percentiles (be 39989432)
+
+- **Breaking (types):** `ListProtectedActionsQuery.state` is now `ProtectedActionState`, one of
+  the 18 values in the new `PROTECTED_ACTION_STATES` (7 open phases plus the 11 closures). Any
+  other value throws `PraesidiaConfigError` before any request; be already answered 400.
+- **Breaking (types):** `AgentAnalyticsResult.responseTimePercentiles` `p50`/`p95`/`p99` are
+  `number | null`. be returns `null` when the window has no response-time samples.
+
 ### A2A polling and analytics fields
 
 - Added `PraesidiaGuard.pollPendingTasks(clientId, { clientSecret?, accessToken? })`

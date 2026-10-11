@@ -100,7 +100,8 @@ await writeFile('audit-bundle.zip', bundle);
 
 `list` accepts `agentId`, `taskId`, `chainId`, `state`, `closure`, `from`, `to`,
 `page`, and `limit` (1–100), returning the server's full `data`/`total`/`meta`
-envelope. The list's `from` bound is inclusive and `to` is exclusive. Event
+envelope. `state` must be one of `PROTECTED_ACTION_STATES` (an open phase, or the
+closure once closed); any other value throws `PraesidiaConfigError` before the request. The list's `from` bound is inclusive and `to` is exclusive. Event
 sequences remain decimal strings, including values beyond JavaScript's safe
 integer range; signature fields and redacted `null` payloads remain unchanged.
 
@@ -899,7 +900,7 @@ const csv = await analytics.export();
 | `topAgents(query?)` | `Promise<AnalyticsResult>` | `GET .../analytics/advanced/top-agents` (ADVANCED_ANALYTICS) |
 | `export(query?)` | `Promise<Uint8Array>` | `GET .../analytics/export` (ANALYTICS_EXPORT + ADVANCED_ANALYTICS) |
 | `captureState()` | `Promise<AnalyticsCaptureState>` | `GET .../analytics/capture-state` |
-| `agentAnalytics(agentId, query?)` | `Promise<AgentAnalyticsResult>` | `GET .../analytics/agents/:agentId` |
+| `agentAnalytics(agentId, query?)` | `Promise<AgentAnalyticsResult>` (percentiles `null` with no samples) | `GET .../analytics/agents/:agentId` |
 | `events(query?)` | `Promise<AnalyticsEvent[]>` | `GET .../analytics/events` (paginated) |
 | `eventsPage(query?)` | `Promise<{ data: AnalyticsEvent[]; total: number; meta }>` | `GET .../analytics/events` (full envelope) |
 

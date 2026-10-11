@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { PraesidiaAnalytics } from './analytics.js';
 import { PraesidiaConfigError } from './errors.js';
 import { makeFetchMock } from './__tests__/fetch-mock.js';
+import type { AgentAnalyticsResult } from './types.js';
 
 describe('PraesidiaAnalytics (FINDING-1)', () => {
   const originalFetch = globalThis.fetch;
@@ -119,6 +120,13 @@ describe('PraesidiaAnalytics (FINDING-1)', () => {
     const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
     expect(url).toContain('/analytics/agents/agent%2F..%2Fevil');
     expect(url).toContain('days=5');
+  });
+
+  it('agentAnalytics() passes through null percentiles (be: no samples in the window)', async () => {
+    const responseTimePercentiles: AgentAnalyticsResult['responseTimePercentiles'] = { p50: null, p95: null, p99: null };
+    globalThis.fetch = makeFetchMock([{ json: { responseTimePercentiles } }]);
+    const analytics = new PraesidiaAnalytics({ apiKey: 'pk_x', orgId: 'org-1' });
+    expect((await analytics.agentAnalytics('a1')).responseTimePercentiles).toEqual(responseTimePercentiles);
   });
 
   it('agentAnalytics() rejects a bare "." or ".." agentId (path-segment guard)', async () => {

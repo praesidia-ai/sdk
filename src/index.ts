@@ -27,9 +27,9 @@ export { PraesidiaAudit } from './audit.js';
 // SCAN2-011 — shared pagination envelope/helpers for the list families above.
 export type { PaginationMeta, PaginatedEnvelope } from './pagination.js';
 export { PraesidiaProof } from './proof.js';
-export { PROTECTED_ACTION_CLOSURES } from './proof-types.js';
+export { PROTECTED_ACTION_CLOSURES, PROTECTED_ACTION_STATES } from './proof-types.js';
 export type {
-  ProtectedActionClosure, EvidenceGrade, ListProtectedActionsQuery,
+  ProtectedActionClosure, ProtectedActionState, EvidenceGrade, ListProtectedActionsQuery,
   ProtectedActionSummary, ProtectedActionDetail, ProtectedActionList,
   ProtectedActionEvent, CaptureScopeEntry, ProtectedActionCoverage,
 } from './proof-types.js';

@@ -1296,7 +1296,8 @@ export interface AgentAnalyticsResult {
   failedRequests: number;
   averageResponseTime: number;
   errorRate: number;
-  responseTimePercentiles: { p50: number; p95: number; p99: number };
+  /** `null` when the window has no response-time samples. */
+  responseTimePercentiles: { p50: number | null; p95: number | null; p99: number | null };
   throughput: number;
   requestsByDay: { date: string; count: number }[];
   requestsByEndpoint: { endpoint: string; count: number }[];
