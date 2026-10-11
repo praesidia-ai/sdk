@@ -7,9 +7,10 @@ change bumps the minor version (see `PUBLISHING.md`, "Semver policy").
 
 ### Protected-action state filter and nullable percentiles (be 39989432)
 
-- **Breaking (types):** `ListProtectedActionsQuery.state` is now `ProtectedActionState`, one of
-  the 18 values in the new `PROTECTED_ACTION_STATES` (7 open phases plus the 11 closures). Any
-  other value throws `PraesidiaConfigError` before any request; be already answered 400.
+- Added `PROTECTED_ACTION_STATES` and `ProtectedActionState`: the 18 known `proof.list` `state`
+  values (7 open phases plus the 11 closures). `ListProtectedActionsQuery.state` is typed
+  `ProtectedActionState | (string & {})`, so any string still compiles. The SDK sends it
+  unchanged; be answers 400 for an unknown value.
 - **Breaking (types):** `AgentAnalyticsResult.responseTimePercentiles` `p50`/`p95`/`p99` are
   `number | null`. be returns `null` when the window has no response-time samples.
 

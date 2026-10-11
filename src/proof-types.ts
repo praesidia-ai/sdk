@@ -17,7 +17,8 @@ export interface ListProtectedActionsQuery {
   agentId?: string;
   taskId?: string;
   chainId?: string;
-  state?: ProtectedActionState;
+  /** Known values in `PROTECTED_ACTION_STATES`; other strings are sent unchanged and be validates them. */
+  state?: ProtectedActionState | (string & {});
   closure?: ProtectedActionClosure;
   /** Inclusive firstObservedAt lower bound. */
   from?: string;
