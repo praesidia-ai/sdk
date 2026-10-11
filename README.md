@@ -101,7 +101,7 @@ await writeFile('audit-bundle.zip', bundle);
 `list` accepts `agentId`, `taskId`, `chainId`, `state`, `closure`, `from`, `to`,
 `page`, and `limit` (1–100), returning the server's full `data`/`total`/`meta`
 envelope. `PROTECTED_ACTION_STATES` lists the known `state` values (an open phase, or the
-closure once closed); the SDK sends `state` unchanged and the API rejects an unknown value with 400. The list's `from` bound is inclusive and `to` is exclusive. Event
+closure once closed) and `PROTECTED_ACTION_CLOSURES` the known `closure` values; the SDK sends both unchanged and the API rejects an unknown value with 400. The list's `from` bound is inclusive and `to` is exclusive. Event
 sequences remain decimal strings, including values beyond JavaScript's safe
 integer range; signature fields and redacted `null` payloads remain unchanged.
 
