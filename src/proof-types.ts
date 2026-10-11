@@ -19,7 +19,8 @@ export interface ListProtectedActionsQuery {
   chainId?: string;
   /** Known values in `PROTECTED_ACTION_STATES`; other strings are sent unchanged and be validates them. */
   state?: ProtectedActionState | (string & {});
-  closure?: ProtectedActionClosure;
+  /** Known values in `PROTECTED_ACTION_CLOSURES`; other strings are sent unchanged and be validates them. */
+  closure?: ProtectedActionClosure | (string & {});
   /** Inclusive firstObservedAt lower bound. */
   from?: string;
   /** Exclusive firstObservedAt upper bound. */

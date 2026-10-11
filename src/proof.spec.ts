@@ -55,16 +55,19 @@ describe('protected-action evidence readback', () => {
     expect(call(1)[1].headers).toMatchObject({Authorization:'Bearer pk_rotated'});
   });
 
-  it.each([{page:0},{limit:101},{limit:1.5},{closure:'SUCCESS'},{from:'2026-02-30'},{from:'2026-09-01T24:00:00Z'},{from:'2026-09-01T10:00:00'},{from:'2026-09-02',to:'2026-09-01'}])('rejects invalid query %j without sending a request', async query => {
+  it.each([{page:0},{limit:101},{limit:1.5},{from:'2026-02-30'},{from:'2026-09-01T24:00:00Z'},{from:'2026-09-01T10:00:00'},{from:'2026-09-02',to:'2026-09-01'}])('rejects invalid query %j without sending a request', async query => {
     globalThis.fetch = makeFetchMock([]);
     await expect(new PraesidiaProof(config).list(query as never)).rejects.toThrow(PraesidiaConfigError);
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
-  it('sends an unknown state unchanged so be stays the validator (forward-compatible)', async () => {
+  it('sends an unknown state and closure unchanged, encoded, so be stays the validator (forward-compatible)', async () => {
     globalThis.fetch = makeFetchMock([{ json: { data: [], total: 0, meta: {} } }]);
-    await new PraesidiaProof(config).list({ state: 'FUTURE_PHASE' });
-    expect(new URL(call()[0]).searchParams.get('state')).toBe('FUTURE_PHASE');
+    await new PraesidiaProof(config).list({ state: 'FUTURE_PHASE & review', closure: 'FUTURE_CLOSURE' });
+    const url = new URL(call()[0]);
+    expect(url.search).toContain('state=FUTURE_PHASE+%26+review');
+    expect(url.searchParams.get('state')).toBe('FUTURE_PHASE & review');
+    expect(url.searchParams.get('closure')).toBe('FUTURE_CLOSURE');
   });
 
   const specPath = process.env['BE_SWAGGER_PATH'] ?? new URL('../../be/openapi.json', import.meta.url).pathname;

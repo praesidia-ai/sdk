@@ -47,10 +47,15 @@ describe('PraesidiaWorkflows', () => {
     globalThis.fetch = spy;
     const workflows = new PraesidiaWorkflows({ apiKey: 'pk_x', orgId: 'org-1' });
     await expect(workflows.list({ page: 0 })).rejects.toThrow(PraesidiaConfigError);
-    await expect(
-      workflows.list({ status: 'DELETED' as never }),
-    ).rejects.toThrow(PraesidiaConfigError);
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('sends an unknown status unchanged so be stays the validator (forward-compatible)', async () => {
+    globalThis.fetch = makeFetchMock([{ json: [] }]);
+    const workflows = new PraesidiaWorkflows({ apiKey: 'pk_x', orgId: 'org-1' });
+    await workflows.list({ status: 'ARCHIVED' });
+    const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
+    expect(url).toContain('status=ARCHIVED');
   });
 
   it('triggers a run and posts to .../workflows/:id/runs', async () => {

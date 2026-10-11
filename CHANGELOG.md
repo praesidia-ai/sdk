@@ -11,6 +11,9 @@ change bumps the minor version (see `PUBLISHING.md`, "Semver policy").
   values (7 open phases plus the 11 closures). `ListProtectedActionsQuery.state` is typed
   `ProtectedActionState | (string & {})`, so any string still compiles. The SDK sends it
   unchanged; be answers 400 for an unknown value.
+- `proof.list` `closure` (`ProtectedActionClosure | (string & {})`) and `workflows.list`/`listPage`
+  `status` (`WorkflowStatus | (string & {})`) are sent unchanged; they no longer throw
+  `PraesidiaConfigError` on a value outside the known list, so a value be adds later still works.
 - **Breaking (types):** `AgentAnalyticsResult.responseTimePercentiles` `p50`/`p95`/`p99` are
   `number | null`. be returns `null` when the window has no response-time samples.
 

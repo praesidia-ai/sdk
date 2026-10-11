@@ -1,7 +1,6 @@
 import { PraesidiaClient, assertPagination, encodePathSegment } from './client.js';
 import { PraesidiaConfigError } from './errors.js';
 import { assertEvidenceDateRange } from './evidence-query.js';
-import { PROTECTED_ACTION_CLOSURES } from './proof-types.js';
 import type { CaptureScopeEntry, ListProtectedActionsQuery, ProtectedActionCoverage, ProtectedActionDetail, ProtectedActionEvent, ProtectedActionList } from './proof-types.js';
 import type { GuardConfig } from './types.js';
 
@@ -26,9 +25,6 @@ export class PraesidiaProof {
   async list(query: ListProtectedActionsQuery = {}): Promise<ProtectedActionList> {
     assertPagination(query);
     assertEvidenceDateRange(query.from, query.to);
-    if (query.closure !== undefined && !PROTECTED_ACTION_CLOSURES.includes(query.closure)) {
-      throw new PraesidiaConfigError('closure must be a supported protected-action closure');
-    }
     const params = new URLSearchParams();
     for (const key of ['agentId', 'taskId', 'chainId', 'state', 'closure', 'from', 'to', 'page', 'limit'] as const) {
       const value = query[key];

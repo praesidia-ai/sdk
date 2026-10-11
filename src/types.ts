@@ -1082,8 +1082,8 @@ export interface AgentCreateResult {
 export interface ListWorkflowsQuery {
   page?: number;
   limit?: number;
-  /** Optional backend-supported workflow status filter. */
-  status?: WorkflowStatus;
+  /** Known values in `WORKFLOW_STATUSES`; other strings are sent unchanged and be validates them. */
+  status?: WorkflowStatus | (string & {});
 }
 
 export const WORKFLOW_STATUSES = ['DRAFT', 'ACTIVE', 'INACTIVE'] as const;

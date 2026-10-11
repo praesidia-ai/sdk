@@ -14,11 +14,9 @@ import type {
   ListWorkflowRunsQuery,
   ListWorkflowsQuery,
   TriggerWorkflowOptions,
-  WorkflowStatus,
   WorkflowRecord,
   WorkflowRunRecord,
 } from './types.js';
-import { WORKFLOW_STATUSES } from './types.js';
 
 const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
 
@@ -83,7 +81,6 @@ export class PraesidiaWorkflows {
     query: ListWorkflowsQuery = {},
   ): Promise<PaginatedEnvelope<WorkflowRecord>> {
     assertPagination(query);
-    assertWorkflowStatus(query.status);
     const qs = buildPageQuery(query);
     const result = await this.client.get<WorkflowRecord[] | Record<string, unknown>>(
       `${this.workflowsBase}${qs}`,
@@ -212,7 +209,7 @@ export class PraesidiaWorkflows {
 function buildPageQuery(query: {
   page?: number;
   limit?: number;
-  status?: WorkflowStatus;
+  status?: string;
 }): string {
   const params: Array<[string, string]> = [];
   if (query.page !== undefined) params.push(['page', String(query.page)]);
@@ -223,12 +220,4 @@ function buildPageQuery(query: {
     '?' +
     params.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')
   );
-}
-
-function assertWorkflowStatus(status: WorkflowStatus | undefined): void {
-  if (status !== undefined && !WORKFLOW_STATUSES.includes(status)) {
-    throw new PraesidiaConfigError(
-      `status must be one of ${WORKFLOW_STATUSES.join(', ')}`,
-    );
-  }
 }
