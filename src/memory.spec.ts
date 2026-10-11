@@ -123,8 +123,6 @@ describe('PraesidiaMemory', () => {
   it.each([
     { content: '' },
     { content: 'x'.repeat(32_769) },
-    { content: 'ok', sourceType: 'agent' },
-    { content: 'ok', sourceType: 'TOOL' },
     { content: 'ok', retentionRegime: 'sox' },
     { content: 'ok', retentionRegime: 'SOX' },
     { content: 'ok', retentionDays: 30 },
@@ -186,17 +184,6 @@ describe('PraesidiaMemory', () => {
     globalThis.fetch = spy;
 
     await expect(new PraesidiaMemory(config).list({ limit })).rejects.toThrow(
-      PraesidiaConfigError,
-    );
-    expect(spy).not.toHaveBeenCalled();
-  });
-
-  it('rejects a backend-invalid list source type before fetch', async () => {
-    const spy = makeFetchMock([]);
-    globalThis.fetch = spy;
-    const memory = new PraesidiaMemory(config);
-
-    await expect(memory.list({ sourceType: 'agent' as never })).rejects.toThrow(
       PraesidiaConfigError,
     );
     expect(spy).not.toHaveBeenCalled();

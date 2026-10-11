@@ -14,6 +14,10 @@ change bumps the minor version (see `PUBLISHING.md`, "Semver policy").
 - `proof.list` `closure` (`ProtectedActionClosure | (string & {})`) and `workflows.list`/`listPage`
   `status` (`WorkflowStatus | (string & {})`) are sent unchanged; they no longer throw
   `PraesidiaConfigError` on a value outside the known list, so a value be adds later still works.
+- Same for every other enum the SDK checked client-side: `agents.list` role/status/visibility/tier/scope,
+  `connections.list` status and `updateStatus`, `aiSystems.listRelationships` crossBorderStatus,
+  `aiSystems.listLifecycleRequests` status, `memory.create`/`list` sourceType and `audit.export` format
+  are typed `Known | (string & {})` and sent unchanged; be validates them.
 - **Breaking (types):** `AgentAnalyticsResult.responseTimePercentiles` `p50`/`p95`/`p99` are
   `number | null`. be returns `null` when the window has no response-time samples.
 

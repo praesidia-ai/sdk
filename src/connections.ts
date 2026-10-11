@@ -15,7 +15,6 @@ import type {
   GuardConfig,
   ListConnectionsQuery,
 } from './types.js';
-import { CONNECTION_STATUSES } from './types.js';
 
 const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
 
@@ -81,11 +80,6 @@ export class PraesidiaConnections {
     query: ListConnectionsQuery = {},
   ): Promise<PaginatedEnvelope<ConnectionRecord>> {
     assertPagination(query);
-    if (query.status !== undefined && !CONNECTION_STATUSES.includes(query.status)) {
-      throw new PraesidiaConfigError(
-        `status must be one of ${CONNECTION_STATUSES.join(', ')}`,
-      );
-    }
     const qs = buildQueryString(query);
     const result = await this.client.get<ConnectionRecord[] | Record<string, unknown>>(
       `${this.connectionsBase}${qs}`,
@@ -126,17 +120,11 @@ export class PraesidiaConnections {
    * Update the active/inactive status of a connection.
    * PATCH .../connections/:id/status.
    *
-   * @throws PraesidiaConfigError if `status` is not one of {@link CONNECTION_STATUSES}.
    */
   async updateStatus(
     connectionId: string,
-    status: ConnectionStatus,
+    status: ConnectionStatus | (string & {}),
   ): Promise<ConnectionRecord> {
-    if (!CONNECTION_STATUSES.includes(status)) {
-      throw new PraesidiaConfigError(
-        `status must be one of ${CONNECTION_STATUSES.join(', ')}; got ${String(status)}`,
-      );
-    }
     return this.client.patch<ConnectionRecord>(
       `${this.connectionsBase}/${encodePathSegment(connectionId, 'connectionId')}/status`,
       { status },

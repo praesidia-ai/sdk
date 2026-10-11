@@ -65,17 +65,10 @@ describe('PraesidiaConnections', () => {
     expect(url).toContain('/connections/mcp');
   });
 
-  it('rejects an invalid status before calling the API', async () => {
+  it('rejects an invalid limit before calling the API', async () => {
     const spy = makeFetchMock([]);
     globalThis.fetch = spy;
     const connections = new PraesidiaConnections({ apiKey: 'pk_x', orgId: 'org-1' });
-    await expect(
-      // @ts-expect-error deliberately invalid status for the runtime check
-      connections.updateStatus('conn-1', 'BOGUS'),
-    ).rejects.toThrow(PraesidiaConfigError);
-    await expect(
-      connections.list({ status: 'BOGUS' as never }),
-    ).rejects.toThrow(PraesidiaConfigError);
     await expect(connections.list({ limit: 101 })).rejects.toThrow(
       PraesidiaConfigError,
     );

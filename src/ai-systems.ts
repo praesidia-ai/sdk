@@ -17,12 +17,10 @@ import {
   AI_SYSTEM_ASSET_ROLES,
   AI_SYSTEM_CRITICALITIES,
   AI_SYSTEM_ENVIRONMENTS,
-  AI_SYSTEM_LIFECYCLE_REQUEST_STATUSES,
   AI_SYSTEM_LIFECYCLE_STATUSES,
   APPROVAL_GATED_LIFECYCLE_TARGETS,
   ASSET_GRAPH_DIRECTIONS,
   ASSET_RELATIONSHIP_TYPES,
-  CROSS_BORDER_STATUSES,
   type AdoptAiAssetInput,
   type AiAssetDesiredStateResult,
   type AiAssetRecord,
@@ -278,7 +276,6 @@ export class PraesidiaAiSystems {
     query: ListAiSystemLifecycleRequestsQuery = {},
   ): Promise<PaginatedEnvelope<AiSystemLifecycleTransitionRequest>> {
     assertPagination(query);
-    assertEnum(query.status, AI_SYSTEM_LIFECYCLE_REQUEST_STATUSES, 'status');
     const result = await this.client.get<
       AiSystemLifecycleTransitionRequest[] | Record<string, unknown>
     >(`${this.systemsBase}/lifecycle-requests${buildQueryString(query)}`);
@@ -580,7 +577,6 @@ export class PraesidiaAiSystems {
   ): Promise<PaginatedEnvelope<AssetRelationshipRecord>> {
     assertPagination(query);
     assertEnum(query.relationshipType, ASSET_RELATIONSHIP_TYPES, 'relationshipType');
-    assertEnum(query.crossBorderStatus, CROSS_BORDER_STATUSES, 'crossBorderStatus');
     const qs = buildQueryString(query);
     const result = await this.client.get<
       AssetRelationshipRecord[] | Record<string, unknown>

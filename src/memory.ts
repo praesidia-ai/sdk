@@ -17,7 +17,6 @@ import type {
 } from './types.js';
 import {
   MEMORY_RETENTION_REGIMES,
-  MEMORY_SOURCE_TYPES,
 } from './types.js';
 
 const DEFAULT_BASE_URL = 'https://api.praesidia.ai';
@@ -109,14 +108,6 @@ export class PraesidiaMemory {
       );
     }
     if (
-      input.sourceType !== undefined &&
-      !MEMORY_SOURCE_TYPES.includes(input.sourceType)
-    ) {
-      throw new PraesidiaConfigError(
-        `sourceType must be one of ${MEMORY_SOURCE_TYPES.join(', ')}`,
-      );
-    }
-    if (
       input.retentionRegime !== undefined &&
       !MEMORY_RETENTION_REGIMES.includes(input.retentionRegime)
     ) {
@@ -173,14 +164,6 @@ export class PraesidiaMemory {
     };
   }> {
     assertPagination(query);
-    if (
-      query.sourceType !== undefined &&
-      !MEMORY_SOURCE_TYPES.includes(query.sourceType)
-    ) {
-      throw new PraesidiaConfigError(
-        `sourceType must be one of ${MEMORY_SOURCE_TYPES.join(', ')}`,
-      );
-    }
     const qs = buildQueryString(query);
     return this.client.get<{
       data: MemoryRecord[];

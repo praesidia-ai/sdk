@@ -99,17 +99,6 @@ describe('PraesidiaAudit', () => {
     expect(url).toContain('endDate=2026-08-02');
   });
 
-  it('rejects an unsupported export format before fetch', async () => {
-    const spy = makeFetchMock([]);
-    globalThis.fetch = spy;
-    const audit = new PraesidiaAudit({ apiKey: 'pk_x', orgId: 'org-1' });
-
-    await expect(audit.export({ format: 'xml' as never })).rejects.toThrow(
-      PraesidiaConfigError,
-    );
-    expect(spy).not.toHaveBeenCalled();
-  });
-
   it('rejects invalid pagination and date windows before fetch', async () => {
     const spy = makeFetchMock([]);
     globalThis.fetch = spy;

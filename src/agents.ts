@@ -86,18 +86,6 @@ export class PraesidiaAgents {
     query: ListAgentsQuery = {},
   ): Promise<PaginatedEnvelope<AgentRecord>> {
     assertPagination(query);
-    for (const [key, allowed] of Object.entries({
-      role: ['CLIENT', 'SERVER'],
-      status: ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'QUARANTINED', 'REVOKED'],
-      visibility: ['PRIVATE', 'TEAM', 'ORGANIZATION', 'PUBLIC'],
-      tier: ['MANAGED', 'OBSERVED'],
-      scope: ['own', 'organization'],
-    })) {
-      const value = query[key as keyof ListAgentsQuery];
-      if (value !== undefined && !allowed.includes(value as string)) {
-        throw new PraesidiaConfigError(`${key} must be one of ${allowed.join(', ')}`);
-      }
-    }
     const qs = buildQueryString(query);
     const result = await this.client.get<AgentRecord[] | Record<string, unknown>>(
       `${this.agentsBase}${qs}`,

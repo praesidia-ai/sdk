@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PraesidiaAgents, PraesidiaConnections, PraesidiaWorkflows, PraesidiaAiSystems,
-  PraesidiaConfigError, CROSS_BORDER_STATUSES } from './index.js';
+  CROSS_BORDER_STATUSES } from './index.js';
 import type { ListAgentsQuery, ListConnectionsQuery, ListWorkflowsQuery,
   ListAssetRelationshipsQuery, ListAiSystemLifecycleRequestsQuery,
   CreateAssetRelationshipInput, UpdateAssetRelationshipInput } from './types.js';
@@ -35,12 +35,6 @@ describe('app management query contract', () => {
     );
   });
 
-  it.each(['role', 'status', 'visibility', 'tier', 'scope'])('rejects an invalid agent %s before sending', async (field) => {
-    globalThis.fetch = makeFetchMock([]);
-    await expect(new PraesidiaAgents(config).list({ [field]: 'invalid' })).rejects.toThrow(PraesidiaConfigError);
-    expect(globalThis.fetch).not.toHaveBeenCalled();
-  });
-
   it('preserves agent filters on every page of listAll', async () => {
     globalThis.fetch = makeFetchMock([{ json: { data: [{ id: '1' }] } }, { json: { data: [{ id: '2' }] } }, { json: { data: [] } }]);
     const rows = [];
@@ -52,10 +46,7 @@ describe('app management query contract', () => {
     );
   });
 
-  it('rejects an invalid cross-border filter', async () => {
-    globalThis.fetch = makeFetchMock([]);
-    await expect(new PraesidiaAiSystems(config).listRelationships({ crossBorderStatus: 'invalid' as never })).rejects.toThrow(PraesidiaConfigError);
-    expect(globalThis.fetch).not.toHaveBeenCalled();
+  it('keeps the known cross-border values in step with the fixture', () => {
     expect([...CROSS_BORDER_STATUSES].sort()).toEqual([...fixture['asset-relationships'].enums.crossBorderStatus].sort());
   });
 

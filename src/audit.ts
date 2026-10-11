@@ -139,12 +139,9 @@ export class PraesidiaAudit {
       ListAuditLogsQuery,
       'fromDate' | 'toDate' | 'search' | 'action'
     > & {
-      format?: 'json' | 'csv';
+      format?: 'json' | 'csv' | (string & {});
     } = {},
   ): Promise<Uint8Array> {
-    if (query.format !== undefined && !['json', 'csv'].includes(query.format)) {
-      throw new PraesidiaConfigError('format must be json or csv');
-    }
     assertIsoDateRange(query.fromDate, query.toDate);
     const params: Array<[string, string]> = [['format', query.format ?? 'json']];
     if (query.search) params.push(['search', query.search]);

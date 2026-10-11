@@ -568,7 +568,7 @@ export interface CreateMemoryInput {
   /** Free-form tags for retrieval filtering. */
   tags?: string[];
   /** Provenance: what kind of principal is writing this memory. */
-  sourceType?: MemorySourceType;
+  sourceType?: MemorySourceType | (string & {});
   /** Provenance: the agent that produced this memory. */
   sourceAgentId?: string;
   /** Provenance: free-form origin reference (task id, url, tool call). */
@@ -594,7 +594,7 @@ export interface ListMemoriesQuery {
   page?: number;
   limit?: number;
   memoryKey?: string;
-  sourceType?: MemorySourceType;
+  sourceType?: MemorySourceType | (string & {});
   tag?: string;
 }
 
@@ -1046,12 +1046,13 @@ export interface ListAgentsQuery {
   limit?: number;
   name?: string;
   search?: string;
-  role?: 'CLIENT' | 'SERVER';
-  status?: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' | 'QUARANTINED' | 'REVOKED';
+  // Known values; other strings are sent unchanged and be validates them (same for the enums below).
+  role?: 'CLIENT' | 'SERVER' | (string & {});
+  status?: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' | 'QUARANTINED' | 'REVOKED' | (string & {});
   type?: string;
-  visibility?: 'PRIVATE' | 'TEAM' | 'ORGANIZATION' | 'PUBLIC';
-  tier?: 'MANAGED' | 'OBSERVED';
-  scope?: 'own' | 'organization';
+  visibility?: 'PRIVATE' | 'TEAM' | 'ORGANIZATION' | 'PUBLIC' | (string & {});
+  tier?: 'MANAGED' | 'OBSERVED' | (string & {});
+  scope?: 'own' | 'organization' | (string & {});
   capability?: string;
   capabilityExact?: string;
   skillTag?: string;
@@ -1113,7 +1114,7 @@ export interface ListConnectionsQuery {
   clientAgentId?: string;
   serverAgentId?: string;
   mcpServerId?: string;
-  status?: ConnectionStatus;
+  status?: ConnectionStatus | (string & {});
   search?: string;
 }
 
@@ -1695,7 +1696,7 @@ export interface DecideAiSystemLifecycleTransitionInput {
 
 /** Query of `listLifecycleRequests` (`ListAiSystemLifecycleRequestsQueryDto`; be defaults `status` to `PENDING`). */
 export interface ListAiSystemLifecycleRequestsQuery {
-  status?: AiSystemLifecycleRequestStatus;
+  status?: AiSystemLifecycleRequestStatus | (string & {});
   aiSystemId?: string;
   page?: number;
   limit?: number;
@@ -1896,7 +1897,7 @@ export interface ListAssetRelationshipsQuery {
   /** Either endpoint (source or target). */
   assetId?: string;
   relationshipType?: AssetRelationshipType;
-  crossBorderStatus?: CrossBorderStatus;
+  crossBorderStatus?: CrossBorderStatus | (string & {});
   includeArchived?: boolean;
   page?: number;
   limit?: number;
