@@ -1238,7 +1238,14 @@ export interface AuditPackageJob {
   error: string | null;
   createdAt: string;
   completedAt: string | null;
+  /** Merkle roots in the package window vs. how many are Rekor-anchored. Absent on older servers. */
+  anchorCoverage?: { rootsTotal: number; rootsRekorAnchored: number };
+  /** Always sent by current servers; optional for older ones. */
+  warnings?: AuditPackageWarning[];
 }
+
+/** Package-level evidence warnings on `AuditPackageJob.warnings`. */
+export type AuditPackageWarning = 'no_external_anchor' | 'partial_external_anchor';
 
 /** `X-Praesidia-Window-Clamp` on the audit bundle response. */
 export type AuditBundleWindowClamp =

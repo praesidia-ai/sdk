@@ -99,6 +99,17 @@ describe('PraesidiaAudit receipts + audit packages (SDK-0326)', () => {
     expect(call()[0]).toBe(`${BASE}/packages/${ID}`);
   });
 
+  it('getPackage() surfaces anchorCoverage and warnings (AUDIT-QA05)', async () => {
+    const extra = {
+      anchorCoverage: { rootsTotal: 4, rootsRekorAnchored: 1 },
+      warnings: ['partial_external_anchor'],
+    };
+    globalThis.fetch = makeFetchMock([{ json: { ...JOB, ...extra } }]);
+    const job = await audit().getPackage(ID);
+    expect(job.anchorCoverage).toEqual(extra.anchorCoverage);
+    expect(job.warnings).toEqual(['partial_external_anchor']);
+  });
+
   it('downloadPackage() uses the binary path and returns the zip bytes', async () => {
     globalThis.fetch = makeFetchMock([{ bytes: new Uint8Array([0x50, 0x4b, 3, 4]) }]);
     const bytes = await audit().downloadPackage(ID);

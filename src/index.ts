@@ -117,6 +117,7 @@ export type {
   RequestAuditPackageOptions,
   AuditPackageStatus,
   AuditPackageJob,
+  AuditPackageWarning,
   AuditBundleQuery,
   AuditBundleDownload,
   AuditBundleWindowClamp,
