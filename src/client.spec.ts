@@ -9,7 +9,7 @@ import {
   readBoundedResponseBytes,
   resolveRequestTimeoutMs,
 } from "./client.js";
-import { PraesidiaApiError } from "./errors.js";
+import { PraesidiaApiError, isOutage } from "./errors.js";
 
 describe("PraesidiaClient availability and configuration boundaries", () => {
   const originalFetch = globalThis.fetch;
@@ -269,6 +269,64 @@ describe("PraesidiaClient retry (FINDING-4)", () => {
     await expect(client.get("/health")).resolves.toEqual({ ok: true });
     expect(cancelled).toBe(true);
     expect(calls).toBe(2);
+  });
+
+  // PRA-70 — a reset after 200 headers, while the body streams, is retried.
+  const resetBody = (): Response =>
+    new Response(
+      new ReadableStream({
+        pull(c) {
+          c.error(new TypeError("terminated: ECONNRESET"));
+        },
+      }),
+      { status: 200 },
+    );
+
+  it("retries a GET whose 200 body stream resets, then succeeds", async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      return calls === 1
+        ? resetBody()
+        : new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as typeof fetch;
+    const client = new PraesidiaClient("https://api.example.test", "pk_test", undefined, fastRetry);
+    await expect(client.get("/health")).resolves.toEqual({ ok: true });
+    expect(calls).toBe(2);
+  });
+
+  it("surfaces the body failure as an outage once GET attempts are exhausted", async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      return resetBody();
+    }) as typeof fetch;
+    const client = new PraesidiaClient("https://api.example.test", "pk_test", undefined, fastRetry);
+    const err = await client.get("/health").catch((e: unknown) => e);
+    expect(isOutage(err)).toBe(true);
+    expect(calls).toBe(fastRetry.maxAttempts);
+  });
+
+  it("does not retry an oversized GET body (resource limit, not transport)", async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      return new Response("x".repeat(16 * 1024 * 1024 + 1), { status: 200 });
+    }) as typeof fetch;
+    const client = new PraesidiaClient("https://api.example.test", "pk_test", undefined, fastRetry);
+    await expect(client.get("/big")).rejects.toBeInstanceOf(PraesidiaApiError);
+    expect(calls).toBe(1);
+  });
+
+  it("sends a bare POST exactly once when its 200 body resets", async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      return resetBody();
+    }) as typeof fetch;
+    const client = new PraesidiaClient("https://api.example.test", "pk_test", undefined, fastRetry);
+    await client.post("/things", {}).catch(() => undefined);
+    expect(calls).toBe(1);
   });
 
   it("honours Retry-After on a 429 before retrying", async () => {

@@ -497,6 +497,7 @@ export class PraesidiaClient {
   private async fetchWithRetry(
     initFactory: (timeoutMs: number) => RequestInit & { method: string },
     url: string,
+    bufferPath?: string,
   ): Promise<Response> {
     if (this.retryConfig === false) {
       return send(url, initFactory(this.requestTimeoutMs));
@@ -518,9 +519,28 @@ export class PraesidiaClient {
             Math.max(1, Math.ceil(Math.min(this.requestTimeoutMs, remaining))),
           ),
         );
+        // PRA-70 — safe reads: consume the body inside the attempt so a reset
+        // after the 200 headers is retried like any other transport failure.
+        if (bufferPath !== undefined && response.ok) {
+          const bytes = await readBoundedResponseBytes(
+            response,
+            MAX_JSON_RESPONSE_BYTES,
+            bufferPath,
+            "JSON response body",
+          );
+          response = new Response(bytes, {
+            status: response.status,
+            headers: response.headers,
+          });
+        }
       } catch (err) {
-        // SDK-0358 — a caller error (bad header/body) is never retried.
-        if (err instanceof PraesidiaConfigError) throw err;
+        // SDK-0358 — a caller error (bad header/body) is never retried; nor is
+        // a resource-limit error (PraesidiaApiError) from the bounded read.
+        if (
+          err instanceof PraesidiaConfigError ||
+          err instanceof PraesidiaApiError
+        )
+          throw err;
         // Network-level failure (DNS/connection reset/etc — fetch rejects,
         // it does not resolve). Retry it exactly like a 5xx, same budget.
         const elapsed = performance.now() - start;
@@ -660,6 +680,7 @@ export class PraesidiaClient {
         signal: AbortSignal.timeout(timeoutMs),
       }),
       url,
+      path,
     );
 
     if (!response.ok) {
@@ -688,6 +709,7 @@ export class PraesidiaClient {
         signal: AbortSignal.timeout(timeoutMs),
       }),
       url,
+      path,
     );
 
     if (!response.ok) {
@@ -755,6 +777,7 @@ export class PraesidiaClient {
         signal: AbortSignal.timeout(timeoutMs),
       }),
       url,
+      path,
     );
 
     if (!response.ok) {
