@@ -495,11 +495,11 @@ export class PraesidiaClient {
    * partially (or fully) elapsed deadline.
    */
   private async fetchWithRetry(
-    initFactory: () => RequestInit & { method: string },
+    initFactory: (timeoutMs: number) => RequestInit & { method: string },
     url: string,
   ): Promise<Response> {
     if (this.retryConfig === false) {
-      return send(url, initFactory());
+      return send(url, initFactory(this.requestTimeoutMs));
     }
     const { maxAttempts, baseDelayMs, maxDelayMs, maxElapsedMs } =
       this.retryConfig;
@@ -508,7 +508,16 @@ export class PraesidiaClient {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       let response: Response;
       try {
-        response = await send(url, initFactory());
+        // PRA-85 — each attempt (headers + body) is capped to the time left in
+        // the overall budget, floored at 1 ms: a zero budget still makes
+        // exactly one attempt, with a 1 ms timeout.
+        const remaining = maxElapsedMs - (performance.now() - start);
+        response = await send(
+          url,
+          initFactory(
+            Math.max(1, Math.ceil(Math.min(this.requestTimeoutMs, remaining))),
+          ),
+        );
       } catch (err) {
         // SDK-0358 — a caller error (bad header/body) is never retried.
         if (err instanceof PraesidiaConfigError) throw err;
@@ -567,11 +576,11 @@ export class PraesidiaClient {
     const retryable = opts?.idempotencyKey !== undefined;
     const response = retryable
       ? await this.fetchWithRetry(
-          () => ({
+          (timeoutMs) => ({
             method: "POST",
             headers: this.buildHeaders(headers),
             body: jsonBody(body),
-            signal: AbortSignal.timeout(this.requestTimeoutMs),
+            signal: AbortSignal.timeout(timeoutMs),
           }),
           url,
         )
@@ -612,15 +621,15 @@ export class PraesidiaClient {
         ? { ...extraHeaders, "Idempotency-Key": opts.idempotencyKey }
         : extraHeaders;
     const retryable = opts?.idempotencyKey !== undefined;
-    const initFactory = (): RequestInit & { method: string } => ({
+    const initFactory = (timeoutMs: number): RequestInit & { method: string } => ({
       method: "PATCH",
       headers: this.buildHeaders(headers),
       body: jsonBody(body),
-      signal: AbortSignal.timeout(this.requestTimeoutMs),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const response = retryable
       ? await this.fetchWithRetry(initFactory, url)
-      : await send(url, initFactory());
+      : await send(url, initFactory(this.requestTimeoutMs));
 
     if (!response.ok) {
       const text = await readBoundedErrorResponse(response, path);
@@ -644,11 +653,11 @@ export class PraesidiaClient {
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const response = await this.fetchWithRetry(
-      () => ({
+      (timeoutMs) => ({
         method: "PUT",
         headers: this.buildHeaders(extraHeaders),
         body: jsonBody(body),
-        signal: AbortSignal.timeout(this.requestTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       }),
       url,
     );
@@ -673,10 +682,10 @@ export class PraesidiaClient {
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const response = await this.fetchWithRetry(
-      () => ({
+      (timeoutMs) => ({
         method: "GET",
         headers: this.buildHeaders(extraHeaders, opts.includeAuth ?? true),
-        signal: AbortSignal.timeout(this.requestTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       }),
       url,
     );
@@ -701,12 +710,12 @@ export class PraesidiaClient {
   ): Promise<void> {
     const url = `${this.baseUrl}${path}`;
     let attempts = 0;
-    const response = await this.fetchWithRetry(() => {
+    const response = await this.fetchWithRetry((timeoutMs) => {
       attempts += 1;
       return {
         method: "DELETE",
         headers: this.buildHeaders(extraHeaders),
-        signal: AbortSignal.timeout(this.requestTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       };
     }, url);
 
@@ -740,10 +749,10 @@ export class PraesidiaClient {
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const response = await this.fetchWithRetry(
-      () => ({
+      (timeoutMs) => ({
         method: "DELETE",
         headers: this.buildHeaders(extraHeaders),
-        signal: AbortSignal.timeout(this.requestTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       }),
       url,
     );
@@ -784,10 +793,10 @@ export class PraesidiaClient {
       headers[CHAIN_ID_HEADER] = this.chainId;
     }
     const response = await this.fetchWithRetry(
-      () => ({
+      (timeoutMs) => ({
         method: "GET",
         headers,
-        signal: AbortSignal.timeout(this.requestTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       }),
       url,
     );

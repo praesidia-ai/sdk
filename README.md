@@ -962,6 +962,12 @@ const guard = new PraesidiaGuard({
 const noRetry = new PraesidiaGuard({ retry: false });
 ```
 
+`maxElapsedMs` is a hard deadline over every attempt, including in-flight header and
+body reads: each attempt's timeout is capped to the remaining budget (minimum 1 ms),
+no retry starts once elapsed time plus the delay reaches the budget, and `Retry-After`
+cannot extend it. With `maxElapsedMs: 0` the SDK makes exactly one attempt with a 1 ms
+timeout. Timers have normal event-loop precision.
+
 Every resource class (`PraesidiaGuard`, `PraesidiaAgents`, `PraesidiaCompliance`,
 `PraesidiaMemory`, `PraesidiaTelemetry`, `PraesidiaWorkflows`,
 `PraesidiaConnections`, `PraesidiaAudit`, `PraesidiaAnalytics`,

@@ -199,6 +199,51 @@ describe("PraesidiaClient retry (FINDING-4)", () => {
     expect(calls).toBe(2);
   });
 
+  // PRA-85 — a hanging fetch that only ends when its signal aborts.
+  const hangUntilAbort = (init?: RequestInit) =>
+    new Promise<Response>((_, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+    });
+
+  it("caps a retry attempt's timeout to the remaining total budget (PRA-85)", async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async (_u: unknown, init?: RequestInit) => {
+      calls += 1;
+      if (calls === 1) return new Response("unavailable", { status: 503 });
+      return hangUntilAbort(init);
+    }) as typeof fetch;
+
+    const client = new PraesidiaClient("https://api.example.test", "pk_test", 5000, {
+      maxAttempts: 3,
+      baseDelayMs: 1,
+      maxDelayMs: 2,
+      maxElapsedMs: 150,
+    });
+    const t0 = performance.now();
+    await expect(client.get("/health")).rejects.toBeDefined();
+    expect(calls).toBe(2);
+    expect(performance.now() - t0).toBeLessThan(1000);
+  }, 3000);
+
+  it("zero budget makes exactly one attempt with a 1 ms timeout (PRA-85)", async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async (_u: unknown, init?: RequestInit) => {
+      calls += 1;
+      return hangUntilAbort(init);
+    }) as typeof fetch;
+
+    const client = new PraesidiaClient("https://api.example.test", "pk_test", 5000, {
+      maxAttempts: 3,
+      baseDelayMs: 1,
+      maxDelayMs: 2,
+      maxElapsedMs: 0,
+    });
+    const t0 = performance.now();
+    await expect(client.get("/health")).rejects.toBeDefined();
+    expect(calls).toBe(1);
+    expect(performance.now() - t0).toBeLessThan(1000);
+  }, 3000);
+
   it("cancels a discarded retryable response body before the next attempt", async () => {
     let calls = 0;
     let cancelled = false;
