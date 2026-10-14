@@ -39,7 +39,7 @@ A lost response is ambiguous. Do not repeat a dispatch: call `checkpoint(approva
 
 ## LangGraph with durable state
 
-Install `praesidia[langgraph]` on Python 3.10+. Pass a durable saver and the same real `configurable.thread_id` on every invocation. Preparation, interruption and execution are separate graph nodes because LangGraph re-executes an interrupted node from its beginning. The server's unique checkpoint also covers a crash after preparation commits but before LangGraph persists that node result. See [LangGraph interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts) and [persistence](https://docs.langchain.com/oss/python/langgraph/persistence).
+Install `praesidia[langgraph]` on Python 3.11+. Pass a durable saver and the same real `configurable.thread_id` on every invocation. Preparation, interruption and execution are separate graph nodes because LangGraph re-executes an interrupted node from its beginning. The server's unique checkpoint also covers a crash after preparation commits but before LangGraph persists that node result. See [LangGraph interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts) and [persistence](https://docs.langchain.com/oss/python/langgraph/persistence).
 
 ```python
 from langgraph.checkpoint.sqlite import SqliteSaver
