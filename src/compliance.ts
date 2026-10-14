@@ -85,9 +85,14 @@ export class PraesidiaCompliance {
    * Fetch the current generation status of a report.
    * GET .../reports/:reportId (requires COMPLIANCE_VIEW).
    */
-  async getReportStatus(reportId: string): Promise<AuditorReportStatus> {
+  async getReportStatus(
+    reportId: string,
+    maxTimeoutMs?: number,
+  ): Promise<AuditorReportStatus> {
     return this.client.get<AuditorReportStatus>(
       `${this.reportsBase}/${encodePathSegment(reportId, 'reportId')}`,
+      undefined,
+      { maxTimeoutMs },
     );
   }
 
@@ -133,8 +138,21 @@ export class PraesidiaCompliance {
     assertTimerValue(timeoutMs, 'timeoutMs', false);
     const deadline = performance.now() + timeoutMs;
 
+    let last: string | undefined;
+    const timedOut = () =>
+      new Error(
+        `Timed out after ${timeoutMs}ms waiting for Praesidia report ${reportId} ` +
+          `(last status: ${last})`,
+      );
+
     for (;;) {
-      const status = await this.getReportStatus(reportId);
+      const remaining = deadline - performance.now();
+      if (remaining <= 0) throw timedOut();
+      // N3 — each poll is capped to the time left (PRA-85 per-attempt cap).
+      const status = await this.getReportStatus(reportId, remaining);
+      // A response that lands after the deadline is not accepted.
+      last = status.status;
+      if (performance.now() > deadline) throw timedOut();
 
       if (status.status === 'failed') {
         throw new Error(
@@ -144,12 +162,7 @@ export class PraesidiaCompliance {
       if (status.ready) {
         return status;
       }
-      if (performance.now() + pollIntervalMs > deadline) {
-        throw new Error(
-          `Timed out after ${timeoutMs}ms waiting for Praesidia report ${reportId} ` +
-            `(last status: ${status.status})`,
-        );
-      }
+      if (performance.now() + pollIntervalMs > deadline) throw timedOut();
 
       await sleep(pollIntervalMs);
     }

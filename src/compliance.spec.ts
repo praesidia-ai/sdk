@@ -203,6 +203,24 @@ describe('PraesidiaCompliance', () => {
       ).rejects.toThrow(/Timed out/);
     });
 
+    it('N3: ready-after-deadline raises timeout; poll signal capped to remaining', async () => {
+      const signals: AbortSignal[] = [];
+      globalThis.fetch = vi.fn(async (_u: unknown, init?: RequestInit) => {
+        signals.push(init!.signal as AbortSignal);
+        await new Promise((r) => setTimeout(r, 30));
+        return new Response(JSON.stringify(STATUS_READY), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }) as unknown as typeof fetch;
+
+      const compliance = new PraesidiaCompliance(CONFIG);
+      await expect(
+        compliance.waitForReport('rep-1', { pollIntervalMs: 1, timeoutMs: 10 }),
+      ).rejects.toThrow(/Timed out/);
+      expect(signals[0]).toBeDefined();
+    });
+
     it.each([
       { pollIntervalMs: -1 },
       { pollIntervalMs: Number.NaN },

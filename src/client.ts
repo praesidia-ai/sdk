@@ -699,14 +699,17 @@ export class PraesidiaClient {
   async get<T>(
     path: string,
     extraHeaders?: Record<string, string>,
-    opts: { includeAuth?: boolean } = {},
+    opts: { includeAuth?: boolean; maxTimeoutMs?: number } = {},
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const response = await this.fetchWithRetry(
       (timeoutMs) => ({
         method: "GET",
         headers: this.buildHeaders(extraHeaders, opts.includeAuth ?? true),
-        signal: AbortSignal.timeout(timeoutMs),
+        // N3 — caller deadline (waitForReport) caps every attempt further.
+        signal: AbortSignal.timeout(
+          Math.max(1, Math.ceil(Math.min(timeoutMs, opts.maxTimeoutMs ?? timeoutMs))),
+        ),
       }),
       url,
       path,
