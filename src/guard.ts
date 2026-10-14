@@ -743,6 +743,7 @@ export class PraesidiaGuard {
     const result = await this.client.post<{
       success: boolean;
       content: ProtectedActionContent[];
+      structuredContent?: Record<string, unknown>;
       isError?: boolean;
       latencyMs: number;
       error?: string;
@@ -774,6 +775,7 @@ export class PraesidiaGuard {
     return {
       success: result.success,
       content: result.content,
+      structuredContent: result.structuredContent,
       isError: result.isError,
       latencyMs: result.latencyMs,
       actionId: result.actionId,

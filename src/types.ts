@@ -1574,6 +1574,11 @@ export type ActionDenyReason =
 export interface ProtectActionResult {
   success: boolean;
   content: ProtectedActionContent[];
+  /**
+   * PRA-197 — the tool's MCP `structuredContent` (a JSON object), present only
+   * when the tool returned one. A structured-only result has an empty `content`.
+   */
+  structuredContent?: Record<string, unknown>;
   isError?: boolean;
   latencyMs: number;
   /**

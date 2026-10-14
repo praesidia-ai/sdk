@@ -267,6 +267,8 @@ try {
     target: { protocol: 'mcp', mcpServerId: 'srv-1', toolName: 'send_email', arguments: { to, subject } },
   });
   // result.success / result.content — the tool's own dispatch outcome.
+  // result.structuredContent — the tool's MCP structured JSON object, when it
+  // returned one (a structured-only result has an empty result.content).
   // result.actionId / .closure / .evidenceGrade are undefined when the Proof
   // Edge feature is off for the org; absence ≠ failure.
 } catch (err) {

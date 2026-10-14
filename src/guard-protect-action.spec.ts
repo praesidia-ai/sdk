@@ -88,6 +88,21 @@ describe('PA01 DX-001 — guard.protectAction', () => {
     });
   });
 
+  it('keeps a structured-only result´s structuredContent (PRA-197)', async () => {
+    const guard = new PraesidiaGuard(config);
+    const structuredContent = { records: [{ id: 1 }, { id: 2 }] };
+    globalThis.fetch = makeFetchMock([
+      { json: { success: true, content: [], structuredContent, latencyMs: 5 } },
+    ]);
+
+    const result = await guard.protectAction({
+      target: { protocol: 'mcp', mcpServerId: 'srv-1', toolName: 'search' },
+    });
+
+    expect(result.content).toEqual([]);
+    expect(result.structuredContent).toEqual(structuredContent);
+  });
+
   // PA-0026 — these are the tests that would have caught the original
   // heuristic bug: it decided "pre-dispatch denial?" via
   // `errorCode !== 'TOOL_ERROR'`, but `'TOOL_ERROR'` is never present in
