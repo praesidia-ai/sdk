@@ -5,6 +5,13 @@ change bumps the minor version (see `PUBLISHING.md`, "Semver policy").
 
 ## Unreleased
 
+### Protected-action events carry their full signed preimage (PRA-146, be b668fbbb)
+
+- `ProtectedActionEvent` gains optional `organizationId`, `timeSource`, `permitNonce`,
+  `edgeVersion`, `adapterVersion`, `externalReceiptRef`, `artifactStorageRef` and
+  `signatureFormat` (`1 | 2`), matching be's events DTO, so `proof.events()` rows hold every
+  signed field. Optional: older servers omit them. Additive, not breaking.
+
 ### Interaction hooks: hard approval-wait deadline (RCONT-C001)
 
 - `approvalTimeoutMs` is now a hard, monotonic deadline. No approval re-ask starts after it; a

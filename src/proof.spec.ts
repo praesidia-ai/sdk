@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PraesidiaProof, PraesidiaAudit, PROTECTED_ACTION_CLOSURES, PROTECTED_ACTION_STATES } from './index.js';
+import type { ProtectedActionEvent } from './index.js';
 import { PraesidiaApiError, PraesidiaConfigError } from './errors.js';
 import { makeFetchMock } from './__tests__/fetch-mock.js';
 
@@ -40,6 +41,25 @@ describe('protected-action evidence readback', () => {
     expect(await proof.events('action/one')).toEqual(events);
     expect(call()[0]).toBe('https://api.test/organizations/org-1/protected-actions/action%2Fone');
     expect(call(1)[0]).toBe('https://api.test/organizations/org-1/protected-actions/action%2Fone/events');
+  });
+
+  it('types and returns every signed-preimage field of a format-2 event unchanged (PRA-146)', async () => {
+    const event: ProtectedActionEvent = {
+      id:'e1', actionId:'action1', actionSeq:'2', eventType:'Closure', schemaVersion:'1', issuerType:'edge', issuerId:'edge-1',
+      trustDomain:'org-1', observedAt:'2026-10-14T00:00:00.000Z', receivedAt:'2026-10-14T00:00:01.000Z', dispatched:true,
+      payload:null, payloadCommitment:'sha256:p', eventCommitment:'sha256:e', prevEventCommitment:'sha256:prev',
+      signature:'sig==', signatureAlgorithm:'Ed25519', keyVersion:3, signedAt:'2026-10-14T00:00:01.000Z', producerVersion:'be@1',
+      organizationId:'org-1', timeSource:'SERVER', permitNonce:'nonce-1', edgeVersion:'edge@2', adapterVersion:null,
+      externalReceiptRef:'rcpt-1', artifactStorageRef:null, signatureFormat:2,
+    };
+    globalThis.fetch = makeFetchMock([{json:[event]}]);
+    const [got] = await new PraesidiaProof(config).events('action1');
+    expect(got).toEqual(event);
+    expect(got?.signatureFormat).toBe(2);
+    // Older servers omit the PRA-146 fields; the type keeps them optional.
+    const legacy: ProtectedActionEvent = { ...event };
+    for (const k of ['organizationId','timeSource','permitNonce','edgeVersion','adapterVersion','externalReceiptRef','artifactStorageRef','signatureFormat'] as const) delete legacy[k];
+    expect(legacy.signatureFormat).toBeUndefined();
   });
 
   it('returns declared scope and exact aggregate counts without inventing coverage', async () => {

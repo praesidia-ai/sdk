@@ -92,6 +92,16 @@ export interface ProtectedActionEvent {
   keyVersion: number;
   signedAt: string;
   producerVersion: string;
+  // PRA-146: remaining signed-preimage inputs. Optional because servers before be b668fbbb omit them.
+  organizationId?: string;
+  timeSource?: string;
+  permitNonce?: string | null;
+  edgeVersion?: string | null;
+  adapterVersion?: string | null;
+  externalReceiptRef?: string | null;
+  artifactStorageRef?: string | null;
+  /** 1 = Ed25519 over the raw message; 2 = over `praesidia:protected-action-event:v2\n` + message. */
+  signatureFormat?: 1 | 2;
 }
 
 export interface CaptureScopeEntry {
