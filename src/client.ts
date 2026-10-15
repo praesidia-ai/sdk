@@ -500,12 +500,14 @@ export class PraesidiaClient {
     bufferPath?: string,
     bufferMaxBytes = MAX_JSON_RESPONSE_BYTES,
     bufferLabel = "JSON response body",
+    budgetMs = Infinity,
   ): Promise<Response> {
     if (this.retryConfig === false) {
-      return send(url, initFactory(this.requestTimeoutMs));
+      return send(url, initFactory(capMs(this.requestTimeoutMs, budgetMs)));
     }
-    const { maxAttempts, baseDelayMs, maxDelayMs, maxElapsedMs } =
-      this.retryConfig;
+    const { maxAttempts, baseDelayMs, maxDelayMs } = this.retryConfig;
+    // RCONT-C001 — a caller budget (e.g. the approval wait) can only shrink the total.
+    const maxElapsedMs = Math.min(this.retryConfig.maxElapsedMs, budgetMs);
     const start = performance.now();
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -584,7 +586,7 @@ export class PraesidiaClient {
     path: string,
     body: unknown,
     extraHeaders?: Record<string, string>,
-    opts?: { idempotencyKey?: string },
+    opts?: { idempotencyKey?: string; maxElapsedMs?: number },
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     if (opts?.idempotencyKey !== undefined) {
@@ -605,12 +607,18 @@ export class PraesidiaClient {
             signal: AbortSignal.timeout(timeoutMs),
           }),
           url,
+          undefined,
+          undefined,
+          undefined,
+          opts?.maxElapsedMs,
         )
       : await send(url, {
           method: "POST",
           headers: this.buildHeaders(headers),
           body: jsonBody(body),
-          signal: AbortSignal.timeout(this.requestTimeoutMs),
+          signal: AbortSignal.timeout(
+            capMs(this.requestTimeoutMs, opts?.maxElapsedMs ?? Infinity),
+          ),
         });
 
     if (!response.ok) {
@@ -846,4 +854,9 @@ export class PraesidiaClient {
     );
     return { bytes, headers: response.headers };
   }
+}
+
+/** Timeout capped to a caller budget, floored at 1 ms (AbortSignal.timeout needs > 0). */
+function capMs(timeoutMs: number, budgetMs: number): number {
+  return Math.max(1, Math.ceil(Math.min(timeoutMs, budgetMs)));
 }

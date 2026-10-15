@@ -1167,8 +1167,13 @@ Every hook resolves to `{ decision }` on `allow`, throws `InteractionDeniedError
 and on `require_approval` blocks: it re-asks every `approvalPollIntervalMs` (default 2 s),
 echoing `approvalId`, until a human approves (resolves) or rejects / the approval expires
 (throws). After `approvalTimeoutMs` (default 10 min) it throws with
-`reasonCode: 'approval_wait_timeout'`. `onApprovalRequired(decision)` fires once when the wait
-starts, so you can tell someone which approval to act on.
+`reasonCode: 'approval_wait_timeout'`. The deadline is hard: no re-ask starts after it, a re-ask
+in flight (with its retries) gets only the time left, and an answer that arrives late does not
+release the action and is not cached. If that late answer was an allow, it is on `err.decision`
+(e.g. `reasonCode: 'approval_consumed'` with its `approvalId`): the approval is used up
+server-side, so record what you did with `reportOutcome` instead of asking again.
+`onApprovalRequired(decision)` fires once when the wait starts, so you can tell someone which
+approval to act on.
 
 **Task envelope (BE-1609).** Pass `taskId` (UUID) to the constructor, e.g.
 `new PraesidiaInteractionHooks({ taskId: toolCallContextFromTask(task).taskId })`, and every

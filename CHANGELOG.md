@@ -5,6 +5,15 @@ change bumps the minor version (see `PUBLISHING.md`, "Semver policy").
 
 ## Unreleased
 
+### Interaction hooks: hard approval-wait deadline (RCONT-C001)
+
+- `approvalTimeoutMs` is now a hard, monotonic deadline. No approval re-ask starts after it; a
+  re-ask in flight (with its retries) is capped to the time left; an answer that lands after it
+  throws `InteractionDeniedError` `approval_wait_timeout` (late decision on `err.decision`) and is
+  not cached. Before, the last re-ask could start at the deadline and a late allow released the
+  action.
+- `PraesidiaClient.post` accepts an optional `opts.maxElapsedMs` total budget (additive).
+
 ### Protected-action state filter and nullable percentiles (be 39989432)
 
 - Added `PROTECTED_ACTION_STATES` and `ProtectedActionState`: the 18 known `proof.list` `state`

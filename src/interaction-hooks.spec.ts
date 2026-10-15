@@ -571,3 +571,52 @@ describe('capability token (SDK-2798, BE-1672)', () => {
     expect(Object.values(h)).not.toContain(TOKEN);
   });
 });
+
+// RCONT-C001 — the approval wait is a hard local deadline: no poll starts once
+// it is spent, a poll in flight gets only the time left, and a late answer
+// never releases the guarded action (nor is it cached).
+describe('approval wait deadline (RCONT-C001)', () => {
+  afterEach(() => vi.useRealTimers());
+  const fake = () => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date', 'performance'] });
+
+  it('sends no poll once the deadline has passed', async () => {
+    fake();
+    const f = stub([{ json: PENDING }, { json: CONSUMED }]);
+    const p = hooks({ approvalTimeoutMs: 20, approvalPollIntervalMs: 100 }).beforeBrowserAction({ action: 'click' }).catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(await p).toMatchObject({ name: 'InteractionDeniedError', reasonCode: 'approval_wait_timeout' });
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('a poll answered after the deadline times out, exposes the late decision, and is not cached', async () => {
+    fake();
+    const f = vi.fn()
+      .mockResolvedValueOnce(mockResponse({ json: PENDING }))
+      .mockImplementationOnce(() => new Promise((r) => setTimeout(() => r(mockResponse({ json: ALLOW })), 40)))
+      .mockResolvedValue(mockResponse({ json: DENY }));
+    vi.stubGlobal('fetch', f);
+    const h = hooks({ approvalTimeoutMs: 20, approvalPollIntervalMs: 5 });
+    const p = h.beforeBrowserAction({ action: 'click' }).catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(await p).toMatchObject({ name: 'InteractionDeniedError', reasonCode: 'approval_wait_timeout', decision: ALLOW });
+    expect(f).toHaveBeenCalledTimes(2);
+    // Not cached: the next call asks again.
+    await expect(h.beforeBrowserAction({ action: 'click' })).rejects.toMatchObject({ reasonCode: DENY.reasonCode });
+    expect(f).toHaveBeenCalledTimes(3);
+  });
+
+  it('caps a hanging poll to the remaining wait', async () => {
+    const f = vi.fn()
+      .mockResolvedValueOnce(mockResponse({ json: PENDING }))
+      .mockImplementation((_u: unknown, init?: RequestInit) => new Promise((_r, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+      }));
+    vi.stubGlobal('fetch', f);
+    const t0 = performance.now();
+    const err = await hooks({ approvalTimeoutMs: 50, approvalPollIntervalMs: 1, requestTimeoutMs: 10_000 })
+      .beforeBrowserAction({ action: 'click' }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ reasonCode: 'approval_wait_timeout' });
+    expect(performance.now() - t0).toBeLessThan(1000);
+  }, 3000);
+});

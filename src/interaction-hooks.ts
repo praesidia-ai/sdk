@@ -280,6 +280,17 @@ export class PraesidiaInteractionHooks {
     approvalId?: string,
     opts: { idempotencyKey?: string; capabilityToken?: string } = {},
   ): Promise<InteractionDecision> {
+    return this.request(interactionType, act, approvalId, opts);
+  }
+
+  /** `decide`, plus an optional total time budget for the HTTP call and its retries. */
+  private async request(
+    interactionType: InteractionType,
+    act: InteractionAction,
+    approvalId: string | undefined,
+    opts: { idempotencyKey?: string; capabilityToken?: string },
+    maxElapsedMs?: number,
+  ): Promise<InteractionDecision> {
     assertRequest(interactionType, act);
     const token = capabilityToken(opts.capabilityToken) ?? this.#capabilityToken;
     const wireAction = act.arguments === undefined ? { name: act.name } : { name: act.name, arguments: act.arguments };
@@ -293,6 +304,7 @@ export class PraesidiaInteractionHooks {
         ...(this.taskId === undefined ? {} : { taskId: this.taskId }),
       }, token === undefined ? undefined : { [CAPABILITY_TOKEN_HEADER]: token }, {
         idempotencyKey: opts.idempotencyKey ?? randomUUID(),
+        maxElapsedMs,
       });
     } catch (err) {
       throw taskNotLive(err, this.taskId);
@@ -369,6 +381,10 @@ export class PraesidiaInteractionHooks {
    * Re-POST echoing the approvalId until the verdict changes. An outage while
    * waiting never turns a pending approval into an allow: it keeps waiting,
    * then denies with `approval_wait_timeout`.
+   * RCONT-C001 — the deadline is monotonic and hard: no poll starts once it is
+   * spent, each poll (with its retries) gets only the time left, and an answer
+   * that lands after it never releases the action. The late decision rides on
+   * the error (`err.decision`) so a consumed approval can still be reconciled.
    */
   private async awaitApproval(
     key: string,
@@ -377,16 +393,19 @@ export class PraesidiaInteractionHooks {
     pending: InteractionDecision,
   ): Promise<InteractionDecision> {
     this.onApprovalRequired?.(pending);
-    const deadline = Date.now() + this.approvalTimeoutMs;
+    const deadline = performance.now() + this.approvalTimeoutMs;
+    const left = (): number => deadline - performance.now();
     let current = pending;
-    while (Date.now() < deadline) {
-      await sleep(Math.min(this.pollMs, Math.max(0, deadline - Date.now())));
+    while (left() > 0) {
+      await sleep(Math.min(this.pollMs, left()));
+      if (left() <= 0) break;
       try {
-        current = await this.ask(key, type, act, current.approvalId ?? undefined);
+        current = await this.ask(key, type, act, current.approvalId ?? undefined, deadline);
       } catch (err) {
         if (!isOutage(err)) throw err;
         continue;
       }
+      if (left() <= 0) break;
       if (current.verdict !== 'require_approval') return current;
     }
     throw new InteractionDeniedError(type, act.name, 'approval_wait_timeout', current);
@@ -398,13 +417,16 @@ export class PraesidiaInteractionHooks {
     type: InteractionType,
     act: InteractionAction,
     approvalId?: string,
+    deadline?: number,
   ): Promise<InteractionDecision> {
-    const decision = await this.decide(type, act, approvalId);
+    const budget = deadline === undefined ? undefined : deadline - performance.now();
+    const decision = await this.request(type, act, approvalId, {}, budget);
     if (decision.policyFingerprint !== this.fingerprint) {
       this.cache.clear();
       this.fingerprint = decision.policyFingerprint;
     }
-    if (decision.ttlSeconds > 0 && decision.verdict !== 'require_approval') {
+    const late = deadline !== undefined && performance.now() >= deadline;
+    if (decision.ttlSeconds > 0 && decision.verdict !== 'require_approval' && !late) {
       if (this.cache.size >= MAX_CACHE_ENTRIES) this.cache.delete(this.cache.keys().next().value as string);
       this.cache.set(key, { decision, expiresAt: Date.now() + decision.ttlSeconds * 1000 });
     }
