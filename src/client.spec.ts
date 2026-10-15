@@ -244,6 +244,124 @@ describe("PraesidiaClient retry (FINDING-4)", () => {
     expect(performance.now() - t0).toBeLessThan(1000);
   }, 3000);
 
+  // PRA-85 — controlled monotonic clock: every attempt's timeout is the
+  // remaining budget, and no retry starts once the budget is spent.
+  const controlledClock = () => {
+    const clock = { now: 0 };
+    vi.spyOn(performance, "now").mockImplementation(() => clock.now);
+    const timeouts: number[] = [];
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+      timeouts.push(ms);
+      return realTimeout(ms);
+    });
+    return { clock, timeouts };
+  };
+  const budget100 = { maxAttempts: 5, baseDelayMs: 1, maxDelayMs: 2, maxElapsedMs: 100 };
+
+  it("controlled clock: attempt 2 gets only the remaining budget; no attempt after the deadline (PRA-85)", async () => {
+    const { clock, timeouts } = controlledClock();
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      clock.now = calls === 1 ? 40 : 240;
+      return new Response("unavailable", { status: 503 });
+    }) as typeof fetch;
+    const client = new PraesidiaClient("https://api.example.test", "pk_test", 5000, budget100);
+    const err = await client.get("/health").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PraesidiaApiError);
+    expect(calls).toBe(2);
+    expect(timeouts).toEqual([100, 60]);
+  });
+
+  it("controlled clock: a transport failure at the deadline is not retried (PRA-85)", async () => {
+    const { clock } = controlledClock();
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      clock.now = 100;
+      throw new TypeError("fetch failed");
+    }) as typeof fetch;
+    const client = new PraesidiaClient("https://api.example.test", "pk_test", 5000, budget100);
+    await expect(client.get("/health")).rejects.toBeInstanceOf(TypeError);
+    expect(calls).toBe(1);
+  });
+
+  it("controlled clock: Retry-After past the deadline does not extend it (PRA-85)", async () => {
+    controlledClock();
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      return new Response("busy", { status: 503, headers: { "Retry-After": "1" } });
+    }) as typeof fetch;
+    const client = new PraesidiaClient("https://api.example.test", "pk_test", 5000, budget100);
+    const err = await client.get("/health").catch((e: unknown) => e);
+    expect((err as PraesidiaApiError).status).toBe(503);
+    expect(calls).toBe(1);
+  });
+
+  it("controlled clock: a keyed POST retry reuses its Idempotency-Key within the remaining budget (PRA-85)", async () => {
+    const { clock, timeouts } = controlledClock();
+    const keys: string[] = [];
+    globalThis.fetch = vi.fn(async (_u: unknown, init?: RequestInit) => {
+      keys.push((init?.headers as Record<string, string>)["Idempotency-Key"]);
+      clock.now += 30;
+      return keys.length === 1
+        ? new Response("unavailable", { status: 503 })
+        : new Response(JSON.stringify({ ok: true }), { status: 201 });
+    }) as typeof fetch;
+    const client = new PraesidiaClient("https://api.example.test", "pk_test", 5000, budget100);
+    await expect(
+      client.post("/organizations/org_1/tasks", {}, undefined, { idempotencyKey: "idem-85" }),
+    ).resolves.toEqual({ ok: true });
+    expect(keys).toEqual(["idem-85", "idem-85"]);
+    expect(timeouts).toEqual([100, 70]);
+  });
+
+  it("controlled clock: a bare POST is sent once even with budget left (PRA-85)", async () => {
+    controlledClock();
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      return new Response("unavailable", { status: 503 });
+    }) as typeof fetch;
+    const client = new PraesidiaClient("https://api.example.test", "pk_test", 5000, budget100);
+    await expect(client.post("/things", {})).rejects.toBeInstanceOf(PraesidiaApiError);
+    expect(calls).toBe(1);
+  });
+
+  // PRA-85 — owned local fixtures: a server that stalls before headers, and
+  // one that sends 200 headers then stalls the body. The 300 ms total budget
+  // must cancel both far inside the 10 s requestTimeout (tolerance: 2 s).
+  for (const stall of ["headers", "body"] as const) {
+    it(`local fixture: a stalled ${stall} is cancelled by the total budget, not requestTimeout (PRA-85)`, async () => {
+      globalThis.fetch = originalFetch;
+      const { createServer } = await import("node:http");
+      let hits = 0;
+      const server = createServer((_req, res) => {
+        hits += 1;
+        if (stall === "body") {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.write('{"ok":');
+        }
+      });
+      await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+      const { port } = server.address() as { port: number };
+      const client = new PraesidiaClient(`http://127.0.0.1:${port}`, "pk_test", 10_000, {
+        maxAttempts: 3, baseDelayMs: 1, maxDelayMs: 2, maxElapsedMs: 300,
+      });
+      const t0 = performance.now();
+      try {
+        await expect(client.get("/slow")).rejects.toBeDefined();
+        expect(performance.now() - t0).toBeLessThan(2000);
+        expect(hits).toBeGreaterThanOrEqual(1);
+      } finally {
+        server.closeAllConnections();
+        server.close();
+      }
+    }, 8000);
+  }
+
   it("cancels a discarded retryable response body before the next attempt", async () => {
     let calls = 0;
     let cancelled = false;

@@ -968,7 +968,8 @@ const noRetry = new PraesidiaGuard({ retry: false });
 body reads: each attempt's timeout is capped to the remaining budget (minimum 1 ms),
 no retry starts once elapsed time plus the delay reaches the budget, and `Retry-After`
 cannot extend it. With `maxElapsedMs: 0` the SDK makes exactly one attempt with a 1 ms
-timeout. Timers have normal event-loop precision.
+timeout. Timers have normal event-loop precision. With `retry: false` each request gets the
+full `requestTimeoutMs`. The Python SDK's `max_elapsed_s` behaves the same.
 
 Every resource class (`PraesidiaGuard`, `PraesidiaAgents`, `PraesidiaCompliance`,
 `PraesidiaMemory`, `PraesidiaTelemetry`, `PraesidiaWorkflows`,
