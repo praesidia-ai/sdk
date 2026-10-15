@@ -318,6 +318,35 @@ describe("PraesidiaClient retry (FINDING-4)", () => {
     expect(calls).toBe(1);
   });
 
+  it("retries a binary GET whose 200 body stream resets, then succeeds", async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      return calls === 1
+        ? resetBody()
+        : new Response(new Uint8Array([1, 2, 3]), {
+            status: 200,
+            headers: { "x-praesidia-window": "w1" },
+          });
+    }) as typeof fetch;
+    const client = new PraesidiaClient("https://api.example.test", "pk_test", undefined, fastRetry);
+    const res = await client.getBytesResponse("/bundle");
+    expect(Array.from(res.bytes)).toEqual([1, 2, 3]);
+    expect(res.headers.get("x-praesidia-window")).toBe("w1");
+    expect(calls).toBe(2);
+  });
+
+  it("does not retry an oversized binary GET body (resource limit)", async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      return new Response(new Uint8Array(128 * 1024 * 1024 + 1), { status: 200 });
+    }) as typeof fetch;
+    const client = new PraesidiaClient("https://api.example.test", "pk_test", undefined, fastRetry);
+    await expect(client.getBytes("/big")).rejects.toBeInstanceOf(PraesidiaApiError);
+    expect(calls).toBe(1);
+  });
+
   it("sends a bare POST exactly once when its 200 body resets", async () => {
     let calls = 0;
     globalThis.fetch = vi.fn(async () => {

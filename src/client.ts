@@ -498,6 +498,8 @@ export class PraesidiaClient {
     initFactory: (timeoutMs: number) => RequestInit & { method: string },
     url: string,
     bufferPath?: string,
+    bufferMaxBytes = MAX_JSON_RESPONSE_BYTES,
+    bufferLabel = "JSON response body",
   ): Promise<Response> {
     if (this.retryConfig === false) {
       return send(url, initFactory(this.requestTimeoutMs));
@@ -524,9 +526,9 @@ export class PraesidiaClient {
         if (bufferPath !== undefined && response.ok) {
           const bytes = await readBoundedResponseBytes(
             response,
-            MAX_JSON_RESPONSE_BYTES,
+            bufferMaxBytes,
             bufferPath,
-            "JSON response body",
+            bufferLabel,
           );
           response = new Response(bytes, {
             status: response.status,
@@ -825,6 +827,9 @@ export class PraesidiaClient {
         signal: AbortSignal.timeout(timeoutMs),
       }),
       url,
+      path,
+      MAX_BINARY_RESPONSE_BYTES,
+      "binary response body",
     );
 
     if (!response.ok) {
@@ -832,6 +837,7 @@ export class PraesidiaClient {
       throw buildApiError(response.status, path, text);
     }
 
+    // Already buffered inside the attempt when retries are on (PRA-70).
     const bytes = await readBoundedResponseBytes(
       response,
       MAX_BINARY_RESPONSE_BYTES,
