@@ -62,8 +62,8 @@
  * rationale). CI overrides with a fresh be-core sibling-checkout export.
  *
  * Exit 0 = no drift. Exit 1 = drift found (every offending line printed).
- * Exit 2 = usage/spec error — fails closed rather than reporting a false
- * "no drift".
+ * Exit 2 = usage/spec error (incl. an unknown `--lang` or a scan that found
+ * 0 call sites) — fails closed rather than reporting a false "no drift".
  */
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
@@ -769,6 +769,10 @@ function main() {
   const scriptDir = fileURLToPath(new URL(".", import.meta.url));
   const repoRoot = resolve(scriptDir, "..");
   const { specPath: cliSpecPath, sourceDir, lang } = parseArgs(process.argv.slice(2));
+  if (lang !== "ts" && lang !== "py") {
+    console.error(`::error::unknown --lang "${lang}" — accepted values: ts, py.`);
+    process.exit(2);
+  }
 
   // A user-supplied spec path or BE_SWAGGER_PATH is resolved relative to the
   // CURRENT working directory (standard CLI convention — required for the
@@ -808,6 +812,13 @@ function main() {
 
   const operationIndex = buildOperationIndex(spec);
   const callSites = extractCallSites(sourceRoot, lang);
+  if (callSites.length === 0) {
+    console.error(
+      `::error::0 call sites found under ${sourceRoot} (--lang ${lang}) — wrong --source or ` +
+        "--lang? Refusing to pass a scan that checked nothing."
+    );
+    process.exit(2);
+  }
   const displayRoot = sourceDir || cliSpecPath !== undefined ? process.cwd() : repoRoot;
   const failures = diffCallSites(callSites, operationIndex, displayRoot);
   // SCAN2-012/CT-08 — surface this count explicitly, not just folded into a

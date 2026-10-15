@@ -2,6 +2,8 @@ import { describe, expect, it, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   normalizePath,
   buildOperationIndex,
@@ -416,5 +418,47 @@ class FixtureConnections:
     const callSites = extractCallSites(sourceRoot, "py");
     const failures = diffCallSites(callSites, buildOperationIndex(renamedSpec), sourceRoot);
     expect(failures.some((f) => f.includes("no matching route"))).toBe(true);
+  });
+});
+
+// N255 — the CLI must fail closed on a misspelt `--lang` (e.g. `python`) and
+// on a scan that finds 0 call sites, instead of reporting "passed".
+describe("CLI fails closed", () => {
+  let dir: string;
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function run(args: string[], source?: { name: string; body: string }) {
+    dir = mkdtempSync(join(tmpdir(), "sdk-contract-cli-"));
+    const spec = join(dir, "swagger.json");
+    writeFileSync(spec, JSON.stringify({ paths: { "/health": { get: {} } } }));
+    if (source) writeFileSync(join(dir, source.name), source.body);
+    return spawnSync(
+      process.execPath,
+      [fileURLToPath(new URL("./audit-api-contract.mjs", import.meta.url)), spec, "--source", dir, ...args],
+      { encoding: "utf8" }
+    );
+  }
+
+  it("rejects an unknown --lang value and lists the accepted ones", () => {
+    const res = run(["--lang", "python"]);
+    expect(res.status).toBe(2);
+    expect(res.stderr).toMatch(/--lang.*"python".*ts, py/);
+  });
+
+  it("fails when 0 call sites are found", () => {
+    const res = run(["--lang", "py"]);
+    expect(res.status).toBe(2);
+    expect(res.stderr).toMatch(/0 call sites/);
+  });
+
+  it("passes when call sites are found and match the spec", () => {
+    const res = run(["--lang", "ts"], {
+      name: "health.ts",
+      body: "export class H {\n  async get() {\n    return this.client.get(`/health`);\n  }\n}\n",
+    });
+    expect(res.stderr).toBe("");
+    expect(res.status).toBe(0);
   });
 });
